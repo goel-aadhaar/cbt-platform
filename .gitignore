@@ -1,0 +1,41 @@
+# ---- Dependencies ----
+node_modules/
+.pnpm-store/
+
+# ---- Build output ----
+dist/
+build/
+*.tsbuildinfo
+
+# ---- Test / coverage ----
+coverage/
+.nyc_output/
+
+# ---- Environment & secrets (NEVER commit real values) ----
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# ---- Logs ----
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# ---- Task-runner / tooling caches ----
+.turbo/
+.cache/
+.eslintcache
+
+# ---- Prisma ----
+# Generated client lives in node_modules; nothing to ignore here yet,
+# but keep local SQLite/dumps out if ever used:
+*.sqlite
+*.sqlite-journal
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+.idea/
+*.iml

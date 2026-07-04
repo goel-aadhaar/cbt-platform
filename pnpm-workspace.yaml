@@ -1,0 +1,11 @@
+# Declares which folders are workspace members (like modules in a Maven parent POM).
+# Any package.json found under these globs becomes part of the workspace and can
+# depend on the others by name (e.g. apps/api depends on @drsk/shared).
+packages:
+  - "apps/*"
+  - "packages/*"
+# pnpm blocks dependency build scripts by default (supply-chain safety).
+# We explicitly allow only the ones we trust and need:
+#   - unrs-resolver: native module resolver used by the ESLint toolchain.
+allowBuilds:
+  unrs-resolver: true

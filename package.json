@@ -1,0 +1,17 @@
+{
+  "name": "drsk-cbt",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DRSK CBT Examination Platform — NTA-style computer-based test platform (monorepo)",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=11"
+  },
+  "scripts": {
+    "api": "pnpm --filter @drsk/api",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  }
+}
