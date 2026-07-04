@@ -29,8 +29,8 @@ pnpm-debug.log*
 .eslintcache
 
 # ---- Prisma ----
-# Generated client lives in node_modules; nothing to ignore here yet,
-# but keep local SQLite/dumps out if ever used:
+# Generated client (regenerated via `prisma generate`) — never commit it.
+generated/
 *.sqlite
 *.sqlite-journal
 

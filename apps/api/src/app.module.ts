@@ -4,24 +4,27 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { appConfig } from './config/app.config';
+import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
+import { DatabaseModule } from './database/database.module';
 
 /**
  * Root module (≈ Spring's @Configuration + component-scan root).
  *
- * ConfigModule is registered `isGlobal`, so ConfigService and any registered
- * config namespace (e.g. appConfig) are injectable anywhere without re-importing.
+ * ConfigModule is global (ConfigService + config namespaces injectable anywhere).
+ * DatabaseModule is global too (PrismaService injectable anywhere).
  */
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // ConfigService available app-wide, no re-import needed
-      cache: true, // cache process.env reads for speed
-      expandVariables: true, // allow ${VAR} interpolation inside .env
-      load: [appConfig], // typed, namespaced config
-      validate: validateEnv, // fail-fast schema validation at bootstrap
+      isGlobal: true,
+      cache: true,
+      expandVariables: true,
+      load: [appConfig, databaseConfig],
+      validate: validateEnv,
       envFilePath: ['.env'],
     }),
+    DatabaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
