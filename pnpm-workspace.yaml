@@ -8,7 +8,10 @@ packages:
 # We explicitly allow only the ones we trust and need:
 #   - unrs-resolver: native module resolver used by the ESLint toolchain.
 #   - prisma / @prisma/engines: download Prisma's query & schema engine binaries.
+# Denied (analytics/telemetry phone-home, not needed):
+#   - @scarf/scarf
 allowBuilds:
   unrs-resolver: true
   prisma: true
   '@prisma/engines': true
+  '@scarf/scarf': false

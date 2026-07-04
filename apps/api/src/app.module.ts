@@ -4,8 +4,6 @@ import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { buildPinoOptions } from './common/logging/pino-logger.config';
 import { appConfig } from './config/app.config';
@@ -13,6 +11,7 @@ import type { AppConfig } from './config/app.config';
 import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
+import { HealthModule } from './modules/health/health.module';
 
 /**
  * Root module. Cross-cutting infrastructure is registered globally here so
@@ -23,6 +22,7 @@ import { DatabaseModule } from './database/database.module';
  *   - APP_PIPE      — global request validation/transformation
  *   - APP_FILTER    — global consistent error envelope
  *   - DatabaseModule — Prisma (global)
+ * Feature modules (HealthModule, and later Institute/Auth/Exam/…) live in imports.
  */
 @Module({
   imports: [
@@ -54,10 +54,9 @@ import { DatabaseModule } from './database/database.module';
       },
     }),
     DatabaseModule,
+    HealthModule,
   ],
-  controllers: [AppController],
   providers: [
-    AppService,
     {
       // Global validation: strip unknown props, reject junk, auto-transform.
       provide: APP_PIPE,
