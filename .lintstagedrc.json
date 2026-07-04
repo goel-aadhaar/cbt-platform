@@ -1,0 +1,7 @@
+{
+  "**/*.{ts,tsx}": [
+    "pnpm --filter @drsk/api exec eslint --fix",
+    "pnpm --filter @drsk/api exec prettier --write"
+  ],
+  "**/*.{js,mjs,cjs,json,md}": ["pnpm --filter @drsk/api exec prettier --write"]
+}
