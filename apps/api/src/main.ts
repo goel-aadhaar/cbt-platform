@@ -1,32 +1,55 @@
-import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import compression from 'compression';
+import helmet from 'helmet';
+import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
+import type { AppConfig } from './config/app.config';
 
 /**
  * Application entry point (like Spring Boot's main()).
  *
- * Cross-cutting production concerns — global validation pipe, security headers
- * (Helmet), CORS, rate limiting, structured logging, Swagger, API versioning —
- * are layered in here during Phases 5–6.
+ * Module-level cross-cutting concerns (validation, rate limiting, error
+ * envelope) are wired in AppModule via APP_PIPE/APP_GUARD/APP_FILTER so they
+ * also apply in tests. HTTP-transport concerns that can only be attached to the
+ * live server (logger, security headers, CORS, compression) are wired here.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Buffer early logs until pino is attached, so nothing bypasses it.
+    bufferLogs: true,
+  });
 
-  // Run onModuleDestroy / onApplicationShutdown lifecycle hooks when the process
-  // receives SIGTERM/SIGINT (container stop, EC2 restart, Ctrl+C). Lets the DB
-  // pool, etc., close cleanly instead of being killed mid-request.
+  // Route ALL framework logs through pino (structured + request-scoped).
+  app.useLogger(app.get(Logger));
+
+  const config = app.get(ConfigService).getOrThrow<AppConfig>('app');
+
+  // Secure HTTP headers, gzip responses.
+  app.use(helmet());
+  app.use(compression());
+
+  // CORS: allow-list from env; permissive only in dev (frontend origin TBD).
+  app.enableCors({
+    origin:
+      config.corsOrigins.length > 0
+        ? config.corsOrigins
+        : config.nodeEnv === 'production'
+          ? false
+          : true,
+    credentials: true,
+  });
+
+  // Graceful shutdown (DB pool, pino flush) on SIGTERM/SIGINT.
   app.enableShutdownHooks();
 
-  // Port comes from validated, typed config — not raw process.env.
-  // getOrThrow means a misconfiguration fails loudly rather than defaulting.
-  const configService = app.get(ConfigService);
-  const port = configService.getOrThrow<number>('app.port');
+  await app.listen(config.port);
 
-  await app.listen(port);
-
-  Logger.log(`🚀 API ready at http://localhost:${port}`, 'Bootstrap');
+  app
+    .get(Logger)
+    .log(`🚀 API ready at http://localhost:${config.port}`, 'Bootstrap');
 }
 
 void bootstrap();

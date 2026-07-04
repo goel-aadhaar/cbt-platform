@@ -23,6 +23,12 @@ export const envSchema = z.object({
           'must be a PostgreSQL connection string (postgres:// or postgresql://)',
       },
     ),
+  LOG_LEVEL: z
+    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+    .optional(),
+  CORS_ORIGINS: z.string().optional(),
+  THROTTLE_TTL_MS: z.coerce.number().int().positive().default(60000),
+  THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
 });
 
 export type Env = z.infer<typeof envSchema>;
