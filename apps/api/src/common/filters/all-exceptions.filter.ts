@@ -77,7 +77,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       requestId,
     };
 
-    if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    // 5xx = server fault (log with the exception + stack); 4xx = client error (warn).
+    if (statusCode >= 500) {
       this.logger.error(
         { err: exception, requestId, path },
         'Unhandled exception',

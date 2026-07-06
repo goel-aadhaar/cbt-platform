@@ -70,7 +70,10 @@ async function bootstrap(): Promise<void> {
   await app.listen(config.port);
 
   const logger = app.get(Logger);
-  logger.log(`🚀 API ready at http://localhost:${config.port}/api`, 'Bootstrap');
+  logger.log(
+    `🚀 API ready at http://localhost:${config.port}/api`,
+    'Bootstrap',
+  );
   logger.log(
     `📚 Docs at http://localhost:${config.port}/api/docs`,
     'Bootstrap',

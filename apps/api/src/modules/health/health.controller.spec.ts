@@ -23,12 +23,12 @@ describe('HealthController', () => {
   });
 
   it('liveness runs an empty check set', () => {
-    controller.liveness();
+    void controller.liveness();
     expect(healthCheckService.check).toHaveBeenCalledWith([]);
   });
 
   it('readiness includes exactly one (database) indicator', () => {
-    controller.readiness();
+    void controller.readiness();
     expect(healthCheckService.check).toHaveBeenCalledTimes(1);
     const indicators = healthCheckService.check.mock.calls[0][0] as unknown[];
     expect(Array.isArray(indicators)).toBe(true);

@@ -1,16 +1,18 @@
 # DRSK CBT Examination Platform
 
+[![CI](https://github.com/goel-aadhaar/cbt-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/goel-aadhaar/cbt-platform/actions/workflows/ci.yml)
+
 Multi-tenant, NTA-style Computer-Based Test (CBT) examination platform.
 
 ## Tech stack
 
-| Layer      | Technology                              |
-| ---------- | --------------------------------------- |
-| Backend    | NestJS + TypeScript                     |
-| Database   | PostgreSQL (via Prisma ORM)             |
-| Frontend   | Next.js + TypeScript _(added later)_    |
-| Storage    | AWS S3                                   |
-| Hosting    | AWS Amplify (web) + AWS EC2/RDS (api)   |
+| Layer    | Technology                            |
+| -------- | ------------------------------------- |
+| Backend  | NestJS + TypeScript                   |
+| Database | PostgreSQL (via Prisma ORM)           |
+| Frontend | Next.js + TypeScript _(added later)_  |
+| Storage  | AWS S3                                |
+| Hosting  | AWS Amplify (web) + AWS EC2/RDS (api) |
 
 ## Repository layout (pnpm monorepo)
 

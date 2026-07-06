@@ -20,7 +20,8 @@ export interface AppConfig {
  * bootstrap.
  */
 export const appConfig = registerAs('app', (): AppConfig => {
-  const nodeEnv = (process.env.NODE_ENV as NodeEnv | undefined) ?? 'development';
+  const nodeEnv =
+    (process.env.NODE_ENV as NodeEnv | undefined) ?? 'development';
 
   return {
     nodeEnv,
