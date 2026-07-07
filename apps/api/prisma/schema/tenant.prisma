@@ -1,0 +1,18 @@
+/// Root tenant of the platform (contract §2.1). The Institute itself is NOT
+/// tenant-scoped — it *is* the tenant.
+model Institute {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  /// URL-safe unique identifier for the tenant (e.g. used in login/routing).
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  programs Program[]
+  classes  Class[]
+  batches  Batch[]
+  students Student[]
+
+  @@map("institutes")
+}

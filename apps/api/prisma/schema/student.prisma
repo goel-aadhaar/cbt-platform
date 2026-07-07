@@ -1,0 +1,25 @@
+/// A student, assigned to exactly one batch. Contract §2.10.
+/// Auth (roll-number + common-password, single active session) is added in the
+/// auth phase — hence no password field here yet (the common password is an
+/// institute-level setting, not per-student).
+model Student {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  /// Login identifier, unique within the institute. Contract §2.10.
+  rollNumber  String   @map("roll_number")
+  name        String
+  email       String?
+  phone       String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@unique([instituteId, rollNumber])
+  @@index([instituteId])
+  @@index([batchId])
+  @@map("students")
+}

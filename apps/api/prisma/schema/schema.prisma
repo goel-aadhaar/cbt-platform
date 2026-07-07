@@ -1,0 +1,29 @@
+// DRSK CBT — Prisma schema (multi-file, split by domain).
+//
+// The datasource URL is configured in prisma.config.ts (sourced from
+// DATABASE_URL). Domain model files live alongside this one in prisma/schema/:
+//   tenant.prisma   — Institute (tenant root)   §2.1
+//   academic.prisma — Program, Class, Batch      §2.11
+//   student.prisma  — Student                    §2.10
+//   (future: question-bank.prisma, exam.prisma, results.prisma, …)
+//
+// Multi-tenancy conventions (contract §2.1): every tenant-owned table carries
+// institute_id (for query scoping + Postgres RLS), uniqueness is tenant-scoped
+// (composite uniques), explicit @@index on institute_id + parent FKs, onDelete
+// cascade for tenant offboarding, is_active soft-delete. RLS policies + the
+// Prisma tenant extension are added in the auth phase (they need a per-request
+// tenant context to set the session variable).
+
+generator client {
+  // Output is relative to THIS file (prisma/schema/), so it needs two levels up
+  // to reach apps/api/src. Generated client is gitignored + regenerated.
+  provider     = "prisma-client"
+  output       = "../../src/generated/prisma"
+  // NestJS runs on CommonJS; the default ESM output breaks at runtime.
+  moduleFormat = "cjs"
+  runtime      = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}

@@ -1,0 +1,56 @@
+/// Academic program (e.g. NEET, JEE). Contract §2.11.
+model Program {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  classes   Class[]
+
+  @@unique([instituteId, name])
+  @@index([instituteId])
+  @@map("programs")
+}
+
+/// A class within a program (e.g. Class 11, Class 12, Dropper). Contract §2.11.
+model Class {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  programId   String   @map("program_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  program   Program   @relation(fields: [programId], references: [id], onDelete: Cascade)
+  batches   Batch[]
+
+  @@unique([programId, name])
+  @@index([instituteId])
+  @@index([programId])
+  @@map("classes")
+}
+
+/// A batch within a class (e.g. Alpha, Beta, Gamma). Contract §2.11.
+model Batch {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  classId     String   @map("class_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  class     Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  students  Student[]
+
+  @@unique([classId, name])
+  @@index([instituteId])
+  @@index([classId])
+  @@map("batches")
+}

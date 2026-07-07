@@ -39,3 +39,5 @@ generated/
 Thumbs.db
 .idea/
 *.iml
+
+.vscode/
