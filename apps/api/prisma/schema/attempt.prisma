@@ -1,0 +1,62 @@
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+}
+
+/// NTA-style question-palette states (§2.2).
+enum ResponseStatus {
+  NOT_VISITED
+  NOT_ANSWERED
+  ANSWERED
+  MARKED
+  ANSWERED_MARKED
+}
+
+/// A student's attempt at an exam (§2.2). One per student per exam. The server
+/// owns the clock: `expiresAt` is computed at start (min of start+duration and
+/// the exam window) so the timer is refresh/reconnection-safe and auto-submits.
+model Attempt {
+  id          String        @id @default(uuid()) @db.Uuid
+  instituteId String        @map("institute_id") @db.Uuid
+  examId      String        @map("exam_id") @db.Uuid
+  studentId   String        @map("student_id") @db.Uuid
+  status      AttemptStatus @default(IN_PROGRESS)
+  startedAt   DateTime      @default(now()) @map("started_at")
+  expiresAt   DateTime      @map("expires_at")
+  submittedAt DateTime?     @map("submitted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  exam      Exam       @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student   Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  responses Response[]
+  result    Result?
+
+  @@unique([examId, studentId])
+  @@index([instituteId])
+  @@index([studentId])
+  @@map("attempts")
+}
+
+/// A student's response to one question within an attempt. Auto-saved.
+model Response {
+  id          String         @id @default(uuid()) @db.Uuid
+  attemptId   String         @map("attempt_id") @db.Uuid
+  questionId  String         @map("question_id") @db.Uuid
+  instituteId String         @map("institute_id") @db.Uuid
+  answer      Json?
+  status      ResponseStatus @default(NOT_VISITED)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  attempt   Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question  Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([instituteId])
+  @@map("responses")
+}

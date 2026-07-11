@@ -36,6 +36,12 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      # Ephemeral RS256 keypair so the app can boot in e2e (nothing signs real
+      # tokens in CI; auth flows are exercised with mocked Prisma).
+      - name: Generate RS256 keys for tests
+        run: |
+          node -e "const{generateKeyPairSync}=require('crypto');const{privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048,publicKeyEncoding:{type:'spki',format:'pem'},privateKeyEncoding:{type:'pkcs8',format:'pem'}});const b=s=>Buffer.from(s).toString('base64');console.log('JWT_PRIVATE_KEY='+b(privateKey));console.log('JWT_PUBLIC_KEY='+b(publicKey))" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

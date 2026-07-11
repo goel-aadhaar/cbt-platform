@@ -1,0 +1,75 @@
+/// Question type (contract §2.4). MCQ = single correct; MSQ = multiple correct;
+/// INTEGER = numeric answer.
+enum QuestionType {
+  MCQ
+  MSQ
+  INTEGER
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+/// Lifecycle (§2.5): DRAFT → REVIEW → APPROVED → ARCHIVED. Only APPROVED
+/// questions are eligible for exams; ARCHIVED are deactivated (is_active=false).
+enum QuestionStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  ARCHIVED
+}
+
+/// A question in the independent, governed question bank (§2.4). Tenant-scoped;
+/// authored by teachers, approved by admins. Exams are later assembled from
+/// APPROVED questions.
+model Question {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+
+  // Tagging / classification (§2.4 — mandatory except topic).
+  subject    String
+  chapter    String
+  topic      String?
+  difficulty Difficulty
+  type       QuestionType
+  language   String       @default("en")
+  examType   String       @map("exam_type")
+  tags       String[]     @default([])
+
+  // Content (§2.4). options/answerKey are JSON to fit all types:
+  //   MCQ  → options [{key,text}], answerKey "A"
+  //   MSQ  → options [{key,text}], answerKey ["A","C"]
+  //   INTEGER → no options, answerKey 42
+  statement     String
+  options       Json?
+  answerKey     Json     @map("answer_key")
+  explanation   String?
+  marks         Float    @default(4)
+  negativeMarks Float    @default(1) @map("negative_marks")
+  mediaKeys     String[] @default([]) @map("media_keys")
+
+  // Lifecycle & edit tracking (§2.5).
+  status       QuestionStatus @default(DRAFT)
+  isActive     Boolean        @default(true) @map("is_active")
+  createdById  String         @map("created_by_id") @db.Uuid
+  editedById   String?        @map("edited_by_id") @db.Uuid
+  editedAt     DateTime?      @map("edited_at")
+  approvedById String?        @map("approved_by_id") @db.Uuid
+  approvedAt   DateTime?      @map("approved_at")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  institute  Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  editedBy   User?     @relation("QuestionEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
+  approvedBy    User?          @relation("QuestionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  examQuestions ExamQuestion[]
+  responses     Response[]
+
+  @@index([instituteId])
+  @@index([instituteId, status])
+  @@index([instituteId, subject])
+  @@map("questions")
+}

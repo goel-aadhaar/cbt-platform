@@ -1,0 +1,116 @@
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// When results become visible (§2.2). ON_PUBLISH = held until an admin publishes.
+enum ResultPolicy {
+  IMMEDIATE
+  ON_PUBLISH
+  BATCH_WISE
+}
+
+/// Post-exam grace-marks handling for a question (§2.9). NORMAL = score against
+/// the answer key; BONUS = award full marks to every candidate regardless of
+/// their answer; DROPPED = exclude the question from scoring and from max marks.
+enum ExamQuestionScoring {
+  NORMAL
+  BONUS
+  DROPPED
+}
+
+/// An examination (§2.3). Assembled from APPROVED bank questions into sections,
+/// assigned to batches, scheduled, then published. Tenant-scoped.
+model Exam {
+  id                String       @id @default(uuid()) @db.Uuid
+  instituteId       String       @map("institute_id") @db.Uuid
+  programId         String?      @map("program_id") @db.Uuid
+  title             String
+  instructions      String?
+  durationMinutes   Int          @map("duration_minutes")
+  calculatorEnabled Boolean      @default(false) @map("calculator_enabled")
+  status            ExamStatus   @default(DRAFT)
+  resultPolicy      ResultPolicy @default(ON_PUBLISH) @map("result_policy")
+  startAt           DateTime?    @map("start_at")
+  endAt             DateTime?    @map("end_at")
+  createdById       String       @map("created_by_id") @db.Uuid
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  institute Institute      @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  program   Program?       @relation(fields: [programId], references: [id], onDelete: SetNull)
+  createdBy User           @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  sections  ExamSection[]
+  questions ExamQuestion[]
+  batches   ExamBatch[]
+  attempts  Attempt[]
+  results   Result[]
+
+  @@index([instituteId])
+  @@index([instituteId, status])
+  @@map("exams")
+}
+
+/// A section within an exam (e.g. Physics), carrying its own marking scheme.
+model ExamSection {
+  id           String   @id @default(uuid()) @db.Uuid
+  examId       String   @map("exam_id") @db.Uuid
+  instituteId  String   @map("institute_id") @db.Uuid
+  name         String
+  order        Int
+  marksCorrect Float    @default(4) @map("marks_correct")
+  marksWrong   Float    @default(1) @map("marks_wrong")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  exam      Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  institute Institute      @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  questions ExamQuestion[]
+
+  @@unique([examId, order])
+  @@index([examId])
+  @@index([instituteId])
+  @@map("exam_sections")
+}
+
+/// Links an APPROVED bank question into an exam section, in order.
+model ExamQuestion {
+  id          String   @id @default(uuid()) @db.Uuid
+  examId      String   @map("exam_id") @db.Uuid
+  sectionId   String   @map("section_id") @db.Uuid
+  questionId  String              @map("question_id") @db.Uuid
+  instituteId String              @map("institute_id") @db.Uuid
+  order       Int
+  scoring     ExamQuestionScoring @default(NORMAL)
+  createdAt   DateTime            @default(now()) @map("created_at")
+
+  exam      Exam        @relation(fields: [examId], references: [id], onDelete: Cascade)
+  section   ExamSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  question  Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  institute Institute   @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, questionId])
+  @@unique([sectionId, order])
+  @@index([examId])
+  @@index([sectionId])
+  @@index([instituteId])
+  @@map("exam_questions")
+}
+
+/// Assigns an exam to a batch (many-to-many). Contract §2.3.
+model ExamBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  examId      String   @map("exam_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  exam      Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([examId, batchId])
+  @@index([examId])
+  @@index([instituteId])
+  @@map("exam_batches")
+}

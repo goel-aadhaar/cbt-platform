@@ -9,10 +9,19 @@ model Institute {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  programs Program[]
-  classes  Class[]
-  batches  Batch[]
-  students Student[]
+  users         User[]
+  programs      Program[]
+  classes       Class[]
+  batches       Batch[]
+  students      Student[]
+  questions     Question[]
+  exams         Exam[]
+  examSections  ExamSection[]
+  examQuestions ExamQuestion[]
+  examBatches   ExamBatch[]
+  attempts      Attempt[]
+  responses     Response[]
+  results       Result[]
 
   @@map("institutes")
 }

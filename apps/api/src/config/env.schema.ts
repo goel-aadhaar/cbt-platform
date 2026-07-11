@@ -31,6 +31,11 @@ export const envSchema = z.object({
   CORS_ORIGINS: z.string().optional(),
   THROTTLE_TTL_MS: z.coerce.number().int().positive().default(60000),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
+  JWT_PRIVATE_KEY: z.string().min(1, 'base64-encoded RS256 private key (PEM)'),
+  JWT_PUBLIC_KEY: z.string().min(1, 'base64-encoded RS256 public key (PEM)'),
+  JWT_EXPIRES_IN: z.string().default('1d'),
+  INVITE_TTL_HOURS: z.coerce.number().int().positive().default(72),
+  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
 });
 
 export type Env = z.infer<typeof envSchema>;

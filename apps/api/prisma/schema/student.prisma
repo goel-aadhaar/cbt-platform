@@ -1,22 +1,23 @@
-/// A student, assigned to exactly one batch. Contract §2.10.
-/// Auth (roll-number + common-password, single active session) is added in the
-/// auth phase — hence no password field here yet (the common password is an
-/// institute-level setting, not per-student).
+/// Academic profile for a STUDENT-role user (1:1 with User). Contract §2.10.
+/// Name/email/status live on the linked User. Students are invited by email to
+/// set a password, then log in via roll number + password (single active
+/// session), scoped to their institute.
 model Student {
-  id          String   @id @default(uuid()) @db.Uuid
-  instituteId String   @map("institute_id") @db.Uuid
-  batchId     String   @map("batch_id") @db.Uuid
+  id          String @id @default(uuid()) @db.Uuid
+  userId      String @unique @map("user_id") @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+  batchId     String @map("batch_id") @db.Uuid
   /// Login identifier, unique within the institute. Contract §2.10.
-  rollNumber  String   @map("roll_number")
-  name        String
-  email       String?
-  phone       String?
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  rollNumber  String @map("roll_number")
 
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  attempts  Attempt[]
+  results   Result[]
 
   @@unique([instituteId, rollNumber])
   @@index([instituteId])

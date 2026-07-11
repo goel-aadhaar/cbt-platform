@@ -1,0 +1,60 @@
+/// Platform roles. Creation hierarchy: SUPERADMIN → ADMIN → (TEACHER | STUDENT).
+enum Role {
+  SUPERADMIN
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+/// PENDING until the invitee accepts the emailed link and sets a password.
+enum UserStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+}
+
+/// A platform user account (all roles). Created via invitation by the upper
+/// authority (name + email); an emailed link completes registration.
+/// Auth details for the linked academic record (Student) live here.
+model User {
+  id     String     @id @default(uuid()) @db.Uuid
+  name   String
+  email  String     @unique
+  role   Role
+  status UserStatus @default(PENDING)
+
+  /// Null until the invitation is accepted and a password is set (argon2 hash).
+  passwordHash String? @map("password_hash")
+
+  /// Tenant. NULL for SUPERADMIN (operates above tenants); set for the rest.
+  instituteId String? @map("institute_id") @db.Uuid
+
+  /// Who invited this user (creation hierarchy). Null for the seeded superadmin.
+  invitedById String? @map("invited_by_id") @db.Uuid
+
+  /// Invitation: hash of the emailed token + its expiry. Cleared on accept.
+  invitationTokenHash String?   @map("invitation_token_hash")
+  invitationExpiresAt DateTime? @map("invitation_expires_at")
+
+  /// Single active session (contract §2.2): id of the currently-valid session;
+  /// a new login overwrites it, invalidating prior tokens.
+  currentSessionId String? @map("current_session_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  institute Institute? @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  invitedBy User?      @relation("UserInvites", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitees  User[]     @relation("UserInvites")
+  student   Student?
+  sessions  Session[]
+
+  questionsCreated  Question[] @relation("QuestionCreatedBy")
+  questionsEdited   Question[] @relation("QuestionEditedBy")
+  questionsApproved Question[] @relation("QuestionApprovedBy")
+  examsCreated      Exam[]     @relation("ExamCreatedBy")
+
+  @@index([instituteId])
+  @@index([role])
+  @@map("users")
+}

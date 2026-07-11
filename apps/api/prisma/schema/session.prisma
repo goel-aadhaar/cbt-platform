@@ -1,0 +1,19 @@
+/// A server-side session — the source of truth for stateful auth. The RS256 JWT
+/// carries only { sub, sid }; every request re-validates the referenced session
+/// here, so logout, disable-user, and single active session (contract §2.2) all
+/// work by revoking rows. On login, the user's prior active sessions are revoked
+/// (single active session).
+model Session {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  userAgent String?   @map("user_agent")
+  ip        String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}

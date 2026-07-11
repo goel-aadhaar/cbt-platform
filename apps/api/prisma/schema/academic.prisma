@@ -9,6 +9,7 @@ model Program {
 
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   classes   Class[]
+  exams     Exam[]
 
   @@unique([instituteId, name])
   @@index([instituteId])
@@ -46,8 +47,10 @@ model Batch {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
-  class     Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
-  students  Student[]
+  class       Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  students    Student[]
+  examBatches ExamBatch[]
+  results     Result[]
 
   @@unique([classId, name])
   @@index([instituteId])

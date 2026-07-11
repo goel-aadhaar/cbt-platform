@@ -8,10 +8,21 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { buildPinoOptions } from './common/logging/pino-logger.config';
 import { appConfig } from './config/app.config';
 import type { AppConfig } from './config/app.config';
+import { authConfig } from './config/auth.config';
 import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
+import { AttemptsModule } from './modules/attempts/attempts.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { BatchesModule } from './modules/batches/batches.module';
+import { ClassesModule } from './modules/classes/classes.module';
+import { ExamsModule } from './modules/exams/exams.module';
+import { InstitutesModule } from './modules/institutes/institutes.module';
+import { ProgramsModule } from './modules/programs/programs.module';
+import { QuestionsModule } from './modules/questions/questions.module';
+import { ResultsModule } from './modules/results/results.module';
+import { StudentsModule } from './modules/students/students.module';
 
 /**
  * Root module. Cross-cutting infrastructure is registered globally here so
@@ -30,7 +41,7 @@ import { HealthModule } from './modules/health/health.module';
       isGlobal: true,
       cache: true,
       expandVariables: true,
-      load: [appConfig, databaseConfig],
+      load: [appConfig, databaseConfig, authConfig],
       validate: validateEnv,
       envFilePath: ['.env'],
     }),
@@ -54,7 +65,17 @@ import { HealthModule } from './modules/health/health.module';
       },
     }),
     DatabaseModule,
+    AuthModule,
     HealthModule,
+    InstitutesModule,
+    ProgramsModule,
+    ClassesModule,
+    BatchesModule,
+    StudentsModule,
+    QuestionsModule,
+    ExamsModule,
+    AttemptsModule,
+    ResultsModule,
   ],
   providers: [
     {

@@ -1,0 +1,36 @@
+/// A student's evaluated result for an exam (§2.8). Produced by scoring a
+/// submitted attempt against answer keys with each section's marking scheme.
+/// Held until published (resultPolicy). Tenant-scoped.
+model Result {
+  id               String   @id @default(uuid()) @db.Uuid
+  instituteId      String   @map("institute_id") @db.Uuid
+  examId           String   @map("exam_id") @db.Uuid
+  attemptId        String   @unique @map("attempt_id") @db.Uuid
+  studentId        String   @map("student_id") @db.Uuid
+  /// Denormalized for batch ranking.
+  batchId          String   @map("batch_id") @db.Uuid
+  totalScore       Float    @map("total_score")
+  maxScore         Float    @map("max_score")
+  correctCount     Int      @map("correct_count")
+  incorrectCount   Int      @map("incorrect_count")
+  unattemptedCount Int      @map("unattempted_count")
+  /// Per-section breakdown: [{ sectionId, name, score, correct, incorrect, unattempted }].
+  sectionScores    Json     @map("section_scores")
+  overallRank      Int?     @map("overall_rank")
+  batchRank        Int?     @map("batch_rank")
+  percentile       Float?
+  published        Boolean  @default(false)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  exam      Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attempt   Attempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student   Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([examId])
+  @@index([instituteId])
+  @@index([studentId])
+  @@map("results")
+}
