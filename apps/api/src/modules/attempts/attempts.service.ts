@@ -10,7 +10,11 @@ import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { AttemptStatus, ResponseStatus } from './attempt.types';
-import { SaveResponseDto } from './dto/attempt.dto';
+import {
+  RecordSectionTimeDto,
+  ReportViolationDto,
+  SaveResponseDto,
+} from './dto/attempt.dto';
 
 // NOTE: the question select deliberately omits answerKey/explanation — students
 // must never receive the correct answers.
@@ -20,6 +24,8 @@ const stateSelect = {
   startedAt: true,
   expiresAt: true,
   submittedAt: true,
+  violationCount: true,
+  flagged: true,
   exam: {
     select: {
       id: true,
@@ -27,6 +33,8 @@ const stateSelect = {
       durationMinutes: true,
       instructions: true,
       calculatorEnabled: true,
+      fullscreenRequired: true,
+      maxViolations: true,
       sections: {
         orderBy: { order: 'asc' },
         select: {
@@ -83,16 +91,46 @@ export class AttemptsService {
     return student;
   }
 
+  /**
+   * Start (or resume) the candidate's attempt.
+   *
+   * This is the platform's thundering-herd path: an entire batch clicks "Start"
+   * the second the exam opens. It is therefore written to minimise database
+   * round-trips — the exam (with this student's batch assignment and its
+   * question ids) and any existing attempt are fetched in ONE parallel round,
+   * and the attempt, its blank responses and the returned state are produced by
+   * a single nested write. Load testing (§2.17) showed the previous shape —
+   * seven sequential queries wrapped around an interactive transaction — starved
+   * the connection pool and failed with P2028 at 50 concurrent candidates.
+   */
   async start(examId: string) {
     const student = await this.currentStudent();
-    const exam = await this.prisma.exam.findFirst({
-      where: {
-        id: examId,
-        instituteId: student.instituteId,
-        status: 'PUBLISHED',
-      },
-      select: { id: true, durationMinutes: true, startAt: true, endAt: true },
-    });
+
+    const [exam, existing] = await Promise.all([
+      this.prisma.exam.findFirst({
+        where: {
+          id: examId,
+          instituteId: student.instituteId,
+          status: 'PUBLISHED',
+        },
+        select: {
+          durationMinutes: true,
+          startAt: true,
+          endAt: true,
+          // Only this student's assignment — presence means they may sit it.
+          batches: {
+            where: { batchId: student.batchId },
+            select: { id: true },
+          },
+          questions: { select: { questionId: true } },
+        },
+      }),
+      this.prisma.attempt.findUnique({
+        where: { examId_studentId: { examId, studentId: student.id } },
+        select: { id: true, status: true },
+      }),
+    ]);
+
     if (!exam) throw new NotFoundException('Exam not found or not published');
 
     const now = new Date();
@@ -100,17 +138,10 @@ export class AttemptsService {
       throw new BadRequestException('The exam has not started yet');
     }
     if (now > exam.endAt) throw new BadRequestException('The exam has ended');
-
-    const assigned = await this.prisma.examBatch.findFirst({
-      where: { examId, batchId: student.batchId },
-    });
-    if (!assigned) {
+    if (exam.batches.length === 0) {
       throw new ForbiddenException('You are not assigned to this exam');
     }
 
-    const existing = await this.prisma.attempt.findUnique({
-      where: { examId_studentId: { examId, studentId: student.id } },
-    });
     if (existing) {
       if (existing.status !== AttemptStatus.IN_PROGRESS) {
         throw new ConflictException('You have already submitted this exam');
@@ -122,32 +153,35 @@ export class AttemptsService {
     const durationEnd = new Date(now.getTime() + exam.durationMinutes * 60_000);
     const expiresAt = durationEnd < exam.endAt ? durationEnd : exam.endAt;
 
-    const examQuestions = await this.prisma.examQuestion.findMany({
-      where: { examId },
-      select: { questionId: true },
-    });
-
-    const attempt = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.attempt.create({
-        data: {
-          instituteId: student.instituteId,
-          examId,
-          studentId: student.id,
-          startedAt: now,
-          expiresAt,
+    // One atomic nested write that also returns the full candidate state — no
+    // interactive transaction (which would pin a pool connection) and no second
+    // round-trip to read the state back.
+    const attempt = await this.prisma.attempt.create({
+      data: {
+        instituteId: student.instituteId,
+        examId,
+        studentId: student.id,
+        startedAt: now,
+        expiresAt,
+        responses: {
+          createMany: {
+            data: exam.questions.map((eq) => ({
+              questionId: eq.questionId,
+              instituteId: student.instituteId,
+            })),
+          },
         },
-      });
-      await tx.response.createMany({
-        data: examQuestions.map((eq) => ({
-          attemptId: created.id,
-          questionId: eq.questionId,
-          instituteId: student.instituteId,
-        })),
-      });
-      return created;
+      },
+      select: stateSelect,
     });
 
-    return this.buildState(attempt.id, student.instituteId);
+    return {
+      ...attempt,
+      remainingSeconds: Math.max(
+        0,
+        Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
+      ),
+    };
   }
 
   async getState(attemptId: string) {
@@ -196,6 +230,91 @@ export class AttemptsService {
       data: { status: AttemptStatus.SUBMITTED, submittedAt: new Date() },
     });
     return this.summary(attemptId);
+  }
+
+  /**
+   * Accumulate time spent in a section (§2.8). The client reports elapsed
+   * deltas periodically (e.g. on section change / heartbeat) and the server adds
+   * them up; the Result engine folds the totals into the permanent record.
+   */
+  async recordSectionTime(attemptId: string, dto: RecordSectionTimeDto) {
+    const student = await this.currentStudent();
+    const attempt = await this.getActiveAttempt(attemptId, student.id);
+
+    const section = await this.prisma.examSection.findFirst({
+      where: { id: dto.sectionId, examId: attempt.examId },
+      select: { id: true },
+    });
+    if (!section) throw new NotFoundException('Section not in this exam');
+
+    return this.prisma.attemptSectionTime.upsert({
+      where: {
+        attemptId_sectionId: { attemptId, sectionId: dto.sectionId },
+      },
+      create: {
+        attemptId,
+        sectionId: dto.sectionId,
+        instituteId: student.instituteId,
+        seconds: dto.seconds,
+      },
+      update: { seconds: { increment: dto.seconds } },
+      select: { sectionId: true, seconds: true },
+    });
+  }
+
+  /**
+   * Record a proctoring violation (§2.2) reported by the exam client. Increments
+   * the attempt's running count; when the exam's `maxViolations` threshold (> 0)
+   * is reached, the attempt is auto-submitted and flagged for malpractice.
+   */
+  async reportViolation(attemptId: string, dto: ReportViolationDto) {
+    const student = await this.currentStudent();
+    const attempt = await this.getActiveAttempt(attemptId, student.id);
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: attempt.examId },
+      select: { maxViolations: true },
+    });
+    const maxViolations = exam?.maxViolations ?? 0;
+
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      await tx.proctoringEvent.create({
+        data: {
+          attemptId,
+          instituteId: student.instituteId,
+          type: dto.type,
+          detail: dto.detail,
+        },
+      });
+      const { violationCount } = await tx.attempt.update({
+        where: { id: attemptId },
+        data: { violationCount: { increment: 1 } },
+        select: { violationCount: true },
+      });
+      const autoSubmitted =
+        maxViolations > 0 && violationCount >= maxViolations;
+      if (autoSubmitted) {
+        await tx.attempt.update({
+          where: { id: attemptId },
+          data: {
+            status: AttemptStatus.AUTO_SUBMITTED,
+            submittedAt: new Date(),
+            flagged: true,
+          },
+        });
+      }
+      return { violationCount, autoSubmitted };
+    });
+
+    return {
+      violationCount: outcome.violationCount,
+      maxViolations,
+      warningsLeft:
+        maxViolations > 0
+          ? Math.max(0, maxViolations - outcome.violationCount)
+          : null,
+      autoSubmitted: outcome.autoSubmitted,
+      flagged: outcome.autoSubmitted,
+    };
   }
 
   async summary(attemptId: string) {

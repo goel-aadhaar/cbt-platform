@@ -25,6 +25,8 @@ const examSelect = {
   instructions: true,
   durationMinutes: true,
   calculatorEnabled: true,
+  fullscreenRequired: true,
+  maxViolations: true,
   status: true,
   resultPolicy: true,
   programId: true,
@@ -103,6 +105,8 @@ export class ExamsService {
         durationMinutes: dto.durationMinutes,
         instructions: dto.instructions,
         calculatorEnabled: dto.calculatorEnabled ?? false,
+        fullscreenRequired: dto.fullscreenRequired ?? true,
+        maxViolations: dto.maxViolations ?? 0,
         programId: dto.programId,
         resultPolicy: dto.resultPolicy ?? 'ON_PUBLISH',
         createdById: userId,
@@ -140,10 +144,91 @@ export class ExamsService {
         durationMinutes: dto.durationMinutes,
         instructions: dto.instructions,
         calculatorEnabled: dto.calculatorEnabled,
+        fullscreenRequired: dto.fullscreenRequired,
+        maxViolations: dto.maxViolations,
         resultPolicy: dto.resultPolicy,
       },
       select: examSelect,
     });
+  }
+
+  /**
+   * Clone an exam (§2.3): duplicate its config, sections and question layout
+   * into a fresh DRAFT. Batches, schedule and publish state are intentionally
+   * NOT copied — the clone is re-scheduled and re-assigned before publishing.
+   */
+  async clone(examId: string, title?: string) {
+    const { userId, instituteId } = this.ctx();
+    const source = await this.prisma.exam.findFirst({
+      where: { id: examId, instituteId },
+      select: {
+        title: true,
+        instructions: true,
+        durationMinutes: true,
+        calculatorEnabled: true,
+        fullscreenRequired: true,
+        maxViolations: true,
+        resultPolicy: true,
+        programId: true,
+        sections: {
+          orderBy: { order: 'asc' },
+          select: {
+            name: true,
+            order: true,
+            marksCorrect: true,
+            marksWrong: true,
+            questions: {
+              orderBy: { order: 'asc' },
+              select: { questionId: true, order: true },
+            },
+          },
+        },
+      },
+    });
+    if (!source) throw new NotFoundException('Exam not found');
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const exam = await tx.exam.create({
+        data: {
+          instituteId,
+          title: title?.trim() || `${source.title} (Copy)`,
+          instructions: source.instructions,
+          durationMinutes: source.durationMinutes,
+          calculatorEnabled: source.calculatorEnabled,
+          fullscreenRequired: source.fullscreenRequired,
+          maxViolations: source.maxViolations,
+          resultPolicy: source.resultPolicy,
+          programId: source.programId,
+          createdById: userId,
+        },
+      });
+      for (const section of source.sections) {
+        const newSection = await tx.examSection.create({
+          data: {
+            examId: exam.id,
+            instituteId,
+            name: section.name,
+            order: section.order,
+            marksCorrect: section.marksCorrect,
+            marksWrong: section.marksWrong,
+          },
+        });
+        if (section.questions.length) {
+          await tx.examQuestion.createMany({
+            data: section.questions.map((q) => ({
+              examId: exam.id,
+              sectionId: newSection.id,
+              questionId: q.questionId,
+              instituteId,
+              order: q.order,
+            })),
+          });
+        }
+      }
+      return exam;
+    });
+
+    return this.findOne(created.id);
   }
 
   async addSection(examId: string, dto: CreateSectionDto) {

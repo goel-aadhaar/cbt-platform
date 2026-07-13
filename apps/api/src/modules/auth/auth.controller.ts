@@ -10,6 +10,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
+import type { LoginResult } from './auth.service';
 import { AuthService } from './auth.service';
 import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -24,20 +25,28 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  loginStaff(@Body() dto: LoginDto, @Req() req: Request) {
-    return this.auth.loginStaff(dto.email, dto.password, this.meta(req));
+  async loginStaff(@Body() dto: LoginDto, @Req() req: Request) {
+    const result = await this.auth.loginStaff(
+      dto.email,
+      dto.password,
+      this.meta(req),
+    );
+    this.attachActor(req, result);
+    return result;
   }
 
   @Public()
   @Post('student/login')
   @HttpCode(HttpStatus.OK)
-  loginStudent(@Body() dto: StudentLoginDto, @Req() req: Request) {
-    return this.auth.loginStudent(
+  async loginStudent(@Body() dto: StudentLoginDto, @Req() req: Request) {
+    const result = await this.auth.loginStudent(
       dto.instituteSlug,
       dto.rollNumber,
       dto.password,
       this.meta(req),
     );
+    this.attachActor(req, result);
+    return result;
   }
 
   @Post('logout')
@@ -56,5 +65,20 @@ export class AuthController {
 
   private meta(req: Request): { userAgent?: string; ip?: string } {
     return { userAgent: req.headers['user-agent'], ip: req.ip };
+  }
+
+  /**
+   * Attach the just-authenticated identity to the request so the audit
+   * interceptor records WHO logged in (§2.13). Login routes are @Public, so
+   * JwtAuthGuard never populates `request.user` — without this, the audit entry
+   * would have a null actor.
+   */
+  private attachActor(req: Request, result: LoginResult): void {
+    (req as Request & { user?: AuthUser }).user = {
+      userId: result.user.id,
+      role: result.user.role,
+      instituteId: result.user.instituteId,
+      sessionId: '',
+    };
   }
 }

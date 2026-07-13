@@ -12,13 +12,16 @@ import { authConfig } from './config/auth.config';
 import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AttemptsModule } from './modules/attempts/attempts.module';
+import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { BatchesModule } from './modules/batches/batches.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { InstitutesModule } from './modules/institutes/institutes.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { ProgramsModule } from './modules/programs/programs.module';
 import { QuestionsModule } from './modules/questions/questions.module';
 import { ResultsModule } from './modules/results/results.module';
@@ -66,6 +69,7 @@ import { StudentsModule } from './modules/students/students.module';
     }),
     DatabaseModule,
     AuthModule,
+    AuditModule,
     HealthModule,
     InstitutesModule,
     ProgramsModule,
@@ -76,6 +80,8 @@ import { StudentsModule } from './modules/students/students.module';
     ExamsModule,
     AttemptsModule,
     ResultsModule,
+    MonitoringModule,
+    AnalyticsModule,
   ],
   providers: [
     {

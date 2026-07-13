@@ -19,9 +19,12 @@ model Institute {
   examSections  ExamSection[]
   examQuestions ExamQuestion[]
   examBatches   ExamBatch[]
-  attempts      Attempt[]
-  responses     Response[]
-  results       Result[]
+  attempts         Attempt[]
+  responses        Response[]
+  results          Result[]
+  proctoringEvents ProctoringEvent[]
+  manualScores     ManualScore[]
+  sectionTimes     AttemptSectionTime[]
 
   @@map("institutes")
 }

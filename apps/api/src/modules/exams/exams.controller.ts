@@ -15,6 +15,7 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
   AssignBatchDto,
+  CloneExamDto,
   CreateSectionDto,
   ScheduleExamDto,
 } from './dto/exam-parts.dto';
@@ -46,6 +47,12 @@ export class ExamsController {
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateExamDto) {
     return this.exams.update(id, dto);
+  }
+
+  /** Clone an exam into a fresh draft (§2.3). */
+  @Post(':id/clone')
+  clone(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CloneExamDto) {
+    return this.exams.clone(id, dto.title);
   }
 
   @Post(':id/sections')
