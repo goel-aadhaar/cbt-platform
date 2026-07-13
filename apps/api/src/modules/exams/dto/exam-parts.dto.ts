@@ -39,3 +39,11 @@ export class ScheduleExamDto {
   @IsISO8601()
   endAt: string;
 }
+
+export class CloneExamDto {
+  /** Title for the clone; defaults to "<source title> (Copy)". */
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  title?: string;
+}

@@ -1,0 +1,32 @@
+/// Outcome of an audited action (§2.13).
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+}
+
+/// Immutable audit trail (§2.13). One row per state-changing request (plus any
+/// explicit domain events). Deliberately decoupled from User/Institute — plain
+/// id columns, no foreign keys — so entries survive deletion of the entities
+/// they reference and audit writes stay cheap. Never stores request bodies
+/// (avoids capturing passwords / tokens).
+model AuditLog {
+  id          String       @id @default(uuid()) @db.Uuid
+  instituteId String?      @map("institute_id") @db.Uuid
+  actorId     String?      @map("actor_id") @db.Uuid
+  actorRole   String?      @map("actor_role")
+  action      String
+  entityType  String?      @map("entity_type")
+  entityId    String?      @map("entity_id")
+  outcome     AuditOutcome @default(SUCCESS)
+  statusCode  Int?         @map("status_code")
+  ip          String?
+  userAgent   String?      @map("user_agent")
+  metadata    Json?
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  @@index([instituteId, createdAt])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@map("audit_logs")
+}

@@ -25,6 +25,12 @@ export const envSchema = z.object({
           'must be a PostgreSQL connection string (postgres:// or postgresql://)',
       },
     ),
+  /**
+   * Max PostgreSQL connections in the pool. node-postgres defaults to 10, which
+   * starves under an exam-start rush (§2.17 targets 50–200 concurrent
+   * candidates). Size it against the database's own connection ceiling.
+   */
+  DATABASE_POOL_MAX: z.coerce.number().int().positive().default(25),
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .optional(),

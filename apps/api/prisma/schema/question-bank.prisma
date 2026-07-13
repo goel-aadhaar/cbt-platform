@@ -50,6 +50,12 @@ model Question {
   negativeMarks Float    @default(1) @map("negative_marks")
   mediaKeys     String[] @default([]) @map("media_keys")
 
+  /// Full-text search vector (§2.6). DB-generated from statement/subject/
+  /// chapter/topic/tags (see migration); queried via raw SQL, opaque to Prisma.
+  /// `@default(dbgenerated())` marks it DB-managed so migrate never tries to
+  /// alter the GENERATED expression.
+  searchVector Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
+
   // Lifecycle & edit tracking (§2.5).
   status       QuestionStatus @default(DRAFT)
   isActive     Boolean        @default(true) @map("is_active")
@@ -71,5 +77,6 @@ model Question {
   @@index([instituteId])
   @@index([instituteId, status])
   @@index([instituteId, subject])
+  @@index([searchVector], type: Gin)
   @@map("questions")
 }

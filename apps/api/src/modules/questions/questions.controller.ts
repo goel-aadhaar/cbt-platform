@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,8 +8,17 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -27,6 +37,47 @@ export class QuestionsController {
   @Post()
   create(@Body() dto: CreateQuestionDto) {
     return this.questions.create(dto);
+  }
+
+  /**
+   * Bulk-import questions from a .docx upload (§2.4). Field `file`; each question
+   * starts with `Q:`/`1.`, options `A) …`, `Answer: …`, plus optional `Key:
+   * value` lines. Query params supply defaults for omitted fields.
+   */
+  @Post('import')
+  @ApiConsumes('multipart/form-data')
+  @ApiQuery({ name: 'subject', required: false })
+  @ApiQuery({ name: 'chapter', required: false })
+  @ApiQuery({ name: 'difficulty', required: false })
+  @ApiQuery({ name: 'type', required: false })
+  @ApiQuery({ name: 'examType', required: false })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+  )
+  importDocx(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('subject') subject?: string,
+    @Query('chapter') chapter?: string,
+    @Query('difficulty') difficulty?: string,
+    @Query('type') type?: string,
+    @Query('examType') examType?: string,
+  ) {
+    if (!file) {
+      throw new BadRequestException('A .docx file is required (field "file")');
+    }
+    return this.questions.importDocx(file.buffer, {
+      subject,
+      chapter,
+      difficulty,
+      type,
+      examType,
+    });
   }
 
   @Get()

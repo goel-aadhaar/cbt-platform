@@ -2,6 +2,8 @@ import { registerAs } from '@nestjs/config';
 
 export interface DatabaseConfig {
   url: string;
+  /** Max connections in the pg pool (node-postgres defaults to a low 10). */
+  poolMax: number;
 }
 
 /**
@@ -10,4 +12,5 @@ export interface DatabaseConfig {
  */
 export const databaseConfig = registerAs('database', (): DatabaseConfig => ({
   url: process.env.DATABASE_URL as string,
+  poolMax: Number(process.env.DATABASE_POOL_MAX ?? 25),
 }));

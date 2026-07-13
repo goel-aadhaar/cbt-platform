@@ -26,7 +26,11 @@ export class PrismaService
 
   constructor(configService: ConfigService) {
     const connectionString = configService.getOrThrow<string>('database.url');
-    super({ adapter: new PrismaPg({ connectionString }) });
+    // node-postgres pools 10 connections by default, which starves at the start
+    // of an exam when a whole batch of candidates hits "Start" together
+    // (§2.17: 50–200 concurrent). Size it via DATABASE_POOL_MAX.
+    const max = configService.get<number>('database.poolMax') ?? 25;
+    super({ adapter: new PrismaPg({ connectionString, max }) });
   }
 
   async onModuleInit(): Promise<void> {

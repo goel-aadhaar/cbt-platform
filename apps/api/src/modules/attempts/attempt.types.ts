@@ -1,1 +1,5 @@
-export { AttemptStatus, ResponseStatus } from '../../generated/prisma/enums';
+export {
+  AttemptStatus,
+  ProctoringEventType,
+  ResponseStatus,
+} from '../../generated/prisma/enums';

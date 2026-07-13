@@ -11,13 +11,15 @@ enum ResultPolicy {
   BATCH_WISE
 }
 
-/// Post-exam grace-marks handling for a question (§2.9). NORMAL = score against
-/// the answer key; BONUS = award full marks to every candidate regardless of
-/// their answer; DROPPED = exclude the question from scoring and from max marks.
+/// Post-exam grace-marks / remediation handling for a question (§2.5, §2.9).
+/// NORMAL = score against the answer key; BONUS = award full marks to everyone;
+/// DROPPED = exclude from scoring and from max marks; MANUAL = exclude from
+/// auto-scoring and award admin-assigned per-candidate marks (see ManualScore).
 enum ExamQuestionScoring {
   NORMAL
   BONUS
   DROPPED
+  MANUAL
 }
 
 /// An examination (§2.3). Assembled from APPROVED bank questions into sections,
@@ -30,6 +32,11 @@ model Exam {
   instructions      String?
   durationMinutes   Int          @map("duration_minutes")
   calculatorEnabled Boolean      @default(false) @map("calculator_enabled")
+  /// Proctoring (§2.2 anti-malpractice). The client enforces full screen and
+  /// reports violations; `maxViolations` > 0 auto-submits + flags the attempt
+  /// once reached (0 = warnings only, no auto-submit).
+  fullscreenRequired Boolean     @default(true) @map("fullscreen_required")
+  maxViolations      Int         @default(0) @map("max_violations")
   status            ExamStatus   @default(DRAFT)
   resultPolicy      ResultPolicy @default(ON_PUBLISH) @map("result_policy")
   startAt           DateTime?    @map("start_at")

@@ -14,7 +14,12 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AttemptsService } from './attempts.service';
-import { SaveResponseDto, StartAttemptDto } from './dto/attempt.dto';
+import {
+  RecordSectionTimeDto,
+  ReportViolationDto,
+  SaveResponseDto,
+  StartAttemptDto,
+} from './dto/attempt.dto';
 
 @ApiTags('attempts')
 @ApiBearerAuth()
@@ -50,6 +55,26 @@ export class AttemptsController {
   @HttpCode(HttpStatus.OK)
   submit(@Param('id', ParseUUIDPipe) id: string) {
     return this.attempts.submit(id);
+  }
+
+  /** Accumulate time spent in a section (§2.8). Send elapsed deltas. */
+  @Put(':id/section-time')
+  @HttpCode(HttpStatus.OK)
+  recordSectionTime(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordSectionTimeDto,
+  ) {
+    return this.attempts.recordSectionTime(id, dto);
+  }
+
+  /** Report a proctoring violation (tab switch, full-screen exit, …). */
+  @Post(':id/violations')
+  @HttpCode(HttpStatus.OK)
+  reportViolation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReportViolationDto,
+  ) {
+    return this.attempts.reportViolation(id, dto);
   }
 
   @Get(':id/summary')

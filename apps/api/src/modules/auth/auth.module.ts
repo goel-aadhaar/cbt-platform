@@ -61,6 +61,12 @@ import { TenantContextService } from './tenant/tenant-context.service';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
   ],
-  exports: [PasswordService, MailService, TenantContextService, JwtModule],
+  exports: [
+    PasswordService,
+    MailService,
+    TenantContextService,
+    InvitationService,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

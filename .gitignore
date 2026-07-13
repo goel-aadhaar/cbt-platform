@@ -10,6 +10,16 @@ build/
 # ---- Test / coverage ----
 coverage/
 .nyc_output/
+# API-suite scratch: the booted app's log (contains invitation tokens) and
+# load-test reports. Never commit.
+**/test/.tmp/
+
+# ---- Confidential documents (NEVER commit) ----
+# The signed service agreement carries both parties' names, home addresses and
+# commercial terms. Keep contracts out of the repository entirely.
+*.docx
+*.doc
+*.pdf
 
 # ---- Environment & secrets (NEVER commit real values) ----
 .env

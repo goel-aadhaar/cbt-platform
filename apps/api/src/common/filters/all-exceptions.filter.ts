@@ -9,10 +9,19 @@ import { HttpAdapterHost } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { PinoLogger } from 'nestjs-pino';
 
+import { AuditOutcome } from '../../generated/prisma/enums';
+import { AuditService } from '../../modules/audit/audit.service';
+import {
+  actorFromRequest,
+  describeMutation,
+} from '../../modules/audit/audit.util';
+
 interface ErrorEnvelope {
   statusCode: number;
   error: string;
   message: string | string[];
+  /** Extra structured fields carried by the exception (e.g. affectedExams). */
+  details?: Record<string, unknown>;
   timestamp: string;
   path: string;
   requestId?: string;
@@ -30,6 +39,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   constructor(
     private readonly httpAdapterHost: HttpAdapterHost,
     private readonly logger: PinoLogger,
+    private readonly audit: AuditService,
   ) {
     this.logger.setContext(AllExceptionsFilter.name);
   }
@@ -47,6 +57,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let error = 'Internal Server Error';
     let message: string | string[] = 'Internal server error';
+    let details: Record<string, unknown> | undefined;
 
     if (isHttpException) {
       error = exception.name;
@@ -61,6 +72,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
         if (typeof record.error === 'string') {
           error = record.error;
         }
+        // Preserve any extra structured fields the thrower attached, so callers
+        // can act on them (e.g. the §2.5 edit safeguard's affectedExams).
+        const envelopeKeys = new Set(['statusCode', 'error', 'message']);
+        const rest = Object.fromEntries(
+          Object.entries(record).filter(([key]) => !envelopeKeys.has(key)),
+        );
+        if (Object.keys(rest).length > 0) {
+          details = rest;
+        }
       }
     }
 
@@ -72,6 +92,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       error,
       message,
+      ...(details ? { details } : {}),
       timestamp: new Date().toISOString(),
       path,
       requestId,
@@ -88,6 +109,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
         { statusCode, requestId, path },
         Array.isArray(message) ? message.join('; ') : message,
       );
+    }
+
+    // Audit trail (§2.13): record failed state-changing requests here — this is
+    // the only place that also catches guard rejections (401/403/429).
+    const mutation = describeMutation(request);
+    if (mutation) {
+      void this.audit.record({
+        action: mutation.action,
+        entityType: mutation.entityType,
+        entityId: mutation.entityId,
+        outcome: AuditOutcome.FAILURE,
+        statusCode,
+        ip: mutation.ip,
+        userAgent: mutation.userAgent,
+        metadata: { path: mutation.rawPath },
+        ...actorFromRequest(request),
+      });
     }
 
     httpAdapter.reply(response, body, statusCode);

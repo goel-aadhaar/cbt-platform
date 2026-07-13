@@ -7,6 +7,7 @@ import {
 import {
   ExamQuestionScoring,
   QuestionType,
+  ResultPolicy,
 } from '../../generated/prisma/enums';
 import { Workbook } from 'exceljs';
 import PDFDocument from 'pdfkit';
@@ -16,6 +17,8 @@ import { toCsv, withBom } from '../../common/csv/to-csv';
 import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { SetManualScoreDto } from './dto/set-manual-score.dto';
+import { isCorrect } from './scoring';
 
 interface SectionScore {
   sectionId: string;
@@ -24,6 +27,8 @@ interface SectionScore {
   correct: number;
   incorrect: number;
   unattempted: number;
+  /** Time the candidate spent in this section (§2.8 historical record). */
+  seconds: number;
 }
 
 interface ScoredAttempt {
@@ -66,6 +71,7 @@ export class ResultsService {
       where: { id: examId, instituteId },
       select: {
         id: true,
+        resultPolicy: true,
         sections: {
           select: {
             id: true,
@@ -130,6 +136,24 @@ export class ResultsService {
       },
     });
 
+    // Manual-evaluation awards (§2.5), keyed by attempt+question.
+    const manualRows = await this.prisma.manualScore.findMany({
+      where: { examId, instituteId },
+      select: { attemptId: true, questionId: true, marks: true },
+    });
+    const manualByKey = new Map(
+      manualRows.map((m) => [`${m.attemptId}:${m.questionId}`, m.marks]),
+    );
+
+    // Time spent per section (§2.8), keyed by attempt+section.
+    const timeRows = await this.prisma.attemptSectionTime.findMany({
+      where: { attempt: { examId }, instituteId },
+      select: { attemptId: true, sectionId: true, seconds: true },
+    });
+    const secondsByKey = new Map(
+      timeRows.map((t) => [`${t.attemptId}:${t.sectionId}`, t.seconds]),
+    );
+
     const scored: ScoredAttempt[] = attempts.map((att) => {
       let totalScore = 0;
       let correctCount = 0;
@@ -153,6 +177,7 @@ export class ResultsService {
             correct: 0,
             incorrect: 0,
             unattempted: 0,
+            seconds: secondsByKey.get(`${att.id}:${m.sectionId}`) ?? 0,
           } satisfies SectionScore);
 
         if (m.override === ExamQuestionScoring.BONUS) {
@@ -161,12 +186,28 @@ export class ResultsService {
           sec.correct++;
           totalScore += m.marksCorrect;
           sec.score += m.marksCorrect;
+        } else if (m.override === ExamQuestionScoring.MANUAL) {
+          // Manual evaluation (§2.5): the admin's award replaces auto-scoring.
+          const awarded = manualByKey.get(`${att.id}:${questionId}`) ?? 0;
+          const answer = answers.get(questionId);
+          totalScore += awarded;
+          sec.score += awarded;
+          if (awarded > 0) {
+            correctCount++;
+            sec.correct++;
+          } else if (answer === null || answer === undefined) {
+            unattemptedCount++;
+            sec.unattempted++;
+          } else {
+            incorrectCount++;
+            sec.incorrect++;
+          }
         } else {
           const answer = answers.get(questionId);
           if (answer === null || answer === undefined) {
             unattemptedCount++;
             sec.unattempted++;
-          } else if (this.isCorrect(m.type, answer, m.answerKey)) {
+          } else if (isCorrect(m.type, answer, m.answerKey)) {
             correctCount++;
             sec.correct++;
             totalScore += m.marksCorrect;
@@ -213,6 +254,11 @@ export class ResultsService {
           : 0;
     }
 
+    // Result visibility (§2.2/§2.8): IMMEDIATE publishes on evaluation; the
+    // held policies (ON_PUBLISH / BATCH_WISE) stay hidden until an admin
+    // publishes (all at once, or batch-by-batch for BATCH_WISE).
+    const autoPublish = exam.resultPolicy === ResultPolicy.IMMEDIATE;
+
     await this.prisma.$transaction(
       scored.map((s) =>
         this.prisma.result.upsert({
@@ -232,6 +278,7 @@ export class ResultsService {
             overallRank: s.overallRank,
             batchRank: s.batchRank,
             percentile: s.percentile,
+            published: autoPublish,
           },
           update: {
             totalScore: s.totalScore,
@@ -243,14 +290,15 @@ export class ResultsService {
             overallRank: s.overallRank,
             batchRank: s.batchRank,
             percentile: s.percentile,
-            // Re-evaluation re-holds results until an admin reviews + republishes.
-            published: false,
+            // IMMEDIATE stays visible on re-evaluation; held policies re-hide
+            // until an admin reviews + republishes.
+            published: autoPublish,
           },
         }),
       ),
     );
 
-    return { evaluated: n, maxScore };
+    return { evaluated: n, maxScore, autoPublished: autoPublish };
   }
 
   /**
@@ -276,22 +324,74 @@ export class ResultsService {
     return { examId, questionId, scoring: override };
   }
 
-  async publish(examId: string) {
-    await this.requireExam(examId);
-    const res = await this.prisma.result.updateMany({
-      where: { examId, instituteId: this.instituteId() },
-      data: { published: true },
+  /**
+   * Award manual marks to one candidate for one question (§2.5). Used after a
+   * question is remediated with MANUAL evaluation; re-run {@link evaluate} to
+   * fold the awards into scores and ranks.
+   */
+  async setManualScore(examId: string, dto: SetManualScoreDto) {
+    const instituteId = this.instituteId();
+    const examQuestion = await this.prisma.examQuestion.findFirst({
+      where: { examId, questionId: dto.questionId, instituteId },
+      select: { scoring: true },
     });
-    return { published: res.count };
+    if (!examQuestion) {
+      throw new NotFoundException('Question is not part of this exam');
+    }
+    const attempt = await this.prisma.attempt.findFirst({
+      where: { id: dto.attemptId, examId, instituteId },
+      select: { id: true },
+    });
+    if (!attempt) {
+      throw new NotFoundException('Attempt is not part of this exam');
+    }
+
+    const saved = await this.prisma.manualScore.upsert({
+      where: {
+        attemptId_questionId: {
+          attemptId: dto.attemptId,
+          questionId: dto.questionId,
+        },
+      },
+      create: {
+        examId,
+        instituteId,
+        attemptId: dto.attemptId,
+        questionId: dto.questionId,
+        marks: dto.marks,
+      },
+      update: { marks: dto.marks },
+      select: { attemptId: true, questionId: true, marks: true },
+    });
+    return { ...saved, scoring: examQuestion.scoring };
   }
 
-  async hold(examId: string) {
+  /** Publish results (§2.8). Pass `batchId` to release one batch (BATCH_WISE). */
+  async publish(examId: string, batchId?: string) {
     await this.requireExam(examId);
     const res = await this.prisma.result.updateMany({
-      where: { examId, instituteId: this.instituteId() },
+      where: {
+        examId,
+        instituteId: this.instituteId(),
+        ...(batchId ? { batchId } : {}),
+      },
+      data: { published: true },
+    });
+    return { published: res.count, ...(batchId ? { batchId } : {}) };
+  }
+
+  /** Hold (unpublish) results. Pass `batchId` to hold just one batch. */
+  async hold(examId: string, batchId?: string) {
+    await this.requireExam(examId);
+    const res = await this.prisma.result.updateMany({
+      where: {
+        examId,
+        instituteId: this.instituteId(),
+        ...(batchId ? { batchId } : {}),
+      },
       data: { published: false },
     });
-    return { held: res.count };
+    return { held: res.count, ...(batchId ? { batchId } : {}) };
   }
 
   async listForExam(examId: string) {
@@ -313,6 +413,7 @@ export class ResultsService {
         student: {
           select: { rollNumber: true, user: { select: { name: true } } },
         },
+        attempt: { select: { flagged: true, violationCount: true } },
       },
     });
   }
@@ -541,27 +642,5 @@ export class ResultsService {
     });
     if (!exam) throw new NotFoundException('Exam not found');
     return exam;
-  }
-
-  private isCorrect(
-    type: QuestionType,
-    answer: Prisma.JsonValue,
-    key: Prisma.JsonValue,
-  ): boolean {
-    if (type === QuestionType.MCQ) {
-      return typeof answer === 'string' && answer === key;
-    }
-    if (type === QuestionType.INTEGER) {
-      return (
-        typeof answer !== 'object' &&
-        answer !== null &&
-        Number(answer) === Number(key)
-      );
-    }
-    // MSQ — set equality of option keys.
-    if (!Array.isArray(answer) || !Array.isArray(key)) return false;
-    const a = answer.map(String).sort();
-    const k = key.map(String).sort();
-    return a.length === k.length && a.every((v, i) => v === k[i]);
   }
 }
