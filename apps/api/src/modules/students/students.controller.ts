@@ -75,40 +75,6 @@ export class StudentsController {
     });
   }
 
-  /**
-   * Bulk-import a batch's students from a CSV upload (§2.10). Field `file`;
-   * columns `name`, `email` (required) and optional `rollNumber`.
-   */
-  @Post('import')
-  @ApiConsumes('multipart/form-data')
-  @ApiQuery({ name: 'batchId', required: true })
-  @ApiQuery({ name: 'rollPrefix', required: false })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }),
-  )
-  importCsv(
-    @UploadedFile() file: Express.Multer.File | undefined,
-    @Query('batchId', ParseUUIDPipe) batchId: string,
-    @CurrentUser() user: AuthUser,
-    @Query('rollPrefix') rollPrefix?: string,
-  ) {
-    if (!file) {
-      throw new BadRequestException('CSV file is required (form field "file")');
-    }
-    return this.students.importCsv({
-      batchId,
-      buffer: file.buffer,
-      rollPrefix,
-      invitedById: user.userId,
-    });
-  }
-
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.findOne(id);

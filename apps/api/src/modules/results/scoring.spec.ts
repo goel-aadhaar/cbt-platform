@@ -1,5 +1,9 @@
 import { QuestionType } from '../../generated/prisma/enums';
-import { isCorrect } from './scoring';
+import {
+  assignCompetitionRanks,
+  isCorrect,
+  percentilesByScore,
+} from './scoring';
 
 /**
  * Scoring is the single most correctness-critical function on the platform — it
