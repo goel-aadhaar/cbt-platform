@@ -13,6 +13,9 @@ coverage/
 # API-suite scratch: the booted app's log (contains invitation tokens) and
 # load-test reports. Never commit.
 **/test/.tmp/
+# Postman smoke-test artifacts (the app log holds invitation tokens).
+apps/api/postman/smoke.log
+apps/api/postman/smoke-result.txt
 
 # ---- Confidential documents (NEVER commit) ----
 # The signed service agreement carries both parties' names, home addresses and

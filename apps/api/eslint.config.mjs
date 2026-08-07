@@ -11,6 +11,8 @@ export default tseslint.config(
       'dist/**',
       'coverage/**',
       'src/generated/**',
+      // Standalone Node tooling (not part of the TS project graph).
+      'postman/**',
     ],
   },
   eslint.configs.recommended,

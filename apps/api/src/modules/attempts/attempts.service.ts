@@ -276,34 +276,42 @@ export class AttemptsService {
     });
     const maxViolations = exam?.maxViolations ?? 0;
 
-    const outcome = await this.prisma.$transaction(async (tx) => {
-      await tx.proctoringEvent.create({
+    // Record the event and bump the counter as ONE nested write. An interactive
+    // $transaction here would pin a pool connection across round-trips, and a
+    // burst of violations mid-exam (a hall of candidates alt-tabbing at once) is
+    // exactly the contention that starved the pool in `start()` — see that
+    // method's notes.
+    const { violationCount } = await this.prisma.attempt.update({
+      where: { id: attemptId },
+      data: {
+        violationCount: { increment: 1 },
+        proctoringEvents: {
+          create: {
+            instituteId: student.instituteId,
+            type: dto.type,
+            detail: dto.detail,
+          },
+        },
+      },
+      select: { violationCount: true },
+    });
+
+    // Threshold breach terminates the attempt. Kept as a separate write: if the
+    // process died between the two, the next violation would still see
+    // count >= max and auto-submit, so the outcome is self-healing.
+    const autoSubmitted = maxViolations > 0 && violationCount >= maxViolations;
+    if (autoSubmitted) {
+      await this.prisma.attempt.update({
+        where: { id: attemptId },
         data: {
-          attemptId,
-          instituteId: student.instituteId,
-          type: dto.type,
-          detail: dto.detail,
+          status: AttemptStatus.AUTO_SUBMITTED,
+          submittedAt: new Date(),
+          flagged: true,
         },
       });
-      const { violationCount } = await tx.attempt.update({
-        where: { id: attemptId },
-        data: { violationCount: { increment: 1 } },
-        select: { violationCount: true },
-      });
-      const autoSubmitted =
-        maxViolations > 0 && violationCount >= maxViolations;
-      if (autoSubmitted) {
-        await tx.attempt.update({
-          where: { id: attemptId },
-          data: {
-            status: AttemptStatus.AUTO_SUBMITTED,
-            submittedAt: new Date(),
-            flagged: true,
-          },
-        });
-      }
-      return { violationCount, autoSubmitted };
-    });
+    }
+
+    const outcome = { violationCount, autoSubmitted };
 
     return {
       violationCount: outcome.violationCount,

@@ -80,6 +80,27 @@ describe('Auth, RBAC and tenant isolation', () => {
     });
   });
 
+  describe('rate limiting', () => {
+    it('buckets by candidate, not by IP — one candidate cannot exhaust another’s budget', async () => {
+      // Both candidates reach the server from the same address, which is exactly
+      // the situation in an exam hall: every seat in the lab shares the
+      // institute's NAT address. If the limiter bucketed by IP, one busy
+      // candidate (or simply 200 of them starting at once) would 429 the room.
+      const noisy = await addStudent(tenantA, 'Noisy Candidate', 'RL1');
+      const quiet = await addStudent(tenantA, 'Quiet Candidate', 'RL2');
+
+      // Deliberately blow through the noisy candidate's own budget.
+      const flood = await Promise.all(
+        Array.from({ length: 140 }, () => api('/auth/me', { token: noisy })),
+      );
+      expect(flood.some((r) => r.status === 429)).toBe(true);
+
+      // The quiet candidate shares the IP and must be completely unaffected.
+      const unaffected = await api('/auth/me', { token: quiet });
+      expect(unaffected.status).toBe(200);
+    });
+  });
+
   describe('RBAC (§2.2)', () => {
     it('a teacher cannot perform admin-only actions', async () => {
       const res = await api('/programs', {

@@ -1,4 +1,5 @@
-import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 import { Difficulty, QuestionStatus, QuestionType } from '../question.types';
 
@@ -36,9 +37,26 @@ export class QueryQuestionsDto {
   @IsString()
   tag?: string;
 
-  /** Case-insensitive substring match on the statement (simple search; the
-   * PostgreSQL full-text adapter from §2.6 is a later addition). */
+  /** Free-text query, served by the PostgreSQL full-text search port (§2.6). */
   @IsOptional()
   @IsString()
   search?: string;
+
+  /**
+   * Page size. The bank is specified to hold 20,000+ questions per institute
+   * (§2.4), so listing is ALWAYS paginated — an uncapped findMany would return
+   * the entire bank in one response.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
 }

@@ -25,6 +25,7 @@ import { Role } from '../auth/auth.types';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { QueryStudentsDto } from './dto/query-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { StudentsService } from './students.service';
 
@@ -36,10 +37,8 @@ export class StudentsController {
   constructor(private readonly students: StudentsService) {}
 
   @Get()
-  findAll(
-    @Query('batchId', new ParseUUIDPipe({ optional: true })) batchId?: string,
-  ) {
-    return this.students.findAll(batchId);
+  findAll(@Query() query: QueryStudentsDto) {
+    return this.students.findAll(query);
   }
 
   /**

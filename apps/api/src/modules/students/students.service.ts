@@ -10,6 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { UserStatus } from '../auth/auth.types';
 import { InvitationService } from '../auth/invitation/invitation.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { QueryStudentsDto } from './dto/query-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 
 /** Result of a bulk CSV import (§2.10). */
@@ -145,30 +146,50 @@ export class StudentsService {
     };
   }
 
-  async findAll(batchId?: string) {
-    const students = await this.prisma.student.findMany({
-      where: {
-        instituteId: this.instituteId(),
-        ...(batchId ? { batchId } : {}),
-      },
-      select: {
-        id: true,
-        rollNumber: true,
-        createdAt: true,
-        user: { select: { name: true, email: true, status: true } },
-        batch: { select: { id: true, name: true } },
-      },
-      orderBy: { rollNumber: 'asc' },
-    });
-    return students.map((s) => ({
-      id: s.id,
-      rollNumber: s.rollNumber,
-      name: s.user.name,
-      email: s.user.email,
-      status: s.user.status,
-      batch: s.batch,
-      createdAt: s.createdAt,
-    }));
+  /**
+   * Roster listing — always paginated. An institute's roll can run to thousands
+   * of students (they are bulk-imported by CSV), so an uncapped findMany would
+   * serialise the entire roll into a single response.
+   */
+  async findAll(query: QueryStudentsDto) {
+    const where = {
+      instituteId: this.instituteId(),
+      ...(query.batchId ? { batchId: query.batchId } : {}),
+    };
+    const take = Math.min(query.limit ?? 50, 200);
+    const skip = query.offset ?? 0;
+
+    const [students, total] = await this.prisma.$transaction([
+      this.prisma.student.findMany({
+        where,
+        select: {
+          id: true,
+          rollNumber: true,
+          createdAt: true,
+          user: { select: { name: true, email: true, status: true } },
+          batch: { select: { id: true, name: true } },
+        },
+        orderBy: { rollNumber: 'asc' },
+        take,
+        skip,
+      }),
+      this.prisma.student.count({ where }),
+    ]);
+
+    return {
+      items: students.map((s) => ({
+        id: s.id,
+        rollNumber: s.rollNumber,
+        name: s.user.name,
+        email: s.user.email,
+        status: s.user.status,
+        batch: s.batch,
+        createdAt: s.createdAt,
+      })),
+      total,
+      limit: take,
+      offset: skip,
+    };
   }
 
   async findOne(id: string) {

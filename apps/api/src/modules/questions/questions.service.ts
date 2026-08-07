@@ -187,27 +187,48 @@ export class QuestionsService {
       ...(query.tag ? { tags: { has: query.tag } } : {}),
     };
 
+    // The bank holds 20,000+ questions per institute (§2.4), so listing is
+    // always paginated — an uncapped findMany would serialise the whole bank.
+    const take = Math.min(query.limit ?? 50, 200);
+    const skip = query.offset ?? 0;
+
     const term = query.search?.trim();
     if (!term) {
-      return this.prisma.question.findMany({
-        where: structuralWhere,
-        orderBy: { createdAt: 'desc' },
-        select: listSelect,
-      });
+      const [items, total] = await this.prisma.$transaction([
+        this.prisma.question.findMany({
+          where: structuralWhere,
+          orderBy: { createdAt: 'desc' },
+          select: listSelect,
+          take,
+          skip,
+        }),
+        this.prisma.question.count({ where: structuralWhere }),
+      ]);
+      return { items, total, limit: take, offset: skip };
     }
 
     // Search via the Search port (§2.6) — relevance-ranked ids — then hydrate
     // the rows through Prisma (applying the structural filters) and restore the
-    // relevance order.
+    // relevance order. The port already caps how deep it ranks, so `total` is
+    // the number of matches within that ranked window.
     const rankedIds = await this.search.search({ instituteId, term });
-    if (rankedIds.length === 0) return [];
+    if (rankedIds.length === 0) {
+      return { items: [], total: 0, limit: take, offset: skip };
+    }
 
     const rows = await this.prisma.question.findMany({
       where: { ...structuralWhere, id: { in: rankedIds } },
       select: listSelect,
     });
     const order = new Map(rankedIds.map((id, i) => [id, i]));
-    return rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+
+    return {
+      items: rows.slice(skip, skip + take),
+      total: rows.length,
+      limit: take,
+      offset: skip,
+    };
   }
 
   async findOne(id: string) {
