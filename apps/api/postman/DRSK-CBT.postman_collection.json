@@ -1,0 +1,3658 @@
+{
+  "info": {
+    "_postman_id": "9b0c1d2e-3f4a-4b5c-8d6e-7f8a9b0c1d2e",
+    "name": "DRSK CBT API",
+    "description": "End-to-end collection for the DRSK CBT platform. Run the folders in order (Collection Runner works top-to-bottom). IDs and tokens are captured into collection variables automatically; the three \"Accept Invite\" steps need a token pasted from the API console. Select the \"DRSK CBT — Local\" environment first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 · Health",
+      "item": [
+        {
+          "name": "Liveness",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "Readiness (DB up)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/health/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "health", "ready"]
+            }
+          }
+        }
+      ],
+      "description": "Liveness and readiness. No auth."
+    },
+    {
+      "name": "1 · Auth & Onboarding",
+      "item": [
+        {
+          "name": "Login Superadmin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var superToken = body?.[\"accessToken\"];",
+                  "  if (superToken !== undefined && superToken !== null) pm.collectionVariables.set(\"superToken\", String(superToken));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Uses the seeded superadmin. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{superEmail}}\",\n  \"password\": \"{{superPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Institute",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fresh, unique identifiers for this run.",
+                  "var s = Date.now().toString(36);",
+                  "pm.collectionVariables.set('suffix', s);",
+                  "pm.collectionVariables.set('instituteSlug', 'inst-' + s);",
+                  "pm.collectionVariables.set('adminEmail', 'admin-' + s + '@test.local');",
+                  "pm.collectionVariables.set('teacherEmail', 'teacher-' + s + '@test.local');",
+                  "pm.collectionVariables.set('studentEmail', 'student-' + s + '@test.local');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var instituteId = body?.[\"id\"];",
+                  "  if (instituteId !== undefined && instituteId !== null) pm.collectionVariables.set(\"instituteId\", String(instituteId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/institutes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "institutes"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Institute {{suffix}}\",\n  \"slug\": \"{{instituteSlug}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Invite Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  token=... value, and paste it into collection variable: adminInviteToken\");",
+                  "console.log(\"  (the dev mail adapter logs the accept-invite link there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{superToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/admin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "admin"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Admin\",\n  \"email\": \"{{adminEmail}}\",\n  \"instituteId\": \"{{instituteId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Accept Admin Invite  ⟵ paste token first",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "accept"]
+            },
+            "description": "Set `adminInviteToken` to the token printed in the API console by \"Invite Admin\".",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{adminInviteToken}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var adminToken = body?.[\"accessToken\"];",
+                  "  if (adminToken !== undefined && adminToken !== null) pm.collectionVariables.set(\"adminToken\", String(adminToken));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Invite Teacher",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  token=... value, and paste it into collection variable: teacherInviteToken\");",
+                  "console.log(\"  (the dev mail adapter logs the accept-invite link there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/teacher",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "teacher"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Teacher\",\n  \"email\": \"{{teacherEmail}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Accept Teacher Invite  ⟵ paste token first",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "accept"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{teacherInviteToken}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login Teacher",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var teacherToken = body?.[\"accessToken\"];",
+                  "  if (teacherToken !== undefined && teacherToken !== null) pm.collectionVariables.set(\"teacherToken\", String(teacherToken));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{teacherEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Who am I (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "me"]
+            }
+          }
+        }
+      ],
+      "description": "Superadmin → institute → admin → teacher. The three Accept steps need a token pasted from the API console (see the request descriptions)."
+    },
+    {
+      "name": "2 · Academic Structure",
+      "item": [
+        {
+          "name": "Create Program",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var programId = body?.[\"id\"];",
+                  "  if (programId !== undefined && programId !== null) pm.collectionVariables.set(\"programId\", String(programId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NEET\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Programs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs"]
+            }
+          }
+        },
+        {
+          "name": "Get Program",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs/{{programId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs", "{{programId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Program",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs/{{programId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs", "{{programId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NEET UG\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Class",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var classId = body?.[\"id\"];",
+                  "  if (classId !== undefined && classId !== null) pm.collectionVariables.set(\"classId\", String(classId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/classes",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "classes"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"programId\": \"{{programId}}\",\n  \"name\": \"Class 12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Classes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/classes?programId={{programId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "classes"],
+              "query": [
+                {
+                  "key": "programId",
+                  "value": "{{programId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Class",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/classes/{{classId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "classes", "{{classId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Class",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/classes/{{classId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "classes", "{{classId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Class XII\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var batchId = body?.[\"id\"];",
+                  "  if (batchId !== undefined && batchId !== null) pm.collectionVariables.set(\"batchId\", String(batchId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/batches",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "batches"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"classId\": \"{{classId}}\",\n  \"name\": \"Alpha\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Batches",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/batches?classId={{classId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "batches"],
+              "query": [
+                {
+                  "key": "classId",
+                  "value": "{{classId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/batches/{{batchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "batches", "{{batchId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/batches/{{batchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "batches", "{{batchId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Alpha 2026\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Programs → classes → batches (admin)."
+    },
+    {
+      "name": "3 · Students",
+      "item": [
+        {
+          "name": "Invite Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  token=... value, and paste it into collection variable: studentInviteToken\");",
+                  "console.log(\"  (the dev mail adapter logs the accept-invite link there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/student",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "student"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Student\",\n  \"email\": \"{{studentEmail}}\",\n  \"rollNumber\": \"{{studentRoll}}\",\n  \"batchId\": \"{{batchId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Accept Student Invite  ⟵ paste token first",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/invitations/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "invitations", "accept"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{studentInviteToken}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Student Login (roll + password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var studentToken = body?.[\"accessToken\"];",
+                  "  if (studentToken !== undefined && studentToken !== null) pm.collectionVariables.set(\"studentToken\", String(studentToken));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/student/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "student", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instituteSlug\": \"{{instituteSlug}}\",\n  \"rollNumber\": \"{{studentRoll}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Students (paginated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var studentId = body?.[\"items\"]?.[\"0\"]?.[\"id\"];",
+                  "  if (studentId !== undefined && studentId !== null) pm.collectionVariables.set(\"studentId\", String(studentId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students?batchId={{batchId}}&limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students"],
+              "query": [
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students/{{studentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students", "{{studentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students/{{studentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students", "{{studentId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Student (edited)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Import Students (CSV) — attach a file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 400\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,400]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students/import?batchId={{batchId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students", "import"],
+              "query": [
+                {
+                  "key": "batchId",
+                  "value": "{{batchId}}"
+                }
+              ]
+            },
+            "description": "Attach a CSV file (columns name,email,rollNumber). 400 until a file is attached.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "A CSV with columns: name,email,rollNumber"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Invite a student, then manage the roster (admin)."
+    },
+    {
+      "name": "4 · Question Bank",
+      "item": [
+        {
+          "name": "Create Question 1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var questionId1 = body?.[\"id\"];",
+                  "  if (questionId1 !== undefined && questionId1 !== null) pm.collectionVariables.set(\"questionId1\", String(questionId1));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"What is the SI unit of force?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Question 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var questionId2 = body?.[\"id\"];",
+                  "  if (questionId2 !== undefined && questionId2 !== null) pm.collectionVariables.set(\"questionId2\", String(questionId2));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"Acceleration is the rate of change of what?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Questions (paginated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions?limit=50&offset=0",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Full-text Search",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions?search=force",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "force"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Question",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId1}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId1}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Question (before use)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId1}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId1}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chapter\": \"Kinematics\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Submit Q1 for review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId1}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId1}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "Approve Q1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId1}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId1}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Submit Q2 for review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId2}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId2}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "Approve Q2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId2}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId2}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Create Question 3 (for reject/archive)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var questionId3 = body?.[\"id\"];",
+                  "  if (questionId3 !== undefined && questionId3 !== null) pm.collectionVariables.set(\"questionId3\", String(questionId3));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"A throwaway question\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Submit Q3",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId3}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId3}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "Reject Q3 (back to draft)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId3}}/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId3}}", "reject"]
+            }
+          }
+        },
+        {
+          "name": "Archive Q3",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/{{questionId3}}/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "{{questionId3}}", "archive"]
+            }
+          }
+        },
+        {
+          "name": "Import Questions (DOCX) — attach a file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 400\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,400]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/questions/import?subject=Physics&examType=NEET",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "questions", "import"],
+              "query": [
+                {
+                  "key": "subject",
+                  "value": "Physics"
+                },
+                {
+                  "key": "examType",
+                  "value": "NEET"
+                }
+              ]
+            },
+            "description": "Attach a .docx (Q:/1. markers, A) options, Answer:, Key: value). 400 until a file is attached.",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "A .docx per the import template"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "Author, review, approve; search and import."
+    },
+    {
+      "name": "5 · Exams",
+      "item": [
+        {
+          "name": "Create Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var examId = body?.[\"id\"];",
+                  "  if (examId !== undefined && examId !== null) pm.collectionVariables.set(\"examId\", String(examId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Mock Test\",\n  \"durationMinutes\": 60,\n  \"maxViolations\": 3,\n  \"resultPolicy\": \"ON_PUBLISH\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List Exams",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams"]
+            }
+          }
+        },
+        {
+          "name": "Get Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"instructions\": \"Read all questions carefully.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Add Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var sectionId = body?.[\"id\"];",
+                  "  if (sectionId !== undefined && sectionId !== null) pm.collectionVariables.set(\"sectionId\", String(sectionId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/sections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "sections"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Physics\",\n  \"marksCorrect\": 4,\n  \"marksWrong\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Add Q1 to Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/sections/{{sectionId}}/questions",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "sections",
+                "{{sectionId}}",
+                "questions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{questionId1}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Add Q2 to Section",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/sections/{{sectionId}}/questions",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "sections",
+                "{{sectionId}}",
+                "questions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"questionId\": \"{{questionId2}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Assign Batch",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/batches",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "batches"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"batchId\": \"{{batchId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Schedule Exam (window open now)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('startAt', new Date(Date.now() - 60000).toISOString());",
+                  "pm.collectionVariables.set('endAt', new Date(Date.now() + 3600000).toISOString());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "schedule"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"startAt\": \"{{startAt}}\",\n  \"endAt\": \"{{endAt}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Publish Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "publish"]
+            }
+          }
+        },
+        {
+          "name": "Clone Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var clonedExamId = body?.[\"id\"];",
+                  "  if (clonedExamId !== undefined && clonedExamId !== null) pm.collectionVariables.set(\"clonedExamId\", String(clonedExamId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/clone",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "clone"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Mock Test (Copy)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unpublish the Clone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200 or 400\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200,400]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{clonedExamId}}/unpublish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{clonedExamId}}", "unpublish"]
+            },
+            "description": "The clone is a draft, so this is a no-op/400 — included for coverage of the route."
+          }
+        }
+      ],
+      "description": "Build, schedule, publish, clone (teacher/admin)."
+    },
+    {
+      "name": "6 · Candidate Exam",
+      "item": [
+        {
+          "name": "Start Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var attemptId = body?.[\"id\"];",
+                  "  if (attemptId !== undefined && attemptId !== null) pm.collectionVariables.set(\"attemptId\", String(attemptId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"examId\": \"{{examId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get Attempt State",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}"]
+            }
+          }
+        },
+        {
+          "name": "Answer Q1 (auto-save)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/responses/{{questionId1}}",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "attempts",
+                "{{attemptId}}",
+                "responses",
+                "{{questionId1}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"A\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Answer Q2 (wrong)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/responses/{{questionId2}}",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "attempts",
+                "{{attemptId}}",
+                "responses",
+                "{{questionId2}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"B\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Record Section Time",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/section-time",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "section-time"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sectionId\": \"{{sectionId}}\",\n  \"seconds\": 45\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Report Proctoring Violation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/violations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "violations"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"TAB_SWITCH\",\n  \"detail\": \"window blurred\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Pre-submission Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "summary"]
+            }
+          }
+        },
+        {
+          "name": "Submit Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "submit"]
+            }
+          }
+        }
+      ],
+      "description": "The student sits the published exam."
+    },
+    {
+      "name": "7 · Results & Ranking",
+      "item": [
+        {
+          "name": "Evaluate",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "evaluate"]
+            }
+          }
+        },
+        {
+          "name": "List Results (ranked)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "results"]
+            }
+          }
+        },
+        {
+          "name": "Grace Marks — set Q2 BONUS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/questions/{{questionId2}}/scoring",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "questions",
+                "{{questionId2}}",
+                "scoring"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"override\": \"BONUS\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Re-evaluate after BONUS",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "evaluate"]
+            }
+          }
+        },
+        {
+          "name": "Manual Evaluation (set Q1 MANUAL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/questions/{{questionId1}}/scoring",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "questions",
+                "{{questionId1}}",
+                "scoring"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"override\": \"MANUAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Award Manual Marks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200 or 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/manual",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "results", "manual"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attemptId\": \"{{attemptId}}\",\n  \"questionId\": \"{{questionId1}}\",\n  \"marks\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Re-evaluate after manual award",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "evaluate"]
+            }
+          }
+        },
+        {
+          "name": "Publish Results",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "results", "publish"]
+            }
+          }
+        },
+        {
+          "name": "Hold Results",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/hold",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "results", "hold"]
+            }
+          }
+        },
+        {
+          "name": "Publish Results (again)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201 or 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "results", "publish"]
+            }
+          }
+        },
+        {
+          "name": "Export CSV",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/export/csv",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "results",
+                "export",
+                "csv"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export Excel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/export/xlsx",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "results",
+                "export",
+                "xlsx"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export PDF",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/export/pdf",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "results",
+                "export",
+                "pdf"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Student sees own Result",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/result",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "result"]
+            }
+          }
+        }
+      ],
+      "description": "Evaluate, remediate, publish, export (admin); student view."
+    },
+    {
+      "name": "8 · Monitoring & Analytics",
+      "item": [
+        {
+          "name": "Live Exam Monitor",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/monitor",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "monitor"]
+            }
+          }
+        },
+        {
+          "name": "Exam Analytics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "analytics"]
+            }
+          }
+        },
+        {
+          "name": "Student History (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students/{{studentId}}/history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students", "{{studentId}}", "history"]
+            }
+          }
+        },
+        {
+          "name": "My History (student)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/me/history",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "me", "history"]
+            }
+          }
+        }
+      ],
+      "description": "Live monitor, exam analytics, histories."
+    },
+    {
+      "name": "9 · Audit",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audit-logs?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audit-logs"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter Audit Logs (failures)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/audit-logs?outcome=FAILURE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "audit-logs"],
+              "query": [
+                {
+                  "key": "outcome",
+                  "value": "FAILURE"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "description": "The audit trail (admin/superadmin)."
+    },
+    {
+      "name": "10 · Authorization Checks",
+      "item": [
+        {
+          "name": "No token → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs"]
+            }
+          }
+        },
+        {
+          "name": "Teacher creates program → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/programs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "programs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nope\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Student hits admin route → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/students",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "students"]
+            }
+          }
+        },
+        {
+          "name": "Teacher exports results → 403",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 403\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/results/export/csv",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "v1",
+                "exams",
+                "{{examId}}",
+                "results",
+                "export",
+                "csv"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Wrong password → 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 401\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([401]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"wrong-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "RBAC + tenancy guards should reject these."
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "superEmail",
+      "value": "superadmin@drsk.local"
+    },
+    {
+      "key": "superPassword",
+      "value": "ChangeMe123!"
+    },
+    {
+      "key": "password",
+      "value": "TestPass1234"
+    },
+    {
+      "key": "studentRoll",
+      "value": "PM001"
+    },
+    {
+      "key": "suffix",
+      "value": ""
+    },
+    {
+      "key": "instituteSlug",
+      "value": ""
+    },
+    {
+      "key": "adminEmail",
+      "value": ""
+    },
+    {
+      "key": "teacherEmail",
+      "value": ""
+    },
+    {
+      "key": "studentEmail",
+      "value": ""
+    },
+    {
+      "key": "superToken",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "teacherToken",
+      "value": ""
+    },
+    {
+      "key": "studentToken",
+      "value": ""
+    },
+    {
+      "key": "instituteId",
+      "value": ""
+    },
+    {
+      "key": "programId",
+      "value": ""
+    },
+    {
+      "key": "classId",
+      "value": ""
+    },
+    {
+      "key": "batchId",
+      "value": ""
+    },
+    {
+      "key": "studentId",
+      "value": ""
+    },
+    {
+      "key": "questionId1",
+      "value": ""
+    },
+    {
+      "key": "questionId2",
+      "value": ""
+    },
+    {
+      "key": "questionId3",
+      "value": ""
+    },
+    {
+      "key": "examId",
+      "value": ""
+    },
+    {
+      "key": "clonedExamId",
+      "value": ""
+    },
+    {
+      "key": "sectionId",
+      "value": ""
+    },
+    {
+      "key": "attemptId",
+      "value": ""
+    },
+    {
+      "key": "startAt",
+      "value": ""
+    },
+    {
+      "key": "endAt",
+      "value": ""
+    }
+  ]
+}

@@ -14,4 +14,6 @@ allowBuilds:
   unrs-resolver: true
   prisma: true
   '@prisma/engines': true
+  # sharp: Next.js's native image optimizer (apps/web). Trusted, prebuilt.
+  sharp: true
   '@scarf/scarf': false

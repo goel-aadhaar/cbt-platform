@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/**
+ * DRSK design tokens — extracted from the Figma design system (DRSK Dashboard).
+ * Exposed to Tailwind v4 via @theme so utilities like `bg-brand`, `text-ink`,
+ * `border-line` are available everywhere. Keep hex values here, not in components.
+ */
+@theme {
+  /* Brand */
+  --color-brand: #000666; /* deep navy — headings, primary emphasis */
+  --color-brand-indigo: #1a237e; /* primary buttons / active nav */
+  --color-brand-accent: #4c56af; /* marked-for-review, accents */
+  --color-brand-soft: #bdc2ff; /* selected-option fill */
+
+  /* Status (NTA palette) */
+  --color-success: #2a6b2c; /* answered / primary CTA */
+  --color-danger: #ba1a1a; /* negative marks / errors */
+  --color-alert: #ff0c0c; /* violation banner */
+  --color-warn: #f0ad4e; /* mark-for-review */
+  --color-not-answered: #ff6826; /* palette: not answered */
+  --color-info: #337ab7;
+
+  /* Neutrals */
+  --color-ink: #1a1c1c; /* primary text */
+  --color-muted: #454652; /* secondary text */
+  --color-subtle: #767683; /* tertiary text / placeholders */
+  --color-line: #c6c5d4; /* borders / dividers */
+  --color-surface: #f9f9f9; /* app background / inputs */
+  --color-surface-2: #f3f3f3; /* panels */
+  --color-surface-3: #eeeeee; /* action bars */
+  --color-fill: #e2e2e2; /* not-visited chips */
+
+  /* Admin console palette — the "premium command center" teal-green system
+     (distinct from the navy candidate-facing screens). Used by /admin/*. */
+  --color-admin: #006049; /* primary — buttons, active nav, headings accent */
+  --color-admin-2: #007b5e; /* lighter accent — chart bars, links */
+  --color-admin-mint: #95f5d1; /* soft-green pill fill / progress */
+  --color-admin-ink: #191c1d; /* primary text */
+  --color-admin-muted: #3e4944; /* secondary text */
+  --color-admin-subtle: #556158; /* tertiary text */
+  --color-admin-line: #bdc9c2; /* borders / dividers */
+  --color-admin-bg: #f3f4f5; /* console background */
+  --color-admin-surface: #edeeef; /* subtle panels / icon chips */
+  --color-danger-soft: #ffdad6; /* negative delta pill */
+
+  /* Typography — Noto Sans is the design's UI font (loaded in layout.tsx). */
+  --font-sans:
+    var(--font-noto-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-courier-prime), ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: #ffffff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}

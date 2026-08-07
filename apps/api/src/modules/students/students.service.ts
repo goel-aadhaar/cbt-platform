@@ -10,6 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { UserStatus } from '../auth/auth.types';
 import { InvitationService } from '../auth/invitation/invitation.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { QueryStudentsDto } from './dto/query-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 
 /** Result of a bulk CSV import (§2.10). */
@@ -160,15 +161,131 @@ export class StudentsService {
       },
       orderBy: { rollNumber: 'asc' },
     });
-    return students.map((s) => ({
-      id: s.id,
-      rollNumber: s.rollNumber,
-      name: s.user.name,
-      email: s.user.email,
-      status: s.user.status,
-      batch: s.batch,
-      createdAt: s.createdAt,
-    }));
+    if (!batch) {
+      throw new BadRequestException('Batch not found in your institute');
+    }
+
+    const records = csvRecords(params.buffer.toString('utf8'));
+    if (records.length === 0) {
+      throw new BadRequestException('CSV has no data rows');
+    }
+    if (records.length > MAX_IMPORT_ROWS) {
+      throw new BadRequestException(
+        `Import is limited to ${MAX_IMPORT_ROWS} rows at a time`,
+      );
+    }
+    if (!('name' in records[0]) || !('email' in records[0])) {
+      throw new BadRequestException('CSV must have "name" and "email" columns');
+    }
+
+    // Roll-number generation: sequential, zero-padded, unique within institute.
+    const existingRolls = (
+      await this.prisma.student.findMany({
+        where: { instituteId },
+        select: { rollNumber: true },
+      })
+    ).map((s) => s.rollNumber);
+    // Shared across explicit + generated rolls so neither collides with the
+    // other, nor with rolls already in the institute.
+    const seenRolls = new Set(existingRolls);
+    const prefix = derivePrefix(params.rollPrefix, batch.name);
+    const nextRoll = makeRollGenerator(prefix, seenRolls);
+
+    const seenEmails = new Set<string>();
+    const imported: ImportSummary['imported'] = [];
+    const failed: ImportSummary['failed'] = [];
+
+    let rowNum = 1; // header occupies row 1; data begins at row 2
+    for (const rec of records) {
+      rowNum++;
+      const name = rec.name;
+      const email = rec.email.toLowerCase();
+      let roll = rec.rollnumber || rec['roll number'] || rec.roll || '';
+      try {
+        if (!name) throw new Error('Missing name');
+        if (!EMAIL_RE.test(email)) throw new Error('Invalid email');
+        if (seenEmails.has(email)) {
+          throw new Error('Duplicate email in file');
+        }
+        if (roll) {
+          if (seenRolls.has(roll)) throw new Error('Duplicate roll number');
+        } else {
+          roll = nextRoll();
+        }
+
+        await this.invitations.inviteStudent(instituteId, params.invitedById, {
+          name,
+          email,
+          rollNumber: roll,
+          batchId: batch.id,
+        });
+
+        seenEmails.add(email);
+        seenRolls.add(roll);
+        imported.push({ row: rowNum, name, email, rollNumber: roll });
+      } catch (err) {
+        failed.push({
+          row: rowNum,
+          email,
+          reason: err instanceof Error ? err.message : 'Failed',
+        });
+      }
+    }
+
+    return {
+      batchId: batch.id,
+      batch: batch.name,
+      rollPrefix: prefix,
+      total: records.length,
+      imported,
+      failed,
+    };
+  }
+
+  /**
+   * Roster listing — always paginated. An institute's roll can run to thousands
+   * of students (they are bulk-imported by CSV), so an uncapped findMany would
+   * serialise the entire roll into a single response.
+   */
+  async findAll(query: QueryStudentsDto) {
+    const where = {
+      instituteId: this.instituteId(),
+      ...(query.batchId ? { batchId: query.batchId } : {}),
+    };
+    const take = Math.min(query.limit ?? 50, 200);
+    const skip = query.offset ?? 0;
+
+    const [students, total] = await this.prisma.$transaction([
+      this.prisma.student.findMany({
+        where,
+        select: {
+          id: true,
+          rollNumber: true,
+          createdAt: true,
+          user: { select: { name: true, email: true, status: true } },
+          batch: { select: { id: true, name: true } },
+        },
+        orderBy: { rollNumber: 'asc' },
+        take,
+        skip,
+      }),
+      this.prisma.student.count({ where }),
+    ]);
+
+    return {
+      items: students.map((s) => ({
+        id: s.id,
+        rollNumber: s.rollNumber,
+        name: s.user.name,
+        email: s.user.email,
+        status: s.user.status,
+        batch: s.batch,
+        createdAt: s.createdAt,
+      })),
+      total,
+      limit: take,
+      offset: skip,
+    };
   }
 
   async findOne(id: string) {

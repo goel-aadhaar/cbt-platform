@@ -238,20 +238,30 @@ export class ResultsService {
     });
 
     // Ranks (competition ranking) + NTA-style percentile.
+    //
+    // Computed by sorting rather than by rescanning the cohort for every
+    // candidate: the previous shape ran three O(n) filters per candidate, i.e.
+    // O(n²), which is ~75M comparisons for a 5,000-candidate exam.
     const n = scored.length;
+    assignCompetitionRanks(scored, (s, rank) => {
+      s.overallRank = rank;
+    });
+
+    const byBatch = new Map<string, ScoredAttempt[]>();
     for (const s of scored) {
-      s.overallRank =
-        1 + scored.filter((x) => x.totalScore > s.totalScore).length;
-      s.batchRank =
-        1 +
-        scored.filter(
-          (x) => x.batchId === s.batchId && x.totalScore > s.totalScore,
-        ).length;
-      s.percentile =
-        n > 0
-          ? (scored.filter((x) => x.totalScore <= s.totalScore).length / n) *
-            100
-          : 0;
+      const group = byBatch.get(s.batchId);
+      if (group) group.push(s);
+      else byBatch.set(s.batchId, [s]);
+    }
+    for (const group of byBatch.values()) {
+      assignCompetitionRanks(group, (s, rank) => {
+        s.batchRank = rank;
+      });
+    }
+
+    const percentiles = percentilesByScore(scored.map((s) => s.totalScore));
+    for (const s of scored) {
+      s.percentile = percentiles.get(s.totalScore) ?? 0;
     }
 
     // Result visibility (§2.2/§2.8): IMMEDIATE publishes on evaluation; the

@@ -25,6 +25,7 @@ import { Role } from '../auth/auth.types';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { QueryStudentsDto } from './dto/query-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { StudentsService } from './students.service';
 
@@ -36,10 +37,42 @@ export class StudentsController {
   constructor(private readonly students: StudentsService) {}
 
   @Get()
-  findAll(
-    @Query('batchId', new ParseUUIDPipe({ optional: true })) batchId?: string,
+  findAll(@Query() query: QueryStudentsDto) {
+    return this.students.findAll(query);
+  }
+
+  /**
+   * Bulk-import a batch's students from a CSV upload (§2.10). Field `file`;
+   * columns `name`, `email` (required) and optional `rollNumber`.
+   */
+  @Post('import')
+  @ApiConsumes('multipart/form-data')
+  @ApiQuery({ name: 'batchId', required: true })
+  @ApiQuery({ name: 'rollPrefix', required: false })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }),
+  )
+  importCsv(
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Query('batchId', ParseUUIDPipe) batchId: string,
+    @CurrentUser() user: AuthUser,
+    @Query('rollPrefix') rollPrefix?: string,
   ) {
-    return this.students.findAll(batchId);
+    if (!file) {
+      throw new BadRequestException('CSV file is required (form field "file")');
+    }
+    return this.students.importCsv({
+      batchId,
+      buffer: file.buffer,
+      rollPrefix,
+      invitedById: user.userId,
+    });
   }
 
   /**

@@ -1,10 +1,11 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { CandidateThrottlerGuard } from './common/throttler/candidate-throttler.guard';
 import { buildPinoOptions } from './common/logging/pino-logger.config';
 import { appConfig } from './config/app.config';
 import type { AppConfig } from './config/app.config';
@@ -95,7 +96,9 @@ import { StudentsModule } from './modules/students/students.module';
           transformOptions: { enableImplicitConversion: true },
         }),
     },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Keyed by caller, not IP: a whole exam hall shares one NAT address and
+    // would otherwise share a single rate-limit budget. See the guard's docs.
+    { provide: APP_GUARD, useClass: CandidateThrottlerGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })

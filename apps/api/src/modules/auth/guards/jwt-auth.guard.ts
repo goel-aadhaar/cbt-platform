@@ -52,9 +52,27 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token');
     }
 
+    // This runs on EVERY authenticated request (stateful sessions are required
+    // so a new login can kill the old one immediately — §2.2). Select only the
+    // four fields actually needed: `include: { user: true }` dragged the whole
+    // user row across the wire on every call, password hash and invitation token
+    // hash included.
     const session = await this.prisma.session.findUnique({
       where: { id: payload.sid },
-      include: { user: true },
+      select: {
+        id: true,
+        userId: true,
+        revokedAt: true,
+        expiresAt: true,
+        user: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+            instituteId: true,
+          },
+        },
+      },
     });
 
     const now = new Date();

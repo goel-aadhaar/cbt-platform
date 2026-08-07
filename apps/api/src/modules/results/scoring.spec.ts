@@ -84,3 +84,70 @@ describe('isCorrect', () => {
     });
   });
 });
+
+/** Ranks decide who tops the merit list, so ties are tested explicitly. */
+describe('assignCompetitionRanks', () => {
+  const rank = (scores: number[]): number[] => {
+    const items = scores.map((totalScore) => ({ totalScore, rank: 0 }));
+    assignCompetitionRanks(items, (item, r) => {
+      item.rank = r;
+    });
+    return items.map((i) => i.rank);
+  };
+
+  it('ranks distinct scores highest-first', () => {
+    expect(rank([8, 3, 0])).toEqual([1, 2, 3]);
+  });
+
+  it('does not depend on input order', () => {
+    expect(rank([0, 8, 3])).toEqual([3, 1, 2]);
+  });
+
+  it('gives tied candidates the same rank and skips the consumed ranks (1224)', () => {
+    // Two candidates tie for 2nd; the next candidate is 4th, not 3rd.
+    expect(rank([10, 8, 8, 5])).toEqual([1, 2, 2, 4]);
+  });
+
+  it('handles a tie at the top', () => {
+    expect(rank([9, 9, 4])).toEqual([1, 1, 3]);
+  });
+
+  it('gives everyone rank 1 when all scores are equal', () => {
+    expect(rank([5, 5, 5])).toEqual([1, 1, 1]);
+  });
+
+  it('ranks negative scores (negative marking can take a candidate below zero)', () => {
+    expect(rank([2, -1, -4])).toEqual([1, 2, 3]);
+  });
+
+  it('is a no-op on an empty cohort', () => {
+    expect(rank([])).toEqual([]);
+  });
+});
+
+describe('percentilesByScore', () => {
+  it('gives the top scorer 100 and scales by candidates at-or-below', () => {
+    const p = percentilesByScore([8, 3, 0]);
+    expect(p.get(8)).toBeCloseTo(100, 5);
+    expect(p.get(3)).toBeCloseTo(66.667, 2);
+    expect(p.get(0)).toBeCloseTo(33.333, 2);
+  });
+
+  it('gives tied candidates the same percentile, counting the whole tie', () => {
+    // Each 8 has all four candidates at or below it (itself, its tied peer, the
+    // 5 and the 1) → 100. Joint toppers both score the 100th percentile, which
+    // is the NTA convention.
+    const p = percentilesByScore([8, 8, 5, 1]);
+    expect(p.get(8)).toBeCloseTo(100, 5);
+    expect(p.get(5)).toBeCloseTo(50, 5);
+    expect(p.get(1)).toBeCloseTo(25, 5);
+  });
+
+  it('gives a sole candidate 100', () => {
+    expect(percentilesByScore([7]).get(7)).toBeCloseTo(100, 5);
+  });
+
+  it('returns an empty map for an empty cohort', () => {
+    expect(percentilesByScore([]).size).toBe(0);
+  });
+});
