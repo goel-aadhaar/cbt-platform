@@ -146,6 +146,102 @@ export class StudentsService {
     };
   }
 
+  async findAll(batchId?: string) {
+    const students = await this.prisma.student.findMany({
+      where: {
+        instituteId: this.instituteId(),
+        ...(batchId ? { batchId } : {}),
+      },
+      select: {
+        id: true,
+        rollNumber: true,
+        createdAt: true,
+        user: { select: { name: true, email: true, status: true } },
+        batch: { select: { id: true, name: true } },
+      },
+      orderBy: { rollNumber: 'asc' },
+    });
+    if (!batch) {
+      throw new BadRequestException('Batch not found in your institute');
+    }
+
+    const records = csvRecords(params.buffer.toString('utf8'));
+    if (records.length === 0) {
+      throw new BadRequestException('CSV has no data rows');
+    }
+    if (records.length > MAX_IMPORT_ROWS) {
+      throw new BadRequestException(
+        `Import is limited to ${MAX_IMPORT_ROWS} rows at a time`,
+      );
+    }
+    if (!('name' in records[0]) || !('email' in records[0])) {
+      throw new BadRequestException('CSV must have "name" and "email" columns');
+    }
+
+    // Roll-number generation: sequential, zero-padded, unique within institute.
+    const existingRolls = (
+      await this.prisma.student.findMany({
+        where: { instituteId },
+        select: { rollNumber: true },
+      })
+    ).map((s) => s.rollNumber);
+    // Shared across explicit + generated rolls so neither collides with the
+    // other, nor with rolls already in the institute.
+    const seenRolls = new Set(existingRolls);
+    const prefix = derivePrefix(params.rollPrefix, batch.name);
+    const nextRoll = makeRollGenerator(prefix, seenRolls);
+
+    const seenEmails = new Set<string>();
+    const imported: ImportSummary['imported'] = [];
+    const failed: ImportSummary['failed'] = [];
+
+    let rowNum = 1; // header occupies row 1; data begins at row 2
+    for (const rec of records) {
+      rowNum++;
+      const name = rec.name;
+      const email = rec.email.toLowerCase();
+      let roll = rec.rollnumber || rec['roll number'] || rec.roll || '';
+      try {
+        if (!name) throw new Error('Missing name');
+        if (!EMAIL_RE.test(email)) throw new Error('Invalid email');
+        if (seenEmails.has(email)) {
+          throw new Error('Duplicate email in file');
+        }
+        if (roll) {
+          if (seenRolls.has(roll)) throw new Error('Duplicate roll number');
+        } else {
+          roll = nextRoll();
+        }
+
+        await this.invitations.inviteStudent(instituteId, params.invitedById, {
+          name,
+          email,
+          rollNumber: roll,
+          batchId: batch.id,
+        });
+
+        seenEmails.add(email);
+        seenRolls.add(roll);
+        imported.push({ row: rowNum, name, email, rollNumber: roll });
+      } catch (err) {
+        failed.push({
+          row: rowNum,
+          email,
+          reason: err instanceof Error ? err.message : 'Failed',
+        });
+      }
+    }
+
+    return {
+      batchId: batch.id,
+      batch: batch.name,
+      rollPrefix: prefix,
+      total: records.length,
+      imported,
+      failed,
+    };
+  }
+
   /**
    * Roster listing — always paginated. An institute's roll can run to thousands
    * of students (they are bulk-imported by CSV), so an uncapped findMany would

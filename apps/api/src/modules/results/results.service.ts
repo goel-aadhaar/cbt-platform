@@ -18,11 +18,7 @@ import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
-import {
-  assignCompetitionRanks,
-  isCorrect,
-  percentilesByScore,
-} from './scoring';
+import { isCorrect } from './scoring';
 
 interface SectionScore {
   sectionId: string;
