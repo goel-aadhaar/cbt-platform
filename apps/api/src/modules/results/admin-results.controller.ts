@@ -75,7 +75,13 @@ export class AdminResultsController {
     });
   }
 
-  /** Remediation (§2.5/§2.9): flag a question BONUS/DROPPED/MANUAL/NORMAL, then re-evaluate. */
+  /** The exam's questions with their answer-key decision and hit rate (§2.9). */
+  @Get(':id/questions/scoring')
+  listScoring(@Param('id', ParseUUIDPipe) id: string) {
+    return this.results.listQuestionScoring(id);
+  }
+
+  /** Remediation (§2.5/§2.9): flag a question BONUS/DROPPED/MANUAL/NORMAL; recalculates. */
   @Patch(':id/questions/:questionId/scoring')
   setScoring(
     @Param('id', ParseUUIDPipe) id: string,

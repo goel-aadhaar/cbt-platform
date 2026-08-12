@@ -2,6 +2,10 @@
 
 import type { ExamResultRow } from "@/lib/admin";
 
+import { useState } from "react";
+
+import { downloadResultExport, type ExportFormat } from "@/lib/admin";
+import { AnswerKeyPanel } from "./answer-key-panel";
 import { XIcon } from "./icons";
 
 const BANDS = ["0-20", "21-40", "41-60", "61-80", "81-100"];
@@ -35,14 +39,19 @@ export function ResultDetailDrawer({
   onPublish,
   onRecalculate,
   examTitle,
+  examId,
   results,
+  onChanged,
 }: {
   open: boolean;
   onClose: () => void;
   onPublish: () => void;
   onRecalculate: () => void;
   examTitle?: string;
+  examId?: string;
   results?: ExamResultRow[];
+  /** Fired after an answer-key correction so the caller can refresh. */
+  onChanged?: () => void;
 }) {
   if (!open) return null;
 
@@ -216,6 +225,8 @@ export function ResultDetailDrawer({
             </>
           )}
 
+          {examId && <AnswerKeyPanel examId={examId} onChanged={onChanged} />}
+
           <div className="mt-8 flex items-center gap-2 rounded-xl border border-admin-line/60 bg-admin-bg p-4 text-sm text-admin-muted">
             {rows.length === 0
               ? "This exam has no evaluated results yet. Run Evaluate from the results table first."
@@ -225,7 +236,8 @@ export function ResultDetailDrawer({
           </div>
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t border-admin-line/60 px-8 py-5">
+        <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-admin-line/60 px-8 py-5">
+          {examId && rows.length > 0 && <ExportButtons examId={examId} />}
           <button
             onClick={onRecalculate}
             className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
@@ -240,6 +252,49 @@ export function ResultDetailDrawer({
           </button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+/** CSV / Excel / PDF downloads for the ranked result sheet (§2.14). */
+function ExportButtons({ examId }: { examId: string }) {
+  const [busy, setBusy] = useState<ExportFormat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(format: ExportFormat) {
+    if (busy) return;
+    setBusy(format);
+    setError(null);
+    try {
+      await downloadResultExport(examId, format);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mr-auto flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold uppercase text-admin-muted">
+        Export
+      </span>
+      {(["csv", "xlsx", "pdf"] as ExportFormat[]).map((f) => (
+        <button
+          key={f}
+          type="button"
+          onClick={() => void run(f)}
+          disabled={busy !== null}
+          className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:cursor-wait disabled:opacity-50"
+        >
+          {busy === f ? "…" : f === "xlsx" ? "Excel" : f}
+        </button>
+      ))}
+      {error && (
+        <span role="alert" className="text-xs text-red-700">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

@@ -372,7 +372,9 @@ export default function ResultsPage() {
         onPublish={() => setPublishOpen(true)}
         onRecalculate={() => setRecalcOpen(true)}
         examTitle={selected?.exam}
+        examId={selected?.examId}
         results={selected?.results}
+        onChanged={() => setTimeout(() => window.location.reload(), 900)}
       />
       <PublishResultsModal
         open={publishOpen}

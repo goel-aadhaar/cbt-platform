@@ -69,7 +69,18 @@ export class ResultsService {
     return id;
   }
 
-  async evaluate(examId: string) {
+  async evaluate(
+    examId: string,
+    opts: {
+      /**
+       * Keep each existing row's `published` flag instead of re-deriving it
+       * from the result policy. Used by answer-key corrections (§2.9): a bonus
+       * or dropped question must update the scores students can already see,
+       * not yank their results back into review.
+       */
+      preservePublished?: boolean;
+    } = {},
+  ) {
     const instituteId = this.instituteId();
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, instituteId },
@@ -305,8 +316,9 @@ export class ResultsService {
             batchRank: s.batchRank,
             percentile: s.percentile,
             // IMMEDIATE stays visible on re-evaluation; held policies re-hide
-            // until an admin reviews + republishes.
-            published: autoPublish,
+            // until an admin reviews + republishes — unless this is an answer-key
+            // correction, which must leave visibility exactly as it was.
+            ...(opts.preservePublished ? {} : { published: autoPublish }),
           },
         }),
       ),
@@ -320,6 +332,96 @@ export class ResultsService {
    * every candidate, DROPPED removes it from scoring, NORMAL reverts. The caller
    * re-runs {@link evaluate} (idempotent) and re-publishes to apply the change.
    */
+  /**
+   * The exam's questions with their current answer-key decision (§2.9), plus
+   * how many candidates got each one right. The hit rate is what tells an
+   * admin whether a question is worth dropping — a near-zero rate on a
+   * question everyone attempted usually means the key is wrong.
+   */
+  async listQuestionScoring(examId: string) {
+    const instituteId = this.instituteId();
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, instituteId },
+      select: { id: true },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const [rows, attempts] = await Promise.all([
+      this.prisma.examQuestion.findMany({
+        where: { examId, instituteId },
+        orderBy: [{ sectionId: 'asc' }, { order: 'asc' }],
+        select: {
+          questionId: true,
+          order: true,
+          scoring: true,
+          section: { select: { name: true } },
+          question: {
+            select: {
+              id: true,
+              statement: true,
+              type: true,
+              marks: true,
+              answerKey: true,
+            },
+          },
+        },
+      }),
+      this.prisma.attempt.findMany({
+        where: {
+          examId,
+          instituteId,
+          status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] },
+        },
+        select: { responses: { select: { questionId: true, answer: true } } },
+      }),
+    ]);
+
+    const stats = new Map<string, { attempted: number; correct: number }>();
+    for (const a of attempts) {
+      for (const r of a.responses) {
+        const cur = stats.get(r.questionId) ?? { attempted: 0, correct: 0 };
+        if (r.answer !== null) cur.attempted += 1;
+        stats.set(r.questionId, cur);
+      }
+    }
+    for (const row of rows) {
+      const cur = stats.get(row.questionId);
+      if (!cur) continue;
+      for (const a of attempts) {
+        const r = a.responses.find((x) => x.questionId === row.questionId);
+        if (
+          r?.answer != null &&
+          isCorrect(row.question.type, r.answer, row.question.answerKey)
+        ) {
+          cur.correct += 1;
+        }
+      }
+    }
+
+    return {
+      candidates: attempts.length,
+      items: rows.map((r) => {
+        const st = stats.get(r.questionId) ?? { attempted: 0, correct: 0 };
+        return {
+          questionId: r.questionId,
+          order: r.order,
+          section: r.section?.name ?? null,
+          statement: r.question.statement,
+          type: r.question.type,
+          marks: r.question.marks,
+          scoring: r.scoring,
+          attempted: st.attempted,
+          correct: st.correct,
+          /** Share of candidates who ANSWERED it that got it right, 0-100. */
+          hitRate:
+            st.attempted === 0
+              ? null
+              : Math.round((st.correct / st.attempted) * 100),
+        };
+      }),
+    };
+  }
+
   async setQuestionScoring(
     examId: string,
     questionId: string,
@@ -335,7 +437,22 @@ export class ResultsService {
       where: { id: eq.id },
       data: { scoring: override },
     });
-    return { examId, questionId, scoring: override };
+
+    /**
+     * §2.9 requires scores, ranks and percentiles to update "without manual
+     * correction", so the recalculation runs here rather than waiting for an
+     * admin to press Evaluate. Only meaningful once results exist; publication
+     * state is preserved so a correction never hides results students can see.
+     */
+    const alreadyEvaluated = await this.prisma.result.count({
+      where: { examId, instituteId },
+    });
+    const recalculated =
+      alreadyEvaluated > 0
+        ? await this.evaluate(examId, { preservePublished: true })
+        : null;
+
+    return { examId, questionId, scoring: override, recalculated };
   }
 
   /**

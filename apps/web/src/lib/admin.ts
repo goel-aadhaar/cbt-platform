@@ -529,3 +529,108 @@ export async function importStudentsCsv(
   }
   return payload as ImportSummary;
 }
+
+/* ------------------------------------------------------------------ *
+ * Answer-key corrections (§2.9 bonus marks)                           *
+ * ------------------------------------------------------------------ */
+
+export type QuestionScoring = "NORMAL" | "BONUS" | "DROPPED" | "MANUAL";
+
+export interface ExamQuestionScoringRow {
+  questionId: string;
+  order: number;
+  section: string | null;
+  statement: string;
+  type: string;
+  marks: number;
+  scoring: QuestionScoring;
+  attempted: number;
+  correct: number;
+  /** Share of candidates who answered it that got it right, 0-100. */
+  hitRate: number | null;
+}
+
+/** GET /exams/:id/questions/scoring — the answer-key decision per question. */
+export function listQuestionScoring(
+  examId: string,
+): Promise<{ candidates: number; items: ExamQuestionScoringRow[] }> {
+  return apiFetch(`/exams/${examId}/questions/scoring`, {
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * PATCH /exams/:id/questions/:questionId/scoring — mark a question BONUS,
+ * DROPPED, MANUAL or back to NORMAL. The server recalculates scores, ranks and
+ * percentiles itself and leaves publication state untouched.
+ */
+export function setQuestionScoring(
+  examId: string,
+  questionId: string,
+  override: QuestionScoring,
+): Promise<{
+  examId: string;
+  questionId: string;
+  scoring: QuestionScoring;
+  recalculated: { evaluated: number; maxScore: number } | null;
+}> {
+  return apiFetch(`/exams/${examId}/questions/${questionId}/scoring`, {
+    method: "PATCH",
+    body: { override },
+    token: getToken() ?? undefined,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Result exports (§2.14)                                              *
+ * ------------------------------------------------------------------ */
+
+export type ExportFormat = "csv" | "xlsx" | "pdf";
+
+/**
+ * Download a ranked result sheet.
+ *
+ * The endpoints are authenticated, so a plain anchor href cannot fetch them —
+ * the bearer token has to go on the request. We pull the bytes, honour the
+ * server's Content-Disposition filename, and hand the browser an object URL.
+ */
+export async function downloadResultExport(
+  examId: string,
+  format: ExportFormat,
+): Promise<void> {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const token = getToken();
+  const res = await fetch(`${base}/exams/${examId}/results/export/${format}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!res.ok) {
+    // Error bodies are JSON even though the success path is a file.
+    let message = `Export failed (${res.status})`;
+    try {
+      const body = (await res.json()) as { message?: string | string[] };
+      const m = body.message;
+      if (Array.isArray(m)) message = m.join(". ");
+      else if (typeof m === "string" && m.trim()) message = m;
+    } catch {
+      /* keep the status-based message */
+    }
+    throw new Error(message);
+  }
+
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = match?.[1] ?? `results.${format}`;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoke on the next tick so the click has definitely started the download.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}

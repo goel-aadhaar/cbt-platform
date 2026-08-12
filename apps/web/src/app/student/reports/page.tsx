@@ -198,6 +198,42 @@ function OverallTab() {
           </div>
         </section>
 
+        <section className="flex flex-col items-center gap-6 rounded-xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)] md:flex-row">
+          <div className="flex h-32 w-full items-end justify-center gap-2 rounded-lg bg-admin-bg p-4 md:w-64">
+            {[30, 50, 40, 65, 90].map((h, i) => (
+              <div
+                key={i}
+                className="w-6 rounded bg-admin"
+                style={{ height: `${h}%`, opacity: 0.3 + (h / 100) * 0.7 }}
+              />
+            ))}
+          </div>
+          <div className="flex-1">
+            <h3 className="flex items-center gap-2 text-lg font-semibold text-admin-ink">
+              Advanced Weakness Analysis
+              <span className="rounded-full bg-admin px-2 py-0.5 text-[10px] font-bold text-white">
+                PRO
+              </span>
+            </h3>
+            <p className="mt-1 max-w-xl text-sm text-admin-muted">
+              Unlock deep insights into your practice patterns. Our AI
+              identifies specific micro-topics where you consistently lose time
+              or accuracy, helping you focus your revision exactly where it
+              matters most.
+            </p>
+          </div>
+          {/* Planned feature — the AI provider is a seam today, so the control is
+            disabled rather than dead. Kept so the surface exists when it ships. */}
+          <button
+            type="button"
+            disabled
+            title="Coming soon — AI-powered insights are planned for a future release."
+            className="flex cursor-not-allowed items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-bold text-admin opacity-60"
+          >
+            Explore Insights <BarChartIcon className="size-4" />
+          </button>
+        </section>
+
         <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-admin-ink">
@@ -527,6 +563,25 @@ function MockTab() {
               </span>
             </Link>
           ))}
+      </section>
+
+      {/* Planned feature — national ranking and AI revision plans are future
+          work, so this stays visible but inert rather than pretending to work. */}
+      <section className="flex flex-col items-center justify-between gap-4 rounded-2xl bg-admin p-6 text-white md:flex-row">
+        <div>
+          <h3 className="text-lg font-bold">Ready for deeper insights?</h3>
+          <p className="mt-1 text-sm text-white/80">
+            See how you rank nationally and get an AI-generated revision plan.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled
+          title="Coming soon — national ranking and AI revision plans are planned for a future release."
+          className="cursor-not-allowed rounded-lg bg-white px-4 py-2.5 text-sm font-bold text-admin opacity-70"
+        >
+          Explore Advanced Analysis
+        </button>
       </section>
     </div>
   );
