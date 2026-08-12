@@ -1,0 +1,53 @@
+/// Updates & Announcements (§2.9).
+///
+/// Staff-authored notices shown to students in their portal. Kept deliberately
+/// simple: no threading, no read receipts per student — just a tenant-scoped
+/// notice board that can optionally be aimed at one batch and pinned.
+
+enum AnnouncementAudience {
+  /// Everyone in the institute.
+  ALL_STUDENTS
+  /// Only students in `batchId`.
+  BATCH
+}
+
+enum AnnouncementCategory {
+  GENERAL
+  EXAM
+  RESULT
+  SCHEDULE
+  MAINTENANCE
+}
+
+model Announcement {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+
+  title String
+  body  String
+
+  category AnnouncementCategory @default(GENERAL)
+  audience AnnouncementAudience @default(ALL_STUDENTS)
+  /// Required when `audience` is BATCH; ignored otherwise.
+  batchId  String?              @map("batch_id") @db.Uuid
+
+  /// Pinned notices sort above the rest regardless of date.
+  pinned Boolean @default(false)
+
+  /// Drafts are invisible to students until published.
+  publishedAt DateTime? @map("published_at")
+  /// Optional auto-expiry; a past date hides it from students.
+  expiresAt   DateTime? @map("expires_at")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  batch     Batch?    @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([instituteId, publishedAt])
+  @@index([batchId])
+  @@map("announcements")
+}

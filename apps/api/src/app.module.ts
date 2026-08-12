@@ -14,6 +14,7 @@ import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { AttemptsModule } from './modules/attempts/attempts.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -87,6 +88,7 @@ import { StudentsModule } from './modules/students/students.module';
     ResultsModule,
     MonitoringModule,
     AnalyticsModule,
+    AnnouncementsModule,
   ],
   providers: [
     {

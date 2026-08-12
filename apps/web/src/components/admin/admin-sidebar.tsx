@@ -9,6 +9,7 @@ import { logout } from "@/lib/auth";
 import {
   ActivityIcon,
   BarChartIcon,
+  BellIcon,
   ChevronDownIcon,
   ClipboardIcon,
   DatabaseIcon,
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { label: "Results", href: "/admin/results", icon: BarChartIcon },
   { label: "Reports", href: "/admin/reports", icon: FileTextIcon },
   { label: "Live Monitoring", href: "/admin/monitoring", icon: ActivityIcon },
+  { label: "Announcements", href: "/admin/announcements", icon: BellIcon },
   { label: "Imports", href: "/admin/imports", icon: UploadIcon },
   { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
   { label: "Settings", href: "/admin/settings", icon: SettingsIcon },

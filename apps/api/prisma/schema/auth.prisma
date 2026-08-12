@@ -56,6 +56,7 @@ model User {
   examsCreated      Exam[]     @relation("ExamCreatedBy")
   examsToReview     Exam[]     @relation("ExamReviewer")
   examsApproved     Exam[]     @relation("ExamApprovedBy")
+  announcements     Announcement[]
 
   @@index([instituteId])
   @@index([role])
