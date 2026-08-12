@@ -210,7 +210,11 @@ export function fetchExamMonitor(
  * QUESTION REVIEW (ADMIN-only transitions)                            *
  * ------------------------------------------------------------------ */
 
-export type QuestionAction = "approve" | "reject" | "archive";
+/**
+ * Question lifecycle transitions (§2.5). "submit" is the author's move —
+ * the rest are an administrator's.
+ */
+export type QuestionAction = "submit" | "approve" | "reject" | "archive";
 
 /** POST /questions/:id/{approve|reject|archive} */
 export function actOnQuestion(

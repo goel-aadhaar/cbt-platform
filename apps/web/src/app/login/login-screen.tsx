@@ -14,6 +14,7 @@ import {
   LockIcon,
   SupportIcon,
 } from "@/components/icons";
+import { homeForRole } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
 import { logout, staffLogin, studentLogin, type Role } from "@/lib/auth";
 
@@ -138,9 +139,9 @@ export function LoginScreen() {
         return;
       }
 
-      // Every staff role shares the admin console today; the API decides what
-      // each of them can actually read.
-      router.push("/admin/dashboard");
+      // Each role has its own console; sending everyone to /admin would strand
+      // a superadmin on pages that refuse them.
+      router.push(homeForRole(result.user.role));
     } catch (err) {
       setError(
         describe(err, "Invalid credentials. Check your email and password."),

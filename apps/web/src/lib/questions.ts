@@ -24,6 +24,8 @@ export interface QuestionListItem {
   /** Curated into the student practice library by a teacher (§2.4). */
   inPracticeLibrary: boolean;
   practiceAddedAt: string | null;
+  /** Author, so a teacher can pick their own work out of the bank. */
+  createdBy: { id: string; name: string } | null;
 }
 
 /**
@@ -43,6 +45,8 @@ export interface QuestionQuery {
   tag?: string;
   /** Only questions curated into the practice library (or only those not). */
   inPracticeLibrary?: boolean;
+  /** Only questions the signed-in user wrote. */
+  mine?: boolean;
   /** Free-text, served by the Postgres full-text search port. */
   search?: string;
   limit?: number;
@@ -61,6 +65,7 @@ export type QuestionFilters = Pick<
   | "tag"
   | "search"
   | "inPracticeLibrary"
+  | "mine"
 >;
 
 /**
@@ -85,6 +90,7 @@ export async function listQuestions(
   if (q.tag) params.set("tag", q.tag);
   if (q.inPracticeLibrary !== undefined)
     params.set("inPracticeLibrary", String(q.inPracticeLibrary));
+  if (q.mine) params.set("mine", "true");
   if (q.search) params.set("search", q.search);
   const limit = q.limit ?? 50;
   const offset = q.offset ?? 0;

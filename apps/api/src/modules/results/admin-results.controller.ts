@@ -34,12 +34,14 @@ export class AdminResultsController {
     return this.results.evaluate(id);
   }
 
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/results')
   list(@Param('id', ParseUUIDPipe) id: string) {
     return this.results.listForExam(id);
   }
 
   /** Download the ranked result sheet as CSV (§2.14). */
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/results/export/csv')
   async exportCsv(
     @Param('id', ParseUUIDPipe) id: string,
@@ -52,6 +54,7 @@ export class AdminResultsController {
   }
 
   /** Download the ranked result sheet as an Excel workbook (§2.14). */
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/results/export/xlsx')
   async exportXlsx(
     @Param('id', ParseUUIDPipe) id: string,
@@ -64,6 +67,7 @@ export class AdminResultsController {
   }
 
   /** Download the ranked result sheet as a PDF (§2.14). */
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/results/export/pdf')
   async exportPdf(
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,6 +80,7 @@ export class AdminResultsController {
   }
 
   /** The exam's questions with their answer-key decision and hit rate (§2.9). */
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/questions/scoring')
   listScoring(@Param('id', ParseUUIDPipe) id: string) {
     return this.results.listQuestionScoring(id);

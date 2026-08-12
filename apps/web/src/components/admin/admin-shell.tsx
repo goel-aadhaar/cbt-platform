@@ -1,3 +1,6 @@
+"use client";
+
+import { useRequireRole } from "@/hooks/use-auth";
 import { AdminSidebar } from "./admin-sidebar";
 import { AdminTopbar } from "./admin-topbar";
 
@@ -12,6 +15,20 @@ export function AdminShell({
   title: string;
   children: React.ReactNode;
 }) {
+  // A teacher or superadmin who lands here would meet refusals on most pages;
+  // send them to their own console instead.
+  const user = useRequireRole(["ADMIN"]);
+  if (!user) {
+    return (
+      <div
+        aria-hidden
+        className="flex h-screen items-center justify-center bg-admin-bg"
+      >
+        <span className="size-8 animate-pulse rounded-full bg-admin/20" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
       <AdminSidebar />

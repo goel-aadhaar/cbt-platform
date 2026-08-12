@@ -36,6 +36,7 @@ import { StudentsService } from './students.service';
 export class StudentsController {
   constructor(private readonly students: StudentsService) {}
 
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get()
   findAll(@Query() query: QueryStudentsDto) {
     return this.students.findAll(query);
@@ -76,6 +77,7 @@ export class StudentsController {
     });
   }
 
+  @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.findOne(id);

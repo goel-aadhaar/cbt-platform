@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../database/prisma.service';
@@ -109,6 +113,23 @@ export class AuthService {
     }
     const ok = await this.passwords.verify(user.passwordHash, password);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
+
+    // A suspended tenant must not be able to sign in — otherwise deactivating
+    // an institute would change nothing for the people inside it. Checked after
+    // the password so the reason only reaches someone who owns the account;
+    // it is a state they can act on, not a credential hint.
+    if (user.instituteId) {
+      const institute = await this.prisma.institute.findUnique({
+        where: { id: user.instituteId },
+        select: { isActive: true, name: true },
+      });
+      if (!institute?.isActive) {
+        throw new ForbiddenException(
+          `${institute?.name ?? 'This institute'} has been suspended. ` +
+            'Contact your administrator.',
+        );
+      }
+    }
 
     const accessToken = await this.issueSession(user.id, meta);
     return {

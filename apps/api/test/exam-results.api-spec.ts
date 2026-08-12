@@ -492,8 +492,29 @@ describe('Exam lifecycle and results engine', () => {
       expect(res.headers.get('content-disposition')).toContain('attachment');
     });
 
-    it('a teacher cannot export results (admin only)', async () => {
+    /**
+     * Teachers report, admins decide. Reading and exporting a result sheet is
+     * part of reporting, so a teacher may do both; changing what a result says
+     * — evaluating, manual scores, publishing — stays with an administrator.
+     */
+    it('a teacher can export results (reporting is read-only)', async () => {
       const res = await api(`/exams/${examId}/results/export/csv`, {
+        token: tenant.teacherToken,
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it('a teacher still cannot publish results', async () => {
+      const res = await api(`/exams/${examId}/results/publish`, {
+        method: 'POST',
+        token: tenant.teacherToken,
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it('a teacher still cannot re-evaluate an exam', async () => {
+      const res = await api(`/exams/${examId}/evaluate`, {
+        method: 'POST',
         token: tenant.teacherToken,
       });
       expect(res.status).toBe(403);

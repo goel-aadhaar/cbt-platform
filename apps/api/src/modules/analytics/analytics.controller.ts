@@ -7,7 +7,7 @@ import { AnalyticsService } from './analytics.service';
 
 @ApiTags('analytics')
 @ApiBearerAuth()
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.TEACHER)
 @Controller({ path: 'exams', version: '1' })
 export class ExamAnalyticsController {
   constructor(private readonly analytics: AnalyticsService) {}
@@ -21,7 +21,7 @@ export class ExamAnalyticsController {
 
 @ApiTags('analytics')
 @ApiBearerAuth()
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.TEACHER)
 @Controller({ path: 'students', version: '1' })
 export class StudentHistoryController {
   constructor(private readonly analytics: AnalyticsService) {}

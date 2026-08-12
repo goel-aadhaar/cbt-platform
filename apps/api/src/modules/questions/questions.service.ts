@@ -62,6 +62,7 @@ const listSelect = {
   // teacher can see a question is already drillable before reusing it.
   inPracticeLibrary: true,
   practiceAddedAt: true,
+  createdBy: { select: { id: true, name: true } },
 } satisfies Prisma.QuestionSelect;
 
 const detailSelect = {
@@ -194,7 +195,7 @@ export class QuestionsService {
   }
 
   async findAll(query: QueryQuestionsDto) {
-    const { instituteId } = this.ctx();
+    const { instituteId, userId } = this.ctx();
     const structuralWhere: Prisma.QuestionWhereInput = {
       instituteId,
       ...(query.subject ? { subject: query.subject } : {}),
@@ -208,6 +209,7 @@ export class QuestionsService {
         ? { inPracticeLibrary: query.inPracticeLibrary }
         : {}),
       ...(query.tag ? { tags: { has: query.tag } } : {}),
+      ...(query.mine ? { createdById: userId } : {}),
     };
 
     /**

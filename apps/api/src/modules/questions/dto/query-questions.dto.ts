@@ -51,6 +51,15 @@ export class QueryQuestionsDto {
   @IsBoolean()
   inPracticeLibrary?: boolean;
 
+  /**
+   * Only questions the caller wrote. Backs the teacher console, where "what
+   * have I contributed" is a different question from "what is in the bank".
+   */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  mine?: boolean;
+
   /** Free-text query, served by the PostgreSQL full-text search port (§2.6). */
   @IsOptional()
   @IsString()

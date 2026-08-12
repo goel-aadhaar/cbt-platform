@@ -25,6 +25,7 @@ import { BatchesModule } from './modules/batches/batches.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { InstitutesModule } from './modules/institutes/institutes.module';
+import { PlatformModule } from './modules/platform/platform.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { ProgramsModule } from './modules/programs/programs.module';
 import { QuestionsModule } from './modules/questions/questions.module';
@@ -78,6 +79,7 @@ import { StudentsModule } from './modules/students/students.module';
     AuditModule,
     HealthModule,
     InstitutesModule,
+    PlatformModule,
     ProgramsModule,
     ClassesModule,
     BatchesModule,
