@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -336,6 +337,13 @@ function ExamRunner({
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Logout — abandons the attempt rather than submitting it. */
   const [leaveOpen, setLeaveOpen] = useState(false);
+  /**
+   * A save-and-advance is in flight. The ref is the actual guard (checked
+   * synchronously, so a double-click in one tick can't slip through); the
+   * state exists only to drive the disabled/pending styling.
+   */
+  const advancingRef = useRef(false);
+  const [advancing, setAdvancing] = useState(false);
 
   const submitSummary = useMemo(() => {
     let answered = 0;
@@ -457,7 +465,20 @@ function ExamRunner({
     commitAnswer(null);
   }
 
-  function commitAndNext(mark: boolean) {
+  /**
+   * Save the current response and advance ONE question.
+   *
+   * Guarded against repeat clicks: the save is a network round-trip, and an
+   * impatient candidate hitting "Save & Next" three times must not skip two
+   * questions. `advancingRef` is checked synchronously so a burst of clicks
+   * in the same tick is collapsed — React state alone would not have updated
+   * in time to block them.
+   */
+  async function commitAndNext(mark: boolean) {
+    if (advancingRef.current) return;
+    advancingRef.current = true;
+    setAdvancing(true);
+
     setStatuses((prev) =>
       prev.map((s, i) => {
         if (i !== current) return s;
@@ -468,13 +489,20 @@ function ExamRunner({
     );
     const question = questions[current];
     const value = answers[current];
-    // Both halves again — see commitAnswer. Sending only `markedForReview`
-    // here is what previously raced with the in-flight answer save.
-    void saveResponse(attemptId, question.id, {
-      answer: isBlank(value) ? null : value,
-      markedForReview: mark,
-    }).catch(() => {});
-    goNext();
+    try {
+      // Both halves again — see commitAnswer. Sending only `markedForReview`
+      // here is what previously raced with the in-flight answer save.
+      await saveResponse(attemptId, question.id, {
+        answer: isBlank(value) ? null : value,
+        markedForReview: mark,
+      });
+    } catch {
+      // Best-effort; the next interaction re-saves.
+    } finally {
+      goNext();
+      advancingRef.current = false;
+      setAdvancing(false);
+    }
   }
 
   function selectSubject(s: Subject) {
@@ -690,30 +718,34 @@ function ExamRunner({
           <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-3 px-4 py-4">
             <button
               type="button"
-              onClick={() => commitAndNext(false)}
-              className="flex items-center gap-2 bg-success px-6 py-2 text-base uppercase text-white hover:opacity-95"
+              onClick={() => void commitAndNext(false)}
+              disabled={advancing}
+              className="flex items-center gap-2 bg-success px-6 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
-              Save &amp; Next
-              <ChevronRightIcon className="h-[7px] w-[4px]" />
+              {advancing ? "Saving…" : "Save & Next"}
+              {!advancing && <ChevronRightIcon className="h-[7px] w-[4px]" />}
             </button>
             <button
               type="button"
               onClick={clearResponse}
-              className="border border-subtle bg-surface px-4 py-2 text-base uppercase text-ink hover:bg-fill"
+              disabled={advancing}
+              className="border border-subtle bg-surface px-4 py-2 text-base uppercase text-ink hover:bg-fill disabled:opacity-60"
             >
               Clear Response
             </button>
             <button
               type="button"
-              onClick={() => commitAndNext(true)}
-              className="bg-warn px-4 py-2 text-base uppercase text-white hover:opacity-95"
+              onClick={() => void commitAndNext(true)}
+              disabled={advancing}
+              className="bg-warn px-4 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
               Save and Mark for Review
             </button>
             <button
               type="button"
-              onClick={() => commitAndNext(true)}
-              className="bg-info px-4 py-2 text-base uppercase text-white hover:opacity-95"
+              onClick={() => void commitAndNext(true)}
+              disabled={advancing}
+              className="bg-info px-4 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
               Mark for Review &amp; Next
             </button>

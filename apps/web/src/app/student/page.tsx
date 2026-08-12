@@ -31,6 +31,8 @@ interface Stat {
   sub: string;
   /** Filled fraction of the mini bar, 0–100. */
   pct: number;
+  /** Show a shimmer in place of the figure until its source has loaded. */
+  loading: boolean;
   icon: IconType;
   iconBg: string;
   iconColor: string;
@@ -68,6 +70,7 @@ export default function StudentHomePage() {
       sub:
         pending > 0 ? `${pending} awaiting results` : "all results published",
       pct: sat.length > 0 ? Math.min(100, sat.length * 10) : 0,
+      loading: loadingAttempts,
       icon: FileTextIcon,
       iconBg: "#ede9fe",
       iconColor: "#8b5cf6",
@@ -78,6 +81,7 @@ export default function StudentHomePage() {
       value: bestPercentile === null ? "—" : bestPercentile.toFixed(1),
       sub: bestPercentile === null ? "no published results" : "best so far",
       pct: bestPercentile ?? 0,
+      loading: loadingAttempts,
       icon: TrophyIcon,
       iconBg: "#fef3c7",
       iconColor: "#f59e0b",
@@ -91,6 +95,7 @@ export default function StudentHomePage() {
           ? "no published results"
           : `across ${scored.length} test${scored.length === 1 ? "" : "s"}`,
       pct: avgPct ?? 0,
+      loading: loadingAttempts,
       icon: BarChartIcon,
       iconBg: "#dbeafe",
       iconColor: "#3b82f6",
@@ -101,6 +106,7 @@ export default function StudentHomePage() {
       value: loadingAttempts ? "—" : String(pending),
       sub: pending === 0 ? "nothing waiting" : "awaiting publication",
       pct: sat.length > 0 ? (pending / sat.length) * 100 : 0,
+      loading: loadingAttempts,
       icon: ClockIcon,
       iconBg: "#d8efe8",
       iconColor: "#006049",
@@ -113,6 +119,7 @@ export default function StudentHomePage() {
         ? `across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}`
         : "loading…",
       pct: facets ? Math.min(100, facets.total) : 0,
+      loading: facets === null,
       icon: BookOpenIcon,
       iconBg: "#ccfbf1",
       iconColor: "#14b8a6",
@@ -191,10 +198,21 @@ function StatTile({ stat }: { stat: Stat }) {
         <Icon className="size-4" />
       </span>
       <p className="pt-2 text-sm text-admin-muted">{stat.label}</p>
-      <p className="text-[28px] font-semibold leading-9 text-admin-ink">
-        {stat.value}
-      </p>
-      <p className="pb-1 text-xs font-medium text-admin-muted">{stat.sub}</p>
+      {stat.loading ? (
+        <>
+          <span className="my-1 h-7 w-14 animate-pulse rounded bg-admin-line/40" />
+          <span className="mb-1.5 h-3 w-20 animate-pulse rounded bg-admin-line/30" />
+        </>
+      ) : (
+        <>
+          <p className="text-[28px] font-semibold leading-9 text-admin-ink">
+            {stat.value}
+          </p>
+          <p className="pb-1 text-xs font-medium text-admin-muted">
+            {stat.sub}
+          </p>
+        </>
+      )}
       <div className="h-1 w-full overflow-hidden rounded-full bg-[#e1e3e4]">
         <div
           className="h-full rounded-full"
