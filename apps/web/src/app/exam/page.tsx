@@ -23,6 +23,7 @@ import {
   LockClosedIcon,
   MaximizeIcon,
 } from "@/components/icons";
+import { SubmitConfirmModal } from "@/components/exam/submit-confirm-modal";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useProctoring } from "@/hooks/use-proctoring";
 import { ApiError } from "@/lib/api";
@@ -165,12 +166,19 @@ function StartGate({
 /* ------------------------------------------------------------------ */
 /* Post-submit confirmation.                                           */
 /* ------------------------------------------------------------------ */
+/** How long the confirmation stays up before the student is sent to the portal. */
+const REDIRECT_SECONDS = 10;
+
 function SubmittedScreen({ attemptId }: { attemptId: string | undefined }) {
   const router = useRouter();
   const [result, setResult] = useState<{
     score: number;
     max: number;
   } | null>(null);
+
+  // `replace`, not `push` — the finished attempt must not be reachable via Back.
+  const goHome = useCallback(() => router.replace("/student"), [router]);
+  const secondsLeft = useCountdown(REDIRECT_SECONDS, goHome);
 
   useEffect(() => {
     if (!attemptId) return;
@@ -199,11 +207,15 @@ function SubmittedScreen({ attemptId }: { attemptId: string | undefined }) {
         </p>
         <button
           type="button"
-          onClick={() => router.replace("/student")}
+          onClick={goHome}
           className="mt-6 rounded bg-brand px-6 py-2.5 text-sm font-bold uppercase text-white hover:opacity-95"
         >
           Back to Student Portal
         </button>
+        <p aria-live="polite" className="mt-3 text-xs text-muted">
+          Redirecting to your portal in {secondsLeft} second
+          {secondsLeft === 1 ? "" : "s"}…
+        </p>
       </div>
     </main>
   );
@@ -244,7 +256,7 @@ function ExamRunner({
         const raw = q.question.options ?? [];
         out.push({
           id: q.question.id,
-          subject: subjectFromName(section.name) ?? "Physics",
+          subject: section.name,
           type: q.question.type,
           stem: q.question.statement,
           options: raw.map((o) => o.text),
@@ -257,6 +269,15 @@ function ExamRunner({
     }
     return out;
   }, [attempt]);
+
+  /**
+   * Tab labels = the paper's real sections, in order. A Biology-only paper gets
+   * one tab (which the sidebar then hides) rather than two empty ones.
+   */
+  const subjects = useMemo(
+    () => attempt.exam.sections.map((s) => s.name),
+    [attempt],
+  );
 
   /**
    * Answers are stored in the exact shape the backend scores against, so a
@@ -278,6 +299,30 @@ function ExamRunner({
       return mapStatus(r);
     }),
   );
+
+  /**
+   * A deliberate submit opens the confirmation modal first. The two FORCED
+   * paths below (timer expiry, proctoring limit) call `onSubmit` directly —
+   * there is nothing to confirm once the attempt is over.
+   */
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const submitSummary = useMemo(() => {
+    let answered = 0;
+    let markedForReview = 0;
+    for (const s of statuses) {
+      if (s === "answered" || s === "answered-marked") answered += 1;
+      if (s === "marked" || s === "answered-marked") markedForReview += 1;
+    }
+    // Anything not answered counts as unattempted, whether it was visited,
+    // skipped or merely flagged — that is what actually gets evaluated.
+    return {
+      total: statuses.length,
+      answered,
+      notAnswered: statuses.length - answered,
+      markedForReview,
+    };
+  }, [statuses]);
 
   const user = useSyncExternalStore(
     subscribeSession,
@@ -333,6 +378,8 @@ function ExamRunner({
   function commitAnswer(value: Answer | null) {
     setAnswers((prev) => prev.map((v, idx) => (idx === current ? value : v)));
     const answered = !isBlank(value);
+    const wasMarked =
+      statuses[current] === "marked" || statuses[current] === "answered-marked";
     setStatuses((prev) =>
       prev.map((s, idx) => {
         if (idx !== current) return s;
@@ -341,8 +388,13 @@ function ExamRunner({
         return answered ? "answered" : "not-answered";
       }),
     );
+    // Send BOTH halves of the response. Selecting an option and marking for
+    // review fire separate saves that can be in flight together; a payload
+    // carrying the complete state is idempotent, so whichever lands last
+    // still leaves the row correct.
     void saveResponse(attemptId, questions[current].id, {
       answer: answered ? value : null,
+      markedForReview: wasMarked,
     }).catch(() => {
       // Best-effort; the next interaction re-saves.
     });
@@ -385,7 +437,11 @@ function ExamRunner({
       }),
     );
     const question = questions[current];
+    const value = answers[current];
+    // Both halves again — see commitAnswer. Sending only `markedForReview`
+    // here is what previously raced with the in-flight answer save.
     void saveResponse(attemptId, question.id, {
+      answer: isBlank(value) ? null : value,
       markedForReview: mark,
     }).catch(() => {});
     goNext();
@@ -471,7 +527,7 @@ function ExamRunner({
             </button>
             <button
               type="button"
-              onClick={onSubmit}
+              onClick={() => setConfirmOpen(true)}
               className="rounded-[2px] bg-brand-indigo px-4 py-1.5 text-base uppercase text-white"
             >
               Logout
@@ -661,6 +717,7 @@ function ExamRunner({
               timeLow={timeLow}
               subject={subject}
               onSubjectChange={selectSubject}
+              subjects={subjects}
               questions={questions.map((x) => ({
                 id: x.id,
                 subject: x.subject,
@@ -677,7 +734,7 @@ function ExamRunner({
           <div className="w-[360px] shrink-0 border-l border-t border-line bg-surface-2 p-3">
             <button
               type="button"
-              onClick={onSubmit}
+              onClick={() => setConfirmOpen(true)}
               className="w-full bg-success px-6 py-3 text-base font-bold uppercase text-white hover:opacity-95"
             >
               Submit Exam
@@ -716,6 +773,14 @@ function ExamRunner({
             </button>
           </div>
         </div>
+      )}
+
+      {confirmOpen && (
+        <SubmitConfirmModal
+          summary={submitSummary}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={onSubmit}
+        />
       )}
     </div>
   );
@@ -786,14 +851,6 @@ function mapStatus(r: AttemptResponse | undefined): QuestionStatus {
     default:
       return "not-visited";
   }
-}
-
-function subjectFromName(name: string): Subject | null {
-  const lower = name.toLowerCase();
-  if (lower.startsWith("phy")) return "Physics";
-  if (lower.startsWith("che")) return "Chemistry";
-  if (lower.startsWith("bio")) return "Biology";
-  return null;
 }
 
 function ToolLink({ icon, label }: { icon: React.ReactNode; label: string }) {

@@ -5,7 +5,6 @@ import {
   type ExamQuestion,
   type QuestionStatus,
   type Subject,
-  SUBJECTS,
 } from "@/lib/exam-data";
 
 import { PaletteSquare, statusLabel } from "./palette-square";
@@ -18,6 +17,8 @@ interface ExamSidebarProps {
   timeLow: boolean;
   subject: Subject;
   onSubjectChange: (s: Subject) => void;
+  /** Tab labels, in paper order — the exam's actual sections, not a fixed set. */
+  subjects: Subject[];
   questions: ExamQuestion[];
   statuses: QuestionStatus[];
   currentIndex: number;
@@ -30,6 +31,7 @@ export function ExamSidebar({
   timeLow,
   subject,
   onSubjectChange,
+  subjects,
   questions,
   statuses,
   currentIndex,
@@ -98,9 +100,13 @@ export function ExamSidebar({
         </div>
       </div>
 
-      {/* Subject tabs */}
-      <div className="flex border-b border-line bg-surface-3">
-        {SUBJECTS.map((s) => {
+      {/* Section tabs — hidden for a single-section paper, where they'd be noise. */}
+      <div
+        className={`flex border-b border-line bg-surface-3 ${
+          subjects.length < 2 ? "hidden" : ""
+        }`}
+      >
+        {subjects.map((s) => {
           const activeTab = s === subject;
           return (
             <button
