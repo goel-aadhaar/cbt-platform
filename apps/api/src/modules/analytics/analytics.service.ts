@@ -236,6 +236,77 @@ export class AnalyticsService {
     });
   }
 
+  /**
+   * Every attempt the calling student has made, with the state of its result.
+   *
+   * `getMyHistory` is keyed on Result rows and filtered to `published`, so an
+   * exam the student has sat but which nobody has evaluated/published yet is
+   * invisible to them. This endpoint closes that gap so the portal can show a
+   * "results pending" row for the window between submitting and publication.
+   *
+   * SECURITY: scores are attached ONLY when the result is published. An
+   * unevaluated or held-back result reports its state and nothing else.
+   */
+  async getMyAttempts() {
+    const ctx = this.tenant.get();
+    if (!ctx?.userId) {
+      throw new ForbiddenException('No user in the current context');
+    }
+    const student = await this.prisma.student.findUnique({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    });
+    if (!student) throw new ForbiddenException('Not a student account');
+
+    const attempts = await this.prisma.attempt.findMany({
+      where: { studentId: student.id },
+      orderBy: { startedAt: 'desc' },
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        submittedAt: true,
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            startAt: true,
+            durationMinutes: true,
+          },
+        },
+        result: {
+          select: {
+            published: true,
+            totalScore: true,
+            maxScore: true,
+            correctCount: true,
+            incorrectCount: true,
+            unattemptedCount: true,
+            overallRank: true,
+            batchRank: true,
+            percentile: true,
+          },
+        },
+      },
+    });
+
+    return attempts.map(({ result, ...attempt }) => ({
+      ...attempt,
+      /**
+       * IN_PROGRESS  — still sitting it
+       * PENDING      — submitted; not evaluated, or evaluated but held back
+       * PUBLISHED    — released to the student
+       */
+      resultState:
+        attempt.status === 'IN_PROGRESS'
+          ? ('IN_PROGRESS' as const)
+          : result?.published
+            ? ('PUBLISHED' as const)
+            : ('PENDING' as const),
+      result: result?.published ? result : null,
+    }));
+  }
+
   private readonly historySelect = {
     totalScore: true,
     maxScore: true,

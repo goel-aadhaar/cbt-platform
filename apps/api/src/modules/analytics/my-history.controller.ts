@@ -17,4 +17,14 @@ export class MyHistoryController {
   history() {
     return this.analytics.getMyHistory();
   }
+
+  /**
+   * Every attempt the student has made, including ones whose result is not
+   * published yet (so the portal can show "results pending"). Scores are
+   * withheld until publication.
+   */
+  @Get('attempts')
+  attempts() {
+    return this.analytics.getMyAttempts();
+  }
 }
