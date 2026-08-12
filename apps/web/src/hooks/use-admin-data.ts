@@ -14,7 +14,7 @@ export interface LoadState<T> {
 }
 
 /**
- * Loads a tenant-scoped admin resource once hydrated. Redirects to /admin/login
+ * Loads a tenant-scoped admin resource once hydrated. Redirects to sign-in
  * when there's no token or the API returns 401. `deps` controls re-fetching
  * (e.g. a status filter); `loader` is read fresh each time deps change.
  */
@@ -33,7 +33,7 @@ export function useAdminData<T>(
   useEffect(() => {
     if (!hydrated) return;
     if (!getToken()) {
-      router.replace("/admin/login");
+      router.replace("/login?as=staff");
       return;
     }
     let active = true;
@@ -44,7 +44,7 @@ export function useAdminData<T>(
       .catch((err) => {
         if (!active) return;
         if (err instanceof ApiError && err.status === 401) {
-          router.replace("/admin/login");
+          router.replace("/login?as=staff");
           return;
         }
         setState({

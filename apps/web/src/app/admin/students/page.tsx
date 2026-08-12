@@ -66,11 +66,11 @@ function StudentsPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load the live roster once hydrated; bounce to /admin/login if unauthenticated.
+  // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
     if (!hydrated) return;
     if (!getToken()) {
-      router.replace("/admin/login");
+      router.replace("/login?as=staff");
       return;
     }
     let active = true;
@@ -84,7 +84,7 @@ function StudentsPageInner() {
       .catch((err) => {
         if (!active) return;
         if (err instanceof ApiError && err.status === 401) {
-          router.replace("/admin/login");
+          router.replace("/login?as=staff");
           return;
         }
         setError(

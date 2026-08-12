@@ -49,7 +49,7 @@ export function AdminSidebar() {
 
   async function handleLogout() {
     await logout();
-    router.replace("/admin/login");
+    router.replace("/login?as=staff");
   }
 
   return (
