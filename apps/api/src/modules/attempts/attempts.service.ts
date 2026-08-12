@@ -248,18 +248,41 @@ export class AttemptsService {
     });
     if (!response) throw new NotFoundException('Question not in this attempt');
 
-    const hasAnswer =
-      dto.answer !== undefined &&
-      dto.answer !== null &&
-      !(Array.isArray(dto.answer) && dto.answer.length === 0);
-    const marked = dto.markedForReview ?? false;
+    /**
+     * PARTIAL update. The two halves of a response — the answer and the
+     * review flag — are saved by separate client actions ("select an option"
+     * vs "save and mark for review"), so a field that is ABSENT from the
+     * payload must be left alone.
+     *
+     * Treating an absent field as "clear it" silently destroyed answers: the
+     * exam screen saves `{answer}` on option click and then `{markedForReview}`
+     * on Save & Next, and the second call wiped the first. `null` still means
+     * an explicit clear — only `undefined` preserves.
+     */
+    const isBlank = (v: unknown) =>
+      v === null || v === undefined || (Array.isArray(v) && v.length === 0);
+
+    const answerProvided = dto.answer !== undefined;
+    const markProvided = dto.markedForReview !== undefined;
+
+    const hasAnswer = answerProvided
+      ? !isBlank(dto.answer)
+      : !isBlank(response.answer);
+    const marked = markProvided
+      ? dto.markedForReview!
+      : response.status === ResponseStatus.MARKED ||
+        response.status === ResponseStatus.ANSWERED_MARKED;
 
     return this.prisma.response.update({
       where: { id: response.id },
       data: {
-        answer: hasAnswer
-          ? (dto.answer as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
+        ...(answerProvided
+          ? {
+              answer: hasAnswer
+                ? (dto.answer as Prisma.InputJsonValue)
+                : Prisma.JsonNull,
+            }
+          : {}),
         status: this.computeStatus(hasAnswer, marked),
       },
       select: { questionId: true, status: true, answer: true },

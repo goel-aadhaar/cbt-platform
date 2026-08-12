@@ -193,6 +193,57 @@ describe('Exam lifecycle and results engine', () => {
   });
 
   describe('sitting the exam (§2.2)', () => {
+    /**
+     * REGRESSION: saving a response is a PARTIAL update.
+     *
+     * The exam screen saves `{answer}` when an option is picked and
+     * `{markedForReview}` when "Save & Mark for Review" is used. The service
+     * used to rebuild the whole row from the payload, so the second call —
+     * which carries no `answer` — silently nulled the answer that had just
+     * been saved. The client still showed "Answered", so a student could sit a
+     * whole paper and score zero with no visible warning.
+     */
+    it('marking for review does not wipe an already-saved answer', async () => {
+      const token = await addStudent(tenant, 'Partial Saver', 'PART1');
+      const start = await api<{ id: string }>('/attempts', {
+        method: 'POST',
+        token,
+        body: { examId },
+      });
+      const attemptId = start.body.id;
+
+      const saved = await api<{ status: string; answer: unknown }>(
+        `/attempts/${attemptId}/responses/${q1}`,
+        { method: 'PUT', token, body: { answer: 'B' } },
+      );
+      expect(saved.body.answer).toBe('B');
+      expect(saved.body.status).toBe('ANSWERED');
+
+      // No `answer` field at all — the stored answer must survive.
+      const marked = await api<{ status: string; answer: unknown }>(
+        `/attempts/${attemptId}/responses/${q1}`,
+        { method: 'PUT', token, body: { markedForReview: true } },
+      );
+      expect(marked.body.answer).toBe('B');
+      expect(marked.body.status).toBe('ANSWERED_MARKED');
+
+      // Symmetrically, sending only an answer keeps the review flag.
+      const reanswered = await api<{ status: string; answer: unknown }>(
+        `/attempts/${attemptId}/responses/${q1}`,
+        { method: 'PUT', token, body: { answer: 'A' } },
+      );
+      expect(reanswered.body.answer).toBe('A');
+      expect(reanswered.body.status).toBe('ANSWERED_MARKED');
+
+      // An EXPLICIT null still clears it.
+      const cleared = await api<{ status: string; answer: unknown }>(
+        `/attempts/${attemptId}/responses/${q1}`,
+        { method: 'PUT', token, body: { answer: null } },
+      );
+      expect(cleared.body.answer).toBeNull();
+      expect(cleared.body.status).toBe('MARKED');
+    }, 120_000);
+
     it('a submitted attempt is locked against further answers', async () => {
       const res = await api(`/attempts/${attempts.TOP}/responses/${q1}`, {
         method: 'PUT',
