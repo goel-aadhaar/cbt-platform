@@ -20,6 +20,7 @@ model Institute {
   examQuestions ExamQuestion[]
   examBatches   ExamBatch[]
   attempts         Attempt[]
+  practiceSessions PracticeSession[]
   responses        Response[]
   results          Result[]
   proctoringEvents ProctoringEvent[]

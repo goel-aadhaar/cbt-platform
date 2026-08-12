@@ -2,24 +2,31 @@
 
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
   CheckCircleIcon,
   LightbulbIcon,
+  TimerIcon,
   XCircleIcon,
 } from "@/components/student/icons";
-import { usePracticeFacets, usePracticeQuestions } from "@/hooks/use-practice";
+import { ProgressBar } from "@/components/student/practice-bits";
+import { usePracticeFacets } from "@/hooks/use-practice";
 import {
-  checkAnswer,
+  answerInSession,
+  completePracticeSession,
+  startPracticeSession,
   subjectFromSlug,
+  chapterFromSlug,
   type PracticeAnswer,
   type PracticeCheckResult,
-  type PracticeDifficulty,
   type PracticeQuestion,
+  type PracticeSummary,
 } from "@/lib/practice";
+
+import { PracticeSuccess } from "./success";
 
 export default function PracticeSessionPage() {
   return (
@@ -36,126 +43,187 @@ export default function PracticeSessionPage() {
 }
 
 function PracticeSessionInner() {
-  const params = useParams<{ subject: string }>();
+  const params = useParams<{ subject: string; chapter: string }>();
   const search = useSearchParams();
-  const slug = params.subject ?? "";
+  const subjectSlug = params.subject ?? "";
+  const chapterSlug = params.chapter ?? "";
 
   const { data: facets } = usePracticeFacets();
-  const subject = subjectFromSlug(facets, slug);
+  const subjectName = subjectFromSlug(facets, subjectSlug);
+  const subject =
+    facets?.subjects.find((s) => s.subject === subjectName) ?? null;
+  const chapter = chapterFromSlug(subject, chapterSlug);
 
-  // Only fetch once the slug has resolved to a real subject name.
-  const query = useMemo(
-    () => ({
-      subject: subject ?? undefined,
-      chapter: search.get("chapter") ?? undefined,
-      difficulty: (search.get("difficulty") as PracticeDifficulty) ?? undefined,
-      limit: Number(search.get("limit") ?? 10),
-    }),
-    [subject, search],
-  );
-  const {
-    data: questions,
-    loading,
-    error,
-  } = usePracticeQuestions(query, subject !== null);
+  const topic = search.get("topic");
+  const size = Number(search.get("size") ?? 25);
+  const timed = search.get("timed") === "1";
+  const limitMinutes = Number(search.get("minutes") ?? 0);
+
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<PracticeQuestion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<PracticeSummary | null>(null);
 
   const [index, setIndex] = useState(0);
-  /** Per-question grading result, keyed by question id. */
   const [results, setResults] = useState<Record<string, PracticeCheckResult>>(
     {},
   );
   const [picked, setPicked] = useState<PracticeAnswer | null>(null);
   const [integer, setInteger] = useState("");
   const [checking, setChecking] = useState(false);
-  const [checkError, setCheckError] = useState<string | null>(null);
+  const [finishing, setFinishing] = useState(false);
+  // Stamped when the session actually opens — reading the clock during render
+  // would be impure.
+  const startedAt = useRef<number>(0);
+  const openedRef = useRef(false);
+
+  /* Open the session once. The ref guards React's double-invoke in dev, which
+     would otherwise create two sessions and halve the recorded progress. */
+  useEffect(() => {
+    if (openedRef.current || subjectName === null) return;
+    openedRef.current = true;
+    startPracticeSession({
+      subject: subjectName,
+      chapter: chapter?.chapter,
+      topic: topic ?? undefined,
+      size,
+      timed,
+    })
+      .then(({ session, items }) => {
+        setSessionId(session.id);
+        setQuestions(items);
+        startedAt.current = Date.now();
+      })
+      .catch((e: unknown) =>
+        setError(
+          e instanceof Error ? e.message : "Could not start this practice set",
+        ),
+      );
+  }, [subjectName, chapter?.chapter, topic, size, timed]);
 
   const q = questions?.[index] ?? null;
   const result = q ? (results[q.id] ?? null) : null;
   const answered = result !== null;
-  const total = questions?.length ?? 0;
+  const answeredCount = Object.keys(results).length;
+  const score = Object.values(results).filter((r) => r.correct).length;
 
-  const submit = useCallback(async () => {
-    if (!q || answered || checking) return;
+  const finish = useCallback(async () => {
+    if (!sessionId || finishing) return;
+    setFinishing(true);
+    try {
+      const s = await completePracticeSession(
+        sessionId,
+        startedAt.current === 0
+          ? 0
+          : Math.round((Date.now() - startedAt.current) / 1000),
+      );
+      setSummary(s);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not save your results");
+    } finally {
+      setFinishing(false);
+    }
+  }, [sessionId, finishing]);
+
+  /*
+   * Timed mode: a soft deadline that ends the set.
+   *
+   * The deadline is anchored to a real timestamp rather than decremented, so a
+   * backgrounded tab still expires on time. `finish` is reached through a ref
+   * because calling it straight from the effect body would be a setState in an
+   * effect; from inside the interval callback it is a normal event.
+   */
+  const [secondsLeft, setSecondsLeft] = useState(limitMinutes * 60);
+  const finishRef = useRef(finish);
+  useEffect(() => {
+    finishRef.current = finish;
+  });
+
+  useEffect(() => {
+    if (!timed || limitMinutes <= 0 || !sessionId) return;
+    const deadline = Date.now() + limitMinutes * 60_000;
+    const id = setInterval(() => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) {
+        clearInterval(id);
+        void finishRef.current();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [timed, limitMinutes, sessionId]);
+
+  async function submit() {
+    if (!q || !sessionId || answered || checking) return;
     const answer: PracticeAnswer | null =
       q.type === "INTEGER" ? (integer === "" ? null : Number(integer)) : picked;
     if (answer === null || (Array.isArray(answer) && answer.length === 0))
       return;
 
     setChecking(true);
-    setCheckError(null);
     try {
-      const r = await checkAnswer(q.id, answer);
+      const r = await answerInSession(sessionId, q.id, answer);
       setResults((prev) => ({ ...prev, [q.id]: r }));
     } catch (e: unknown) {
-      setCheckError(
-        e instanceof Error ? e.message : "Could not check that answer",
-      );
+      setError(e instanceof Error ? e.message : "Could not check that answer");
     } finally {
       setChecking(false);
     }
-  }, [q, answered, checking, integer, picked]);
+  }
 
   function next() {
+    if (questions && index >= questions.length - 1) {
+      void finish();
+      return;
+    }
     setIndex((i) => i + 1);
     setPicked(null);
     setInteger("");
-    setCheckError(null);
   }
 
-  const score = useMemo(
-    () => Object.values(results).filter((r) => r.correct).length,
-    [results],
-  );
+  // Empty segments would render as a stray "/" and collide as React keys.
+  const crumbs = [
+    "Practice Library",
+    subjectName,
+    chapter?.chapter,
+    "Set",
+  ].filter((c): c is string => Boolean(c));
+
+  if (summary) {
+    return (
+      <StudentShell breadcrumb={[...crumbs.slice(0, -1), "Complete"]}>
+        <PracticeSuccess
+          summary={summary}
+          subjectSlug={subjectSlug}
+          chapterSlug={chapterSlug}
+        />
+      </StudentShell>
+    );
+  }
 
   if (error) {
     return (
-      <StudentShell breadcrumb={["Practice Library", subject ?? "", "Set"]}>
+      <StudentShell breadcrumb={crumbs}>
         <p
           role="alert"
           className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
         >
           {error}
         </p>
+        <Link
+          href={`/student/practice/${subjectSlug}/${chapterSlug}`}
+          className="mt-4 inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
+        >
+          Back to topics
+        </Link>
       </StudentShell>
     );
   }
 
-  if (loading || !questions) {
+  if (!questions || !q) {
     return (
-      <StudentShell breadcrumb={["Practice Library", subject ?? "", "Set"]}>
+      <StudentShell breadcrumb={crumbs}>
         <div className="h-64 animate-pulse rounded-2xl bg-admin-line/10" />
-      </StudentShell>
-    );
-  }
-
-  if (questions.length === 0) {
-    return (
-      <StudentShell breadcrumb={["Practice Library", subject ?? "", "Set"]}>
-        <div className="rounded-2xl border border-dashed border-admin-line bg-white p-12 text-center">
-          <p className="text-base font-bold text-admin-ink">
-            No questions match those filters
-          </p>
-          <p className="mt-1 text-sm text-admin-muted">
-            Try a different chapter or difficulty.
-          </p>
-          <Link
-            href={`/student/practice/${slug}`}
-            className="mt-5 inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
-          >
-            Back to chapters
-          </Link>
-        </div>
-      </StudentShell>
-    );
-  }
-
-  // Past the last question → summary.
-  if (index >= questions.length) {
-    return (
-      <StudentShell
-        breadcrumb={["Practice Library", subject ?? "", "Complete"]}
-      >
-        <SessionSummary slug={slug} score={score} total={total} />
       </StudentShell>
     );
   }
@@ -163,48 +231,69 @@ function PracticeSessionInner() {
   const isLast = index === questions.length - 1;
 
   return (
-    <StudentShell breadcrumb={["Practice Library", subject ?? "", "Set"]}>
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
+    <StudentShell breadcrumb={crumbs}>
+      <header className="mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-[-0.4px] text-admin-ink">
             Question {index + 1} of {questions.length}
           </h1>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            {answered && (
+          <div className="flex items-center gap-2">
+            {timed && limitMinutes > 0 && (
               <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
-                  result.correct
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-red-50 text-red-700"
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold ${
+                  secondsLeft <= 60
+                    ? "bg-red-50 text-red-700"
+                    : "bg-admin-bg text-admin-ink"
                 }`}
               >
-                {result.correct ? (
-                  <CheckCircleIcon className="size-3.5" />
-                ) : (
-                  <XCircleIcon className="size-3.5" />
-                )}
-                {result.correct ? "Correct" : "Incorrect"}
+                <TimerIcon className="size-3.5" />
+                {String(Math.floor(secondsLeft / 60)).padStart(2, "0")}:
+                {String(secondsLeft % 60).padStart(2, "0")}
               </span>
             )}
-            <span className="rounded-full bg-admin-line/20 px-2.5 py-1 text-xs font-semibold text-admin-muted">
-              {q!.difficulty.charAt(0) + q!.difficulty.slice(1).toLowerCase()}
+            <span className="rounded-lg bg-admin/6 px-3 py-1.5 text-sm font-bold text-admin">
+              Score {score}/{answeredCount}
             </span>
-            <span className="text-xs text-admin-muted">{q!.chapter}</span>
           </div>
         </div>
-        <span className="rounded-lg bg-admin/6 px-3 py-1.5 text-sm font-bold text-admin">
-          Score {score}/{Object.keys(results).length || 0}
-        </span>
+        <ProgressBar
+          value={((index + (answered ? 1 : 0)) / questions.length) * 100}
+          className="mt-3"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {answered && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
+                result.correct
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-red-50 text-red-700"
+              }`}
+            >
+              {result.correct ? (
+                <CheckCircleIcon className="size-3.5" />
+              ) : (
+                <XCircleIcon className="size-3.5" />
+              )}
+              {result.correct ? "Correct" : "Incorrect"}
+            </span>
+          )}
+          <span className="rounded-full bg-admin-line/20 px-2.5 py-1 text-xs font-semibold text-admin-muted">
+            {q.difficulty.charAt(0) + q.difficulty.slice(1).toLowerCase()}
+          </span>
+          <span className="text-xs text-admin-muted">
+            {q.topic ?? q.chapter}
+          </span>
+        </div>
       </header>
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-2xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
           <p className="text-base leading-relaxed text-admin-ink">
-            {q!.statement}
+            {q.statement}
           </p>
 
           <div className="mt-5 space-y-3">
-            {q!.type === "INTEGER" ? (
+            {q.type === "INTEGER" ? (
               <IntegerInput
                 value={integer}
                 onChange={setInteger}
@@ -212,11 +301,11 @@ function PracticeSessionInner() {
                 result={result}
               />
             ) : (
-              (q!.options ?? []).map((o) => (
+              (q.options ?? []).map((o) => (
                 <OptionRow
                   key={o.key}
                   option={o}
-                  type={q!.type}
+                  type={q.type}
                   picked={picked}
                   result={result}
                   disabled={answered}
@@ -226,19 +315,13 @@ function PracticeSessionInner() {
             )}
           </div>
 
-          {checkError && (
-            <p role="alert" className="mt-4 text-sm text-red-700">
-              {checkError}
-            </p>
-          )}
-
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6">
             {!answered ? (
               <button
                 type="button"
-                onClick={submit}
+                onClick={() => void submit()}
                 disabled={checking}
-                className="flex-1 rounded-lg bg-admin px-6 py-3 text-base font-bold text-white hover:opacity-95 disabled:opacity-50"
+                className="w-full rounded-lg bg-admin px-6 py-3 text-base font-bold text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-50"
               >
                 {checking ? "Checking…" : "Check Answer"}
               </button>
@@ -246,10 +329,15 @@ function PracticeSessionInner() {
               <button
                 type="button"
                 onClick={next}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-admin px-6 py-3 text-base font-bold text-white hover:opacity-95"
+                disabled={finishing}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-admin px-6 py-3 text-base font-bold text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-50"
               >
-                {isLast ? "Finish Practice" : "Next Question"}
-                <ArrowRightIcon className="size-4" />
+                {finishing
+                  ? "Saving…"
+                  : isLast
+                    ? "Finish Practice"
+                    : "Next Question"}
+                {!finishing && <ArrowRightIcon className="size-4" />}
               </button>
             )}
           </div>
@@ -420,45 +508,5 @@ function Explanation({ result }: { result: PracticeCheckResult | null }) {
         </>
       )}
     </aside>
-  );
-}
-
-function SessionSummary({
-  slug,
-  score,
-  total,
-}: {
-  slug: string;
-  score: number;
-  total: number;
-}) {
-  const pct = total > 0 ? Math.round((score / total) * 100) : 0;
-  return (
-    <div className="mx-auto max-w-lg rounded-2xl border border-admin-line/40 bg-white p-10 text-center shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
-      <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-admin/10 text-admin">
-        <CheckCircleIcon className="size-8" />
-      </span>
-      <h1 className="mt-4 text-2xl font-bold text-admin-ink">
-        Practice complete
-      </h1>
-      <p className="mt-1 text-sm text-admin-muted">
-        You answered {score} of {total} correctly.
-      </p>
-      <p className="mt-6 text-5xl font-bold text-admin">{pct}%</p>
-      <div className="mt-8 flex flex-col gap-3">
-        <Link
-          href={`/student/practice/${slug}/start`}
-          className="rounded-lg bg-admin px-6 py-3 text-base font-bold text-white hover:opacity-95"
-        >
-          Practise again
-        </Link>
-        <Link
-          href="/student/practice"
-          className="text-sm font-semibold text-admin-muted hover:text-admin-ink"
-        >
-          Back to Practice Library
-        </Link>
-      </div>
-    </div>
   );
 }

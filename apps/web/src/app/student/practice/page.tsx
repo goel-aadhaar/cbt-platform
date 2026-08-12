@@ -101,12 +101,7 @@ function SubjectCard({ entry }: { entry: PracticeFacets["subjects"][number] }) {
         >
           <Icon className="size-6" />
         </span>
-        <span
-          className="rounded-full px-3 py-1 text-xs font-bold"
-          style={{ backgroundColor: tint, color }}
-        >
-          {chapters} chapter{chapters === 1 ? "" : "s"}
-        </span>
+        <MasteryRing value={entry.mastery} color={color} />
       </div>
       <p className="relative mt-6 text-xl font-bold text-admin-ink">
         {entry.subject}
@@ -115,9 +110,49 @@ function SubjectCard({ entry }: { entry: PracticeFacets["subjects"][number] }) {
         <svg viewBox="0 0 24 24" className="size-3.5" fill="currentColor">
           <path d="M4 4h7v16H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm9 0h7a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-7V4Z" />
         </svg>
-        {entry.count} question{entry.count === 1 ? "" : "s"} available
+        {entry.count} question{entry.count === 1 ? "" : "s"} · {chapters}{" "}
+        chapter{chapters === 1 ? "" : "s"}
+      </p>
+      <p className="relative mt-0.5 text-xs font-semibold text-admin">
+        {entry.practised === 0
+          ? "Not started yet"
+          : `${entry.practised} of ${entry.count} practised`}
       </p>
     </Link>
+  );
+}
+
+/** Mastery ring — real progress, unlike the fixed 45%/30%/60% in the mock. */
+function MasteryRing({ value, color }: { value: number; color: string }) {
+  const r = 20;
+  const c = 2 * Math.PI * r;
+  return (
+    <span className="relative flex size-12 items-center justify-center">
+      <svg viewBox="0 0 48 48" className="size-12 -rotate-90">
+        <circle
+          cx="24"
+          cy="24"
+          r={r}
+          fill="none"
+          stroke="#e1e3e4"
+          strokeWidth="4"
+        />
+        <circle
+          cx="24"
+          cy="24"
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - Math.max(0, Math.min(100, value)) / 100)}
+        />
+      </svg>
+      <span className="absolute text-[11px] font-bold text-admin-ink">
+        {value}%
+      </span>
+    </span>
   );
 }
 

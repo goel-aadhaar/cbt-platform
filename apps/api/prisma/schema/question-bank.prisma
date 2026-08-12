@@ -82,6 +82,7 @@ model Question {
   practiceAddedBy User? @relation("QuestionPracticeAddedBy", fields: [practiceAddedById], references: [id], onDelete: SetNull)
   examQuestions ExamQuestion[]
   responses     Response[]
+  practiceAnswers PracticeAnswer[]
 
   @@index([instituteId])
   @@index([instituteId, status])

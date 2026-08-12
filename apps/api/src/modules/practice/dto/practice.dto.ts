@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDefined,
   IsEnum,
   IsInt,
@@ -59,4 +60,44 @@ export class CheckAnswerDto {
   /** string (MCQ key), string[] (MSQ keys) or number (INTEGER). */
   @IsDefined()
   answer!: string | number | string[];
+}
+
+/** Opens a practice session over one scope (§2.4). */
+export class StartSessionDto {
+  @IsString()
+  subject!: string;
+
+  @IsOptional()
+  @IsString()
+  chapter?: string;
+
+  @IsOptional()
+  @IsString()
+  topic?: string;
+
+  @IsOptional()
+  @IsEnum(Difficulty)
+  difficulty?: Difficulty;
+
+  /** Set size. Capped server-side; practice sets are short by design. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  size?: number;
+
+  /** The student's optional self-imposed timer. */
+  @IsOptional()
+  @IsBoolean()
+  timed?: boolean;
+}
+
+export class CompleteSessionDto {
+  /** Wall-clock seconds the student spent, reported by the client. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  durationSeconds?: number;
 }

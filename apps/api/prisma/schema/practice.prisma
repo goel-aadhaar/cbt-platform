@@ -1,0 +1,61 @@
+/// Practice library sessions (§2.4).
+///
+/// Practice is deliberately SEPARATE from exams: no Attempt row, no proctoring,
+/// no Result, and nothing here ever reaches a report card. These tables exist
+/// only so the student's own library can show progress — which chapters they
+/// have worked through, how they are doing on a topic, and how a session
+/// compares with their own average.
+
+model PracticeSession {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+  studentId   String @map("student_id") @db.Uuid
+
+  /// What the set was drawn from. `chapter`/`topic` narrow the scope; a
+  /// subject-wide set leaves both null.
+  subject String
+  chapter String?
+  topic   String?
+
+  /// Questions served in this set.
+  totalCount    Int @map("total_count")
+  answeredCount Int @default(0) @map("answered_count")
+  correctCount  Int @default(0) @map("correct_count")
+
+  /// Optional self-imposed timer (practice is untimed by default).
+  timed           Boolean @default(false)
+  durationSeconds Int     @default(0) @map("duration_seconds")
+
+  startedAt   DateTime  @default(now()) @map("started_at")
+  completedAt DateTime? @map("completed_at")
+
+  institute Institute        @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers   PracticeAnswer[]
+
+  @@index([studentId, subject])
+  @@index([studentId, completedAt])
+  @@index([instituteId])
+  @@map("practice_sessions")
+}
+
+/// One graded answer inside a practice session.
+///
+/// Kept per question (not just as a session tally) so "54 of 120 practised"
+/// can count DISTINCT questions a student has actually worked, and so a
+/// finished set can be reviewed question by question.
+model PracticeAnswer {
+  id         String @id @default(uuid()) @db.Uuid
+  sessionId  String @map("session_id") @db.Uuid
+  questionId String @map("question_id") @db.Uuid
+
+  correct    Boolean
+  answeredAt DateTime @default(now()) @map("answered_at")
+
+  session  PracticeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  question Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, questionId])
+  @@index([questionId])
+  @@map("practice_answers")
+}

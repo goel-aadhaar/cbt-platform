@@ -17,6 +17,7 @@ model Student {
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
   attempts  Attempt[]
+  practiceSessions PracticeSession[]
   results   Result[]
 
   @@unique([instituteId, rollNumber])
