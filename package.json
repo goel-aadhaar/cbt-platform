@@ -10,6 +10,8 @@
   },
   "scripts": {
     "api": "pnpm --filter @drsk/api",
+    "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1",
+    "dev:ports": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -FreeOnly",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
