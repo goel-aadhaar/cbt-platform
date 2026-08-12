@@ -14,13 +14,12 @@ const STATUS_CLASSES: Record<QuestionStatus, string> = {
   "not-answered": "bg-not-answered text-white",
   answered: "bg-success text-white rounded-t-[4px]",
   /**
-   * The two review states must be tellable apart at a glance — they come from
-   * two different buttons ("Mark for Review & Next" vs "Save and Mark for
-   * Review") and only one of them gets evaluated. A hollow ring means "flagged,
-   * nothing saved"; a solid disc with a green tick means "flagged AND answered".
+   * Both review states are purple circles; the GREEN TICK is the difference,
+   * and it carries real weight — a ticked question was answered and will be
+   * evaluated, an un-ticked one was flagged without a saved answer and scores
+   * nothing. See `commitAndNext` for the two buttons that produce them.
    */
-  marked:
-    "bg-white text-brand-accent border-[3px] border-brand-accent rounded-full",
+  marked: "bg-brand-accent text-white rounded-full",
   "answered-marked": "bg-brand-accent text-white rounded-full",
 };
 

@@ -474,26 +474,43 @@ function ExamRunner({
    * in the same tick is collapsed — React state alone would not have updated
    * in time to block them.
    */
-  async function commitAndNext(mark: boolean) {
+  async function commitAndNext({
+    mark,
+    keepAnswer,
+  }: {
+    mark: boolean;
+    /**
+     * `false` DISCARDS the selection ("Mark for Review & Next"). Picking an
+     * option auto-saves it, so flagging without keeping it has to clear the
+     * stored answer — otherwise the question would still be evaluated, which
+     * is exactly what that button promises not to do.
+     */
+    keepAnswer: boolean;
+  }) {
     if (advancingRef.current) return;
     advancingRef.current = true;
     setAdvancing(true);
 
+    const question = questions[current];
+    const value = keepAnswer ? answers[current] : null;
+    const answered = !isBlank(value);
+
+    if (!keepAnswer) {
+      setAnswers((prev) => prev.map((v, i) => (i === current ? null : v)));
+    }
     setStatuses((prev) =>
       prev.map((s, i) => {
         if (i !== current) return s;
-        const answered = !isBlank(answers[current]);
         if (mark) return answered ? "answered-marked" : "marked";
         return answered ? "answered" : "not-answered";
       }),
     );
-    const question = questions[current];
-    const value = answers[current];
+
     try {
       // Both halves again — see commitAnswer. Sending only `markedForReview`
       // here is what previously raced with the in-flight answer save.
       await saveResponse(attemptId, question.id, {
-        answer: isBlank(value) ? null : value,
+        answer: answered ? value : null,
         markedForReview: mark,
       });
     } catch {
@@ -718,7 +735,9 @@ function ExamRunner({
           <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-3 px-4 py-4">
             <button
               type="button"
-              onClick={() => void commitAndNext(false)}
+              onClick={() =>
+                void commitAndNext({ mark: false, keepAnswer: true })
+              }
               disabled={advancing}
               className="flex items-center gap-2 bg-success px-6 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
@@ -735,7 +754,9 @@ function ExamRunner({
             </button>
             <button
               type="button"
-              onClick={() => void commitAndNext(true)}
+              onClick={() =>
+                void commitAndNext({ mark: true, keepAnswer: true })
+              }
               disabled={advancing}
               className="bg-warn px-4 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
@@ -743,8 +764,11 @@ function ExamRunner({
             </button>
             <button
               type="button"
-              onClick={() => void commitAndNext(true)}
+              onClick={() =>
+                void commitAndNext({ mark: true, keepAnswer: false })
+              }
               disabled={advancing}
+              title="Flags this question for review. Your selection is not saved and this question will not be evaluated."
               className="bg-info px-4 py-2 text-base uppercase text-white hover:opacity-95 disabled:cursor-wait disabled:opacity-60"
             >
               Mark for Review &amp; Next

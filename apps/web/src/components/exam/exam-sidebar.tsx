@@ -90,7 +90,13 @@ export function ExamSidebar({
         <LegendItem status="not-visited" n={count("not-visited")} />
         <LegendItem status="not-answered" n={count("not-answered")} />
         <LegendItem status="answered" n={count("answered")} />
-        <LegendItem status="marked" n={count("marked")} />
+        <div className="col-span-2">
+          <LegendItem
+            status="marked"
+            n={count("marked")}
+            note="(will NOT be evaluated)"
+          />
+        </div>
         <div className="col-span-2">
           <LegendItem
             status="answered-marked"
