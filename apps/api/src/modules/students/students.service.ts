@@ -8,6 +8,7 @@ import {
 import { csvRecords } from '../../common/csv/parse-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { UserStatus } from '../auth/auth.types';
+import { ImportsService } from '../imports/imports.service';
 import { InvitationService } from '../auth/invitation/invitation.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryStudentsDto } from './dto/query-students.dto';
@@ -38,6 +39,7 @@ export class StudentsService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly invitations: InvitationService,
+    private readonly imports: ImportsService,
   ) {}
 
   private instituteId(): string {
@@ -59,6 +61,8 @@ export class StudentsService {
     buffer: Buffer;
     rollPrefix?: string;
     invitedById: string;
+    /** Original upload name, recorded in the import history. */
+    fileName?: string;
   }): Promise<ImportSummary> {
     const instituteId = this.instituteId();
     const batch = await this.prisma.batch.findFirst({
@@ -135,6 +139,16 @@ export class StudentsService {
         });
       }
     }
+
+    // Best-effort history: never let logging fail an import that succeeded.
+    await this.imports.record({
+      kind: 'STUDENTS_CSV',
+      fileName: params.fileName ?? 'students.csv',
+      total: records.length,
+      imported: imported.length,
+      failures: failed,
+      target: `Batch: ${batch.name}`,
+    });
 
     return {
       batchId: batch.id,

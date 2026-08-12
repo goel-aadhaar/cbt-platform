@@ -10,6 +10,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { ImportsService } from '../imports/imports.service';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QueryQuestionsDto } from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
@@ -89,6 +90,7 @@ export class QuestionsService {
     // Platform ports (§2.6) — swapping an adapter needs no change here.
     private readonly search: QuestionSearchPort,
     private readonly importer: QuestionImportPort,
+    private readonly imports: ImportsService,
   ) {}
 
   private ctx() {
@@ -137,6 +139,7 @@ export class QuestionsService {
   async importDocx(
     buffer: Buffer,
     defaults: DocxDefaults,
+    fileName = 'questions.docx',
   ): Promise<DocxImportSummary> {
     this.ctx(); // ensure tenant context (also enforced by create())
 
@@ -176,6 +179,16 @@ export class QuestionsService {
         });
       }
     }
+
+    // Best-effort history: never let logging fail an import that succeeded.
+    await this.imports.record({
+      kind: 'QUESTIONS_DOCX',
+      fileName,
+      total: parsed.length,
+      imported: imported.length,
+      failures: failed,
+      target: `${defaults.subject} · ${defaults.chapter}`,
+    });
 
     return { total: parsed.length, imported, failed };
   }

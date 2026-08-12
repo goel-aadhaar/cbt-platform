@@ -15,6 +15,7 @@ import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
+import { ImportsModule } from './modules/imports/imports.module';
 import { AttemptsModule } from './modules/attempts/attempts.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -89,6 +90,7 @@ import { StudentsModule } from './modules/students/students.module';
     MonitoringModule,
     AnalyticsModule,
     AnnouncementsModule,
+    ImportsModule,
   ],
   providers: [
     {

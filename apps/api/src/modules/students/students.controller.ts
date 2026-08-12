@@ -72,6 +72,7 @@ export class StudentsController {
       buffer: file.buffer,
       rollPrefix,
       invitedById: user.userId,
+      fileName: file.originalname,
     });
   }
 

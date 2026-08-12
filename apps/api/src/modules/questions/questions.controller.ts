@@ -74,13 +74,11 @@ export class QuestionsController {
     if (!file) {
       throw new BadRequestException('A .docx file is required (field "file")');
     }
-    return this.questions.importDocx(file.buffer, {
-      subject,
-      chapter,
-      difficulty,
-      type,
-      examType,
-    });
+    return this.questions.importDocx(
+      file.buffer,
+      { subject, chapter, difficulty, type, examType },
+      file.originalname,
+    );
   }
 
   @Get()

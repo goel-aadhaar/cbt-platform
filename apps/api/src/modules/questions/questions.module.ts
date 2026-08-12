@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
+import { ImportsModule } from '../imports/imports.module';
 import { DocxImportAdapter } from './adapters/docx-import.adapter';
 import { PostgresFullTextSearchAdapter } from './adapters/postgres-search.adapter';
 import { UnavailableAiProvider } from './adapters/unavailable-ai.provider';
@@ -17,7 +18,7 @@ import { QuestionsService } from './questions.service';
  * service. AI is a seam only — no provider is implemented (§3.3).
  */
 @Module({
-  imports: [AuthModule], // for TenantContextService
+  imports: [AuthModule, ImportsModule], // TenantContextService + import history
   controllers: [QuestionsController],
   providers: [
     QuestionsService,

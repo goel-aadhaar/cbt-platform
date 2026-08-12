@@ -1,0 +1,41 @@
+/// Import history (§2.10).
+///
+/// Student CSV and question .docx imports already compute a per-row outcome
+/// and hand it back once; nothing kept it. This records each run so the
+/// Imports screen can show what was loaded, by whom, and which rows failed —
+/// the failures matter most, because a partial import needs fixing and
+/// re-running.
+
+enum ImportKind {
+  STUDENTS_CSV
+  QUESTIONS_DOCX
+}
+
+model ImportRun {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+
+  kind     ImportKind
+  /// Original upload name, for recognising a run in the list.
+  fileName String     @map("file_name")
+
+  totalRows    Int @map("total_rows")
+  importedRows Int @map("imported_rows")
+  failedRows   Int @map("failed_rows")
+
+  /// Per-row failures: [{ row|index, reason, ... }]. Capped when stored so one
+  /// catastrophic upload cannot bloat the table.
+  failures Json @default("[]")
+
+  /// Free-form context, e.g. the batch a student CSV was loaded into.
+  target String?
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([instituteId, createdAt])
+  @@map("import_runs")
+}

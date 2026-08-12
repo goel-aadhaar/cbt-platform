@@ -22,6 +22,7 @@ model Institute {
   attempts         Attempt[]
   practiceSessions PracticeSession[]
   announcements    Announcement[]
+  importRuns       ImportRun[]
   responses        Response[]
   results          Result[]
   proctoringEvents ProctoringEvent[]
