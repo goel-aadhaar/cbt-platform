@@ -58,6 +58,7 @@ model User {
   examsApproved     Exam[]     @relation("ExamApprovedBy")
   announcements     Announcement[]
   importRuns        ImportRun[]
+  mediaUploaded     Media[]
 
   @@index([instituteId])
   @@index([role])

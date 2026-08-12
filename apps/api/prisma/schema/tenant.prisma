@@ -23,6 +23,7 @@ model Institute {
   practiceSessions PracticeSession[]
   announcements    Announcement[]
   importRuns       ImportRun[]
+  media            Media[]
   responses        Response[]
   results          Result[]
   proctoringEvents ProctoringEvent[]

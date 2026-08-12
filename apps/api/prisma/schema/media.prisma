@@ -1,0 +1,32 @@
+/// Media module (§2.7).
+///
+/// Images and diagrams used by questions. The FILE lives in object storage
+/// (S3 today, via the MediaStoragePort); the database holds only the reference
+/// key plus enough metadata to list, validate and serve it. Records are
+/// tenant-scoped and follow the same isolation rules as everything else.
+
+model Media {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+
+  /// Storage key — the only pointer to the bytes. Unique per tenant.
+  key      String
+  /// Original upload name, shown when picking media.
+  fileName String @map("file_name")
+  mimeType String @map("mime_type")
+  /// Bytes, kept so the UI can warn before a large question loads.
+  size     Int
+
+  /// Optional caption/alt text — accessibility for diagram-based questions.
+  altText String? @map("alt_text")
+
+  uploadedById String   @map("uploaded_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  institute  Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@unique([instituteId, key])
+  @@index([instituteId, createdAt])
+  @@map("media")
+}
