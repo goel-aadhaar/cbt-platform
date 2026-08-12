@@ -20,7 +20,7 @@ audit, plus a folder of authorization (RBAC/tenancy) checks.
 1. The API is running: `pnpm --filter @drsk/api build && node dist/main.js`
    (or `pnpm --filter @drsk/api start:dev`).
 2. The database is seeded so the superadmin exists: `pnpm --filter @drsk/api db:seed`.
-3. `baseUrl` matches your server. Default is `http://localhost:3000`.
+3. `baseUrl` matches your server. Default is `http://localhost:4000`.
 
 ## Running it in Postman
 

@@ -25,7 +25,7 @@ export const appConfig = registerAs('app', (): AppConfig => {
 
   return {
     nodeEnv,
-    port: Number(process.env.PORT ?? 3000),
+    port: Number(process.env.PORT ?? 4000),
     logLevel:
       process.env.LOG_LEVEL ?? (nodeEnv === 'production' ? 'info' : 'debug'),
     corsOrigins: (process.env.CORS_ORIGINS ?? '')

@@ -93,7 +93,7 @@ export async function downloadResultsExport(
   filename?: string,
 ): Promise<void> {
   const base =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   const res = await fetch(`${base}/exams/${examId}/results/export/${format}`, {
     headers: { Authorization: `Bearer ${getToken() ?? ""}` },
   });
@@ -506,7 +506,7 @@ export async function importStudentsCsv(
   opts: { batchId: string; rollPrefix?: string },
 ): Promise<ImportSummary> {
   const base =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000/api/v1";
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   const qs = new URLSearchParams({ batchId: opts.batchId });
   if (opts.rollPrefix) qs.set("rollPrefix", opts.rollPrefix);
 

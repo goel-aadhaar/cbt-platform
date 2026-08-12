@@ -1013,7 +1013,7 @@ const collection = {
   },
   item: items,
   variable: [
-    { key: 'baseUrl', value: 'http://localhost:3000' },
+    { key: 'baseUrl', value: 'http://localhost:4000' },
     { key: 'superEmail', value: 'superadmin@drsk.local' },
     { key: 'superPassword', value: 'ChangeMe123!' },
     { key: 'password', value: 'TestPass1234' },
@@ -1051,7 +1051,7 @@ const environment = {
   id: 'a1b2c3d4-e5f6-4a5b-9c8d-0e1f2a3b4c5d',
   name: 'DRSK CBT — Local',
   values: [
-    { key: 'baseUrl', value: 'http://localhost:3000', enabled: true },
+    { key: 'baseUrl', value: 'http://localhost:4000', enabled: true },
     { key: 'superEmail', value: 'superadmin@drsk.local', enabled: true },
     { key: 'superPassword', value: 'ChangeMe123!', enabled: true },
     { key: 'password', value: 'TestPass1234', enabled: true },

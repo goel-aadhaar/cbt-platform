@@ -29,7 +29,9 @@ pnpm install
 
 ### 1. Backend API (`apps/api`)
 
-The web app talks to the API at `http://localhost:3000/api/v1`, so start it first.
+The web app talks to the API at `http://localhost:4000/api/v1`, so start it first.
+The API deliberately uses 4000 rather than Next's default 3000 — sharing a port
+meant whichever started second silently moved, and every request 404'd.
 
 The API needs `apps/api/.env` (copy from [`apps/api/.env.example`](../api/.env.example)) with a working
 `DATABASE_URL` (Neon/PostgreSQL) and the RS256 JWT keys. Then:
@@ -43,29 +45,30 @@ pnpm --filter @drsk/api db:seed        # superadmin@drsk.local / ChangeMe123!
 # optional: a full demo tenant so login works end-to-end (see credentials below)
 pnpm --filter @drsk/api db:seed:dev
 
-# start the API (watch mode) on port 3000
+# start the API (watch mode) on port 4000
 pnpm --filter @drsk/api start:dev
 ```
 
 API endpoints once it's up:
 
-- Base URL: `http://localhost:3000/api/v1`
-- Health check: `http://localhost:3000/api/health`
-- Swagger UI: `http://localhost:3000/api/docs`
+- Base URL: `http://localhost:4000/api/v1`
+- Health check: `http://localhost:4000/api/health`
+- Swagger UI: `http://localhost:4000/api/docs`
 
 ### 2. Frontend web (`apps/web`)
 
-The API owns port **3000**, so run the web app on a different port (e.g. **3001**):
+The API owns port **4000**, so the web app can use Next's default **3000** —
+there is no longer a clash to work around:
 
 ```bash
 # create the local env file (once)
 cp apps/web/.env.example apps/web/.env.local
 
-# start the dev server on port 3001
-pnpm --filter @drsk/web exec next dev -p 3001
+# start the dev server on port 3000
+pnpm --filter @drsk/web dev
 ```
 
-Open **http://localhost:3001** → it redirects to `/login`.
+Open **http://localhost:3000** → it redirects to `/login`.
 
 ---
 
@@ -75,7 +78,7 @@ Create `apps/web/.env.local` (git-ignored). Defaults live in [`.env.example`](.e
 
 | Variable                             | Default                        | Purpose                                                |
 | ------------------------------------ | ------------------------------ | ------------------------------------------------------ |
-| `NEXT_PUBLIC_API_URL`                | `http://localhost:3000/api/v1` | Base URL of the backend API.                           |
+| `NEXT_PUBLIC_API_URL`                | `http://localhost:4000/api/v1` | Base URL of the backend API.                           |
 | `NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG` | _(empty)_                      | Pre-fills the "Institute Code" field on student login. |
 
 ---
@@ -123,18 +126,18 @@ After running `pnpm --filter @drsk/api db:seed:dev`:
 
 Run with `pnpm --filter @drsk/web <script>`:
 
-| Script              | Description                                                           |
-| ------------------- | --------------------------------------------------------------------- |
-| `dev`               | Start the Next.js dev server (add `-p 3001` to avoid the API's port). |
-| `build`             | Production build.                                                     |
-| `start`             | Serve the production build.                                           |
-| `lint` / `lint:fix` | ESLint.                                                               |
-| `typecheck`         | `tsc --noEmit`.                                                       |
+| Script              | Description                                |
+| ------------------- | ------------------------------------------ |
+| `dev`               | Start the Next.js dev server on port 3000. |
+| `build`             | Production build.                          |
+| `start`             | Serve the production build.                |
+| `lint` / `lint:fix` | ESLint.                                    |
+| `typecheck`         | `tsc --noEmit`.                            |
 
 ---
 
 ## Troubleshooting
 
-- **Port already in use / API unreachable** — the API must be on `3000` and the web app on a _different_ port (`3001`). If a call fails, confirm the API health endpoint responds: `curl http://localhost:3000/api/health`.
+- **API unreachable** — the API runs on `4000` and the web app on `3000`; they no longer compete for a port. If a call fails, confirm the API health endpoint responds: `curl http://localhost:4000/api/health`.
 - **Admin login returns 500 with `database: down`** — the dev Neon database auto-suspends when idle and cold-starts on the first request (can take ~20–30s). Wait and retry; it recovers on its own.
 - **Login says "invalid credentials"** — make sure you ran `pnpm --filter @drsk/api db:seed:dev` and used the demo credentials above (student logs in with the **Institute Code**, not an email).
