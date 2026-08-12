@@ -131,7 +131,13 @@ export function ExamBuilderDrawer({
         setFacetSource(q.value.items);
         setRefError(null);
       } else {
-        setRefError("Could not load the approved question bank.");
+        // Surface why it failed — a 403 (wrong role) and an unreachable API
+        // need completely different fixes.
+        setRefError(
+          q.reason instanceof Error
+            ? `Could not load the approved question bank: ${q.reason.message}`
+            : "Could not load the approved question bank.",
+        );
       }
     });
     return () => {

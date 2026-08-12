@@ -33,12 +33,16 @@ export default function AdminLoginPage() {
       await staffLogin({ email: userId.trim(), password });
       router.push("/admin/dashboard");
     } catch (err) {
+      // Only 401 is softened deliberately (see the candidate login). Every
+      // other failure keeps its real reason so it can actually be fixed.
       setError(
         err instanceof ApiError
           ? err.status === 401
-            ? "Invalid credentials. Check your details and try again."
+            ? "Invalid credentials. Check your email and password."
             : err.message
-          : "Something went wrong. Please try again.",
+          : err instanceof Error
+            ? err.message
+            : "Login failed for an unknown reason.",
       );
       setSubmitting(false);
     }

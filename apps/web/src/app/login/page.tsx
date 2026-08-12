@@ -40,12 +40,19 @@ export default function LoginPage() {
       });
       router.push("/student");
     } catch (err) {
+      // 401 is the one case worth softening — the server says "Invalid
+      // credentials" and naming which field was wrong would help an attacker.
+      // Everything else keeps the real reason: a wrong institute code, a
+      // disabled account or an unreachable API are all things the candidate
+      // (or support) can act on, and "something went wrong" hides all three.
       setError(
         err instanceof ApiError
           ? err.status === 401
-            ? "Invalid credentials. Check your details and try again."
+            ? "Invalid credentials. Check your Institute ID, Candidate ID and password."
             : err.message
-          : "Something went wrong. Please try again.",
+          : err instanceof Error
+            ? err.message
+            : "Login failed for an unknown reason.",
       );
       setSubmitting(false);
     }

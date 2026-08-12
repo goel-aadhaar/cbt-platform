@@ -28,7 +28,7 @@ import { LeaveConfirmModal } from "@/components/exam/leave-confirm-modal";
 import { SubmitConfirmModal } from "@/components/exam/submit-confirm-modal";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useProctoring } from "@/hooks/use-proctoring";
-import { ApiError } from "@/lib/api";
+
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 import {
   abandonAttempt,
@@ -84,15 +84,18 @@ function ExamPageInner() {
       const state = await startAttempt(examId);
       setAttempt(state);
     } catch (err) {
-      const msg =
-        err instanceof ApiError
-          ? err.status === 403
-            ? "You're not assigned to a batch for this exam."
-            : err.status === 404
-              ? "Exam is not currently available."
-              : err.message
-          : "Could not start the exam. Try again.";
-      setStartError(msg);
+      /**
+       * The server's reason is always more specific than a guess from the
+       * status code — it distinguishes "not assigned to this exam" from
+       * "already submitted", "you left this exam" and "outside the exam
+       * window", all of which a candidate needs to hear precisely. Only fall
+       * back when something non-HTTP was thrown.
+       */
+      setStartError(
+        err instanceof Error
+          ? err.message
+          : "The exam could not be started for an unknown reason.",
+      );
     } finally {
       setStarting(false);
     }
