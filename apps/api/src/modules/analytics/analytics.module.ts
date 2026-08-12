@@ -6,6 +6,8 @@ import {
   StudentHistoryController,
 } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
+import { DashboardController } from './dashboard.controller';
+import { DashboardService } from './dashboard.service';
 import { MyHistoryController } from './my-history.controller';
 
 @Module({
@@ -14,7 +16,8 @@ import { MyHistoryController } from './my-history.controller';
     ExamAnalyticsController,
     StudentHistoryController,
     MyHistoryController,
+    DashboardController,
   ],
-  providers: [AnalyticsService],
+  providers: [AnalyticsService, DashboardService],
 })
 export class AnalyticsModule {}
