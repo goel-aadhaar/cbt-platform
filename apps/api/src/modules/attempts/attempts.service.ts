@@ -123,6 +123,29 @@ export class AttemptsService {
       },
     });
 
+    /**
+     * Exams scheduled for this student but not open yet. `items` is
+     * deliberately "sittable right now"; the portal also needs to say what is
+     * COMING, which it previously had no source for.
+     */
+    const upcoming = await this.prisma.exam.findMany({
+      where: {
+        instituteId: student.instituteId,
+        status: 'PUBLISHED',
+        startAt: { gt: now },
+        batches: { some: { batchId: student.batchId } },
+      },
+      orderBy: { startAt: 'asc' },
+      take: 10,
+      select: {
+        id: true,
+        title: true,
+        durationMinutes: true,
+        startAt: true,
+        endAt: true,
+      },
+    });
+
     return {
       items: exams.map((e) => ({
         id: e.id,
@@ -132,6 +155,7 @@ export class AttemptsService {
         endAt: e.endAt,
         attempt: e.attempts[0] ?? null,
       })),
+      upcoming,
     };
   }
 
@@ -187,6 +211,11 @@ export class AttemptsService {
     }
 
     if (existing) {
+      if (existing.status === AttemptStatus.ABANDONED) {
+        throw new ConflictException(
+          'You left this exam. An exam cannot be entered again once you leave it.',
+        );
+      }
       if (existing.status !== AttemptStatus.IN_PROGRESS) {
         throw new ConflictException('You have already submitted this exam');
       }
@@ -297,6 +326,32 @@ export class AttemptsService {
       data: { status: AttemptStatus.SUBMITTED, submittedAt: new Date() },
     });
     return this.summary(attemptId);
+  }
+
+  /**
+   * Leave the exam without submitting (the Logout button on the exam screen).
+   *
+   * The candidate's work is DISCARDED — responses are deleted and the attempt
+   * is never evaluated, because only a submitted attempt counts. The row is
+   * kept in a terminal state so the exam still cannot be entered again: leaving
+   * mid-exam spends the attempt, it does not hand back a second chance.
+   */
+  async abandon(attemptId: string) {
+    const student = await this.currentStudent();
+    await this.getActiveAttempt(attemptId, student.id);
+
+    await this.prisma.$transaction([
+      this.prisma.response.deleteMany({ where: { attemptId } }),
+      this.prisma.attempt.update({
+        where: { id: attemptId },
+        data: {
+          status: AttemptStatus.ABANDONED,
+          submittedAt: null,
+        },
+      }),
+    ]);
+
+    return { attemptId, status: AttemptStatus.ABANDONED };
   }
 
   /**

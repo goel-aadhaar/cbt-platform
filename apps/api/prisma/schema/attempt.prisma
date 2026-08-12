@@ -2,6 +2,9 @@ enum AttemptStatus {
   IN_PROGRESS
   SUBMITTED
   AUTO_SUBMITTED
+  /// Left via Logout. The candidate's work is discarded and never evaluated,
+  /// but the row remains so the exam cannot be entered a second time.
+  ABANDONED
 }
 
 /// Proctoring / anti-malpractice signals reported by the exam client (§2.2).

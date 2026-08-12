@@ -13,7 +13,14 @@ const STATUS_CLASSES: Record<QuestionStatus, string> = {
   "not-visited": "bg-fill text-ink border border-subtle rounded-[2px]",
   "not-answered": "bg-not-answered text-white",
   answered: "bg-success text-white rounded-t-[4px]",
-  marked: "bg-brand-accent text-white rounded-full",
+  /**
+   * The two review states must be tellable apart at a glance — they come from
+   * two different buttons ("Mark for Review & Next" vs "Save and Mark for
+   * Review") and only one of them gets evaluated. A hollow ring means "flagged,
+   * nothing saved"; a solid disc with a green tick means "flagged AND answered".
+   */
+  marked:
+    "bg-white text-brand-accent border-[3px] border-brand-accent rounded-full",
   "answered-marked": "bg-brand-accent text-white rounded-full",
 };
 
@@ -68,7 +75,9 @@ export function PaletteSquare({
     >
       {n}
       {status === "answered-marked" && (
-        <span className="absolute bottom-0 right-0 size-[10px] rounded-full border border-white bg-success" />
+        <span className="absolute -bottom-0.5 -right-0.5 flex size-[14px] items-center justify-center rounded-full border-2 border-white bg-success text-[9px] font-bold leading-none text-white">
+          ✓
+        </span>
       )}
     </Tag>
   );

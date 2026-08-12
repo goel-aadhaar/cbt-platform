@@ -66,6 +66,17 @@ export class AttemptsController {
     return this.attempts.submit(id);
   }
 
+  /**
+   * Leave without submitting. Discards the candidate's responses — only a
+   * submitted attempt is stored — but still spends the attempt, so the exam
+   * cannot be entered again.
+   */
+  @Post(':id/abandon')
+  @HttpCode(HttpStatus.OK)
+  abandon(@Param('id', ParseUUIDPipe) id: string) {
+    return this.attempts.abandon(id);
+  }
+
   /** Accumulate time spent in a section (§2.8). Send elapsed deltas. */
   @Put(':id/section-time')
   @HttpCode(HttpStatus.OK)
