@@ -1,183 +1,131 @@
+"use client";
+
 import Link from "next/link";
+import { useParams } from "next/navigation";
 
 import { StudentShell } from "@/components/student/student-shell";
-import { LockIcon, TrendingUpIcon } from "@/components/student/icons";
+import {
+  ArrowRightIcon,
+  BookOpenIcon,
+  ChevronRightIcon,
+} from "@/components/student/icons";
+import { usePracticeFacets } from "@/hooks/use-practice";
+import { subjectFromSlug } from "@/lib/practice";
 
-interface Topic {
-  name: string;
-  questions: number;
-  description: string;
-  mastery: number;
-  wide?: boolean;
-}
+/**
+ * Chapter/topic picker for one subject. Everything comes from
+ * GET /practice/facets, so a chapter only appears once a teacher has curated a
+ * question into it.
+ */
+export default function PracticeSubjectPage() {
+  const params = useParams<{ subject: string }>();
+  const slug = params.subject ?? "";
+  const { data, loading, error } = usePracticeFacets();
 
-const TOPICS_BY_SUBJECT: Record<string, { chapter: string; topics: Topic[] }> =
-  {
-    physics: {
-      chapter: "Laws of Motion",
-      topics: [
-        {
-          name: "Newton's First Law",
-          questions: 34,
-          description:
-            "Inertia, frames of reference, and equilibrium conditions.",
-          mastery: 65,
-        },
-        {
-          name: "Friction",
-          questions: 42,
-          description:
-            "Static and kinetic friction, coefficients, and motion on rough surfaces.",
-          mastery: 30,
-        },
-        {
-          name: "Circular Motion",
-          questions: 56,
-          description:
-            "Centripetal force, banked curves, and non-uniform circular dynamics.",
-          mastery: 80,
-          wide: true,
-        },
-      ],
-    },
-    chemistry: {
-      chapter: "Chemical Bonding",
-      topics: [
-        {
-          name: "Ionic Bonding",
-          questions: 28,
-          description:
-            "Lattice energy, Born–Haber cycles, and ionic character.",
-          mastery: 55,
-        },
-        {
-          name: "Covalent Bonding",
-          questions: 38,
-          description: "VSEPR, hybridisation, and molecular geometry.",
-          mastery: 40,
-        },
-        {
-          name: "Intermolecular Forces",
-          questions: 44,
-          description:
-            "Hydrogen bonding, dipole interactions, and physical properties.",
-          mastery: 70,
-          wide: true,
-        },
-      ],
-    },
-    biology: {
-      chapter: "Genetics",
-      topics: [
-        {
-          name: "Mendelian Inheritance",
-          questions: 36,
-          description: "Laws of segregation, dominance, and dihybrid crosses.",
-          mastery: 75,
-        },
-        {
-          name: "Molecular Genetics",
-          questions: 48,
-          description: "DNA replication, transcription, and the genetic code.",
-          mastery: 60,
-        },
-        {
-          name: "Human Genetics",
-          questions: 52,
-          description:
-            "Pedigree analysis, sex-linked traits, and genetic disorders.",
-          mastery: 85,
-          wide: true,
-        },
-      ],
-    },
-  };
-
-function titleCase(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-export default async function PracticeTopicsPage({
-  params,
-}: {
-  params: Promise<{ subject: string }>;
-}) {
-  const { subject } = await params;
-  const data = TOPICS_BY_SUBJECT[subject] ?? TOPICS_BY_SUBJECT.physics;
-  const subjectName = titleCase(subject);
+  const subject = subjectFromSlug(data, slug);
+  const entry = data?.subjects.find((s) => s.subject === subject) ?? null;
 
   return (
-    <StudentShell breadcrumb={["Practice Library", subjectName]}>
+    <StudentShell breadcrumb={["Practice Library", subject ?? "Subject"]}>
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
-          {data.chapter} Topics
+          {subject ?? (loading ? "Loading…" : "Subject")}
         </h1>
-        <p className="mt-1 max-w-2xl text-sm text-admin-muted">
-          Select a topic below to focus your practice session. Consistent
-          practice builds mastery and confidence.
+        <p className="mt-1 text-sm text-admin-muted">
+          {entry
+            ? `${entry.count} question${entry.count === 1 ? "" : "s"} across ${entry.chapters.length} chapter${entry.chapters.length === 1 ? "" : "s"}. Pick a chapter, or drill the whole subject.`
+            : "Choose a chapter to start practising."}
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        {data.topics.map((topic) => (
-          <TopicCard key={topic.name} subject={subject} topic={topic} />
-        ))}
+      {error && (
+        <p
+          role="alert"
+          className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      )}
 
-        {/* Locked placeholder */}
-        <div className="flex min-h-[180px] flex-col items-center justify-center rounded-2xl border border-dashed border-admin-line bg-admin/[0.03] p-6 text-center">
-          <LockIcon className="size-6 text-admin-muted" />
-          <p className="mt-2 font-semibold text-admin-muted">
-            More topics unlocking soon
-          </p>
-          <p className="text-sm text-admin-muted/80">
-            Complete current topics to progress.
-          </p>
+      {loading ? (
+        <div className="space-y-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-20 animate-pulse rounded-xl border border-admin-line/40 bg-admin-line/10"
+            />
+          ))}
         </div>
-      </div>
+      ) : !entry ? (
+        <NotCurated slug={slug} />
+      ) : (
+        <>
+          {/* Whole-subject drill */}
+          <Link
+            href={`/student/practice/${slug}/start`}
+            className="mb-6 flex items-center justify-between rounded-2xl bg-admin p-6 text-white transition-opacity hover:opacity-95"
+          >
+            <span>
+              <span className="block text-lg font-bold">
+                Practice all of {entry.subject}
+              </span>
+              <span className="mt-0.5 block text-sm text-white/80">
+                A mixed set drawn from every chapter
+              </span>
+            </span>
+            <ArrowRightIcon className="size-5 shrink-0" />
+          </Link>
+
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-admin-muted">
+            Chapters
+          </h2>
+          <ul className="space-y-3">
+            {entry.chapters.map((c) => (
+              <li key={c.chapter}>
+                <Link
+                  href={`/student/practice/${slug}/start?chapter=${encodeURIComponent(c.chapter)}`}
+                  className="flex items-center justify-between rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)] transition-shadow hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)]"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-base font-bold text-admin-ink">
+                      {c.chapter}
+                    </span>
+                    {c.topics.length > 0 && (
+                      <span className="mt-1 block truncate text-xs text-admin-muted">
+                        {c.topics.join(" · ")}
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRightIcon className="size-5 shrink-0 text-admin-muted" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </StudentShell>
   );
 }
 
-function TopicCard({ subject, topic }: { subject: string; topic: Topic }) {
+function NotCurated({ slug }: { slug: string }) {
   return (
-    <Link
-      href={`/student/practice/${subject}/start`}
-      className={`group flex flex-col rounded-2xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)] transition-shadow hover:shadow-[0_8px_20px_rgba(0,0,0,0.08)] ${
-        topic.wide ? "md:col-span-2" : ""
-      }`}
-    >
-      <div className="flex items-start justify-between">
-        <span className="flex size-10 items-center justify-center rounded-xl bg-admin-surface text-admin">
-          <TrendingUpIcon className="size-5" />
-        </span>
-        <span className="rounded-full bg-admin-bg px-3 py-1 text-xs font-semibold text-admin-muted">
-          {topic.questions} Questions
-        </span>
-      </div>
-      <div
-        className={
-          topic.wide ? "mt-4 flex items-center justify-between gap-8" : "mt-4"
-        }
+    <div className="rounded-2xl border border-dashed border-admin-line bg-white p-12 text-center">
+      <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-admin/10 text-admin">
+        <BookOpenIcon className="size-6" />
+      </span>
+      <p className="mt-4 text-base font-bold text-admin-ink">
+        Nothing to practise here yet
+      </p>
+      <p className="mx-auto mt-1 max-w-md text-sm text-admin-muted">
+        No questions have been added to the practice library for{" "}
+        <span className="font-semibold">{slug.replace(/-/g, " ")}</span>.
+      </p>
+      <Link
+        href="/student/practice"
+        className="mt-5 inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
       >
-        <div className={topic.wide ? "max-w-md" : ""}>
-          <h2 className="text-lg font-bold text-admin-ink">{topic.name}</h2>
-          <p className="mt-1 text-sm text-admin-muted">{topic.description}</p>
-        </div>
-        <div className={topic.wide ? "w-72 shrink-0" : "mt-4"}>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-admin-muted">Mastery Progress</span>
-            <span className="font-semibold text-admin-ink">
-              {topic.mastery}%
-            </span>
-          </div>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-[#e1e3e4]">
-            <div
-              className="h-full rounded-full bg-admin"
-              style={{ width: `${topic.mastery}%` }}
-            />
-          </div>
-        </div>
-      </div>
-    </Link>
+        Back to Practice Library
+      </Link>
+    </div>
   );
 }

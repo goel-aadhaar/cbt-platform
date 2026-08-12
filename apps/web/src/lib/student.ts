@@ -252,3 +252,43 @@ export async function fetchMyHistory(): Promise<HistoryItem[]> {
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
   return apiFetch<HistoryItem[]>(`/me/history`, { token });
 }
+
+/**
+ * One attempt in the student's own record, with the state of its result.
+ * `result` is populated ONLY once published — a PENDING row carries no score.
+ */
+export interface MyAttempt {
+  id: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+  startedAt: string;
+  submittedAt: string | null;
+  resultState: "IN_PROGRESS" | "PENDING" | "PUBLISHED";
+  exam: {
+    id: string;
+    title: string;
+    startAt: string | null;
+    durationMinutes: number;
+  };
+  result: {
+    published: boolean;
+    totalScore: number;
+    maxScore: number;
+    correctCount: number;
+    incorrectCount: number;
+    unattemptedCount: number;
+    overallRank: number | null;
+    batchRank: number | null;
+    percentile: number | null;
+  } | null;
+}
+
+/**
+ * GET /me/attempts — every attempt, including those awaiting publication.
+ * `/me/history` only returns PUBLISHED results, so this is what lets the
+ * portal show the "results pending" state between submit and publish.
+ */
+export async function fetchMyAttempts(): Promise<MyAttempt[]> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<MyAttempt[]>(`/me/attempts`, { token });
+}

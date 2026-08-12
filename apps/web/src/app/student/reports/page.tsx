@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 
 import { StudentShell } from "@/components/student/student-shell";
 import {
@@ -13,8 +14,7 @@ import {
   LeafIcon,
   TrophyIcon,
 } from "@/components/student/icons";
-import { ApiError } from "@/lib/api";
-import { fetchMyHistory, type HistoryItem } from "@/lib/student";
+import { useMyAttempts } from "@/hooks/use-my-attempts";
 import type { SVGProps } from "react";
 
 type Tab = "overall" | "subject" | "mock";
@@ -460,46 +460,32 @@ function SubjectTab() {
 /* ---------------- Mock Tests (LIVE from GET /me/history) ---------------- */
 
 function MockTab() {
-  const [items, setItems] = useState<HistoryItem[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // /me/attempts, not /me/history: history is published-only, so an exam that
+  // has been sat but not yet published would otherwise vanish from the portal.
+  const { items: attempts, loading, error } = useMyAttempts();
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchMyHistory()
-      .then((data) => {
-        if (!cancelled) setItems(data);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const msg =
-          err instanceof ApiError
-            ? err.status === 404
-              ? "No published results yet."
-              : err.message
-            : "Couldn't load your exam history.";
-        setError(msg);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const scored = sat.filter((a) => a.result !== null);
 
-  const stats = items?.length
+  const stats = scored.length
     ? [
         {
           label: "Best Score",
-          value: Math.max(...items.map((x) => x.totalScore)).toString(),
+          value: Math.max(
+            ...scored.map((x) => x.result!.totalScore),
+          ).toString(),
           icon: TrophyIcon,
         },
         {
           label: "Most Recent",
-          value: items[0].totalScore.toString(),
+          value: scored[0].result!.totalScore.toString(),
           icon: ClockIcon,
         },
         {
           label: "Average Score",
           value: Math.round(
-            items.reduce((s, x) => s + x.totalScore, 0) / items.length,
+            scored.reduce((s, x) => s + x.result!.totalScore, 0) /
+              scored.length,
           ).toString(),
           icon: BarChartIcon,
         },
@@ -535,13 +521,10 @@ function MockTab() {
       {/* Live published-results table */}
       <section className="rounded-2xl border border-admin-line/40 bg-white shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
         <div className="flex items-center justify-between border-b border-admin-line/40 px-6 py-4">
-          <h3 className="text-lg font-semibold text-admin-ink">
-            Published Results
-          </h3>
-          <span className="text-xs text-admin-muted">from GET /me/history</span>
+          <h3 className="text-lg font-semibold text-admin-ink">Your Results</h3>
         </div>
 
-        {items === null && !error && (
+        {loading && (
           <div className="space-y-3 p-6">
             {[0, 1, 2].map((i) => (
               <div key={i} className="h-10 animate-pulse rounded bg-admin-bg" />
@@ -549,20 +532,20 @@ function MockTab() {
           </div>
         )}
 
-        {error && (
+        {error && !loading && (
           <p className="px-6 py-8 text-center text-sm text-admin-muted">
             {error}
           </p>
         )}
 
-        {items && items.length === 0 && !error && (
+        {!loading && !error && sat.length === 0 && (
           <p className="px-6 py-8 text-center text-sm text-admin-muted">
-            No published results yet. Your published mock-test scores will show
-            here.
+            You haven&apos;t completed any exams yet. Scores appear here once
+            your institute publishes them.
           </p>
         )}
 
-        {items && items.length > 0 && (
+        {!loading && sat.length > 0 && (
           <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 border-b border-admin-line/40 px-6 py-3 text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
             <span>Exam</span>
             <span>Score</span>
@@ -571,30 +554,50 @@ function MockTab() {
             <span>Date</span>
           </div>
         )}
-        {items?.map((it) => (
-          <div
-            key={`${it.exam.id}-${it.createdAt}`}
-            className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] items-center gap-4 border-b border-admin-line/20 px-6 py-4 text-sm last:border-b-0"
-          >
-            <span className="font-medium text-admin-ink">{it.exam.title}</span>
-            <span className="font-bold text-admin-ink">
-              {it.totalScore}
-              <span className="font-normal text-admin-muted">
-                /{it.maxScore}
+        {!loading &&
+          sat.map((a) => (
+            <Link
+              key={a.id}
+              href={`/student/results/${a.id}`}
+              className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] items-center gap-4 border-b border-admin-line/20 px-6 py-4 text-sm last:border-b-0 hover:bg-admin/5"
+            >
+              <span className="font-medium text-admin-ink">{a.exam.title}</span>
+              {a.result ? (
+                <>
+                  <span className="font-bold text-admin-ink">
+                    {a.result.totalScore}
+                    <span className="font-normal text-admin-muted">
+                      /{a.result.maxScore}
+                    </span>
+                  </span>
+                  <span className="text-admin-muted">
+                    {a.result.correctCount}/
+                    {a.result.correctCount +
+                      a.result.incorrectCount +
+                      a.result.unattemptedCount}
+                  </span>
+                  <span className="text-admin-muted">
+                    {a.result.percentile == null
+                      ? "—"
+                      : `${a.result.percentile}%`}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>
+                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                      Pending
+                    </span>
+                  </span>
+                  <span className="text-admin-muted">—</span>
+                  <span className="text-admin-muted">—</span>
+                </>
+              )}
+              <span className="text-admin-muted">
+                {new Date(a.submittedAt ?? a.startedAt).toLocaleDateString()}
               </span>
-            </span>
-            <span className="text-admin-muted">
-              {it.correctCount}/
-              {it.correctCount + it.incorrectCount + it.unattemptedCount}
-            </span>
-            <span className="text-admin-muted">
-              {it.percentile == null ? "—" : `${it.percentile}%`}
-            </span>
-            <span className="text-admin-muted">
-              {new Date(it.createdAt).toLocaleDateString()}
-            </span>
-          </div>
-        ))}
+            </Link>
+          ))}
       </section>
 
       <section className="flex flex-col items-center justify-between gap-4 rounded-2xl bg-admin/5 p-6 md:flex-row">

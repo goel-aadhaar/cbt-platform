@@ -1,124 +1,165 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
-import {
-  ArrowRightIcon,
-  ClipboardIcon,
-  ListIcon,
-  TimerIcon,
-} from "@/components/student/icons";
+import { StudentShell } from "@/components/student/student-shell";
+import { PlayIcon, TargetIcon } from "@/components/student/icons";
+import { usePracticeFacets } from "@/hooks/use-practice";
+import { subjectFromSlug, type PracticeDifficulty } from "@/lib/practice";
 
-function titleCase(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+const SIZES = [5, 10, 20];
+const LEVELS: { value: PracticeDifficulty | "ALL"; label: string }[] = [
+  { value: "ALL", label: "Mixed" },
+  { value: "EASY", label: "Easy" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HARD", label: "Hard" },
+];
+
+export default function PracticeStartPage() {
+  return (
+    <Suspense
+      fallback={
+        <StudentShell breadcrumb={["Practice Library"]}>
+          <div />
+        </StudentShell>
+      }
+    >
+      <PracticeStartInner />
+    </Suspense>
+  );
 }
 
-export default function StartPracticePage() {
+/** Configure a practice set, then hand the choices to the session screen. */
+function PracticeStartInner() {
   const params = useParams<{ subject: string }>();
-  const subject = params.subject ?? "physics";
-  const subjectName = titleCase(subject);
-  const [timed, setTimed] = useState(false);
+  const search = useSearchParams();
+  const router = useRouter();
+  const slug = params.subject ?? "";
+  const chapter = search.get("chapter");
+
+  const { data } = usePracticeFacets();
+  const subject = subjectFromSlug(data, slug);
+
+  const [size, setSize] = useState(10);
+  const [level, setLevel] = useState<PracticeDifficulty | "ALL">("ALL");
+
+  function begin() {
+    const qs = new URLSearchParams({ limit: String(size) });
+    if (chapter) qs.set("chapter", chapter);
+    if (level !== "ALL") qs.set("difficulty", level);
+    router.push(`/student/practice/${slug}/session?${qs}`);
+  }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-admin/[0.04] px-4 py-10 [font-family:var(--font-hanken)] text-admin-ink">
-      {/* breadcrumb */}
-      <nav className="mb-6 flex items-center gap-2 text-sm text-admin-muted">
-        <span>Practice Library</span>
-        <span className="text-admin-line">›</span>
-        <span>{subjectName}</span>
-        <span className="text-admin-line">›</span>
-        <span className="font-semibold text-admin">Standard Set (25 Qs)</span>
-      </nav>
+    <StudentShell
+      breadcrumb={["Practice Library", subject ?? "Subject", "Start"]}
+    >
+      <div className="mx-auto max-w-2xl">
+        <header className="mb-6 text-center">
+          <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-admin/10 text-admin">
+            <TargetIcon className="size-7" />
+          </span>
+          <h1 className="mt-4 text-3xl font-bold tracking-[-0.6px] text-admin-ink">
+            Ready to practise?
+          </h1>
+          <p className="mt-1 text-sm text-admin-muted">
+            {chapter ? (
+              <>
+                {subject} · <span className="font-semibold">{chapter}</span>
+              </>
+            ) : (
+              <>All chapters in {subject ?? "this subject"}</>
+            )}
+          </p>
+        </header>
 
-      <div className="w-full max-w-lg rounded-3xl border border-admin-line/40 bg-white p-10 text-center shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-        <span className="mx-auto flex size-16 items-center justify-center rounded-full bg-admin-surface text-admin">
-          <ClipboardIcon className="size-7" />
-        </span>
-        <h1 className="mt-5 text-4xl font-bold tracking-tight text-admin-ink">
-          Standard Set
-        </h1>
-        <p className="mx-auto mt-3 max-w-sm text-sm text-admin-muted">
-          You&apos;re about to start a practice session covering core concepts
-          in {subjectName}.
-        </p>
+        <div className="rounded-2xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
+          <Fieldset label="How many questions?">
+            {SIZES.map((n) => (
+              <Choice
+                key={n}
+                active={size === n}
+                onClick={() => setSize(n)}
+                label={String(n)}
+              />
+            ))}
+          </Fieldset>
 
-        <div className="mt-6 flex justify-center gap-4">
-          <InfoTile
-            icon={<ListIcon className="size-5" />}
-            value="25"
-            label="Questions"
-          />
-          <InfoTile
-            icon={<TimerIcon className="size-5" />}
-            value="40"
-            label="Minutes"
-          />
-        </div>
+          <Fieldset label="Difficulty">
+            {LEVELS.map((l) => (
+              <Choice
+                key={l.value}
+                active={level === l.value}
+                onClick={() => setLevel(l.value)}
+                label={l.label}
+              />
+            ))}
+          </Fieldset>
 
-        <div className="mt-6 flex items-center justify-between rounded-2xl border border-admin-line/60 p-4 text-left">
-          <div>
-            <p className="flex items-center gap-1.5 font-bold text-admin-ink">
-              Timed Mode
-              <span className="text-admin-muted">ⓘ</span>
-            </p>
-            <p className="text-sm text-admin-muted">
-              Keep it relaxed or set a timer
-            </p>
-          </div>
+          <p className="mt-5 rounded-lg bg-admin/6 px-4 py-3 text-xs text-admin-muted">
+            No timer, no proctoring, and nothing is recorded against your exam
+            results. Each answer is checked as you go, with the explanation
+            revealed once you commit.
+          </p>
+
           <button
             type="button"
-            role="switch"
-            aria-checked={timed}
-            aria-label="Toggle timed mode"
-            onClick={() => setTimed((v) => !v)}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-              timed ? "bg-admin" : "bg-admin-line"
-            }`}
+            onClick={begin}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-admin px-6 py-3.5 text-base font-bold text-white hover:opacity-95"
           >
-            <span
-              className={`absolute top-0.5 size-6 rounded-full bg-white shadow transition-all ${
-                timed ? "left-[22px]" : "left-0.5"
-              }`}
-            />
+            <PlayIcon className="size-5" />
+            Start Practice
           </button>
+          <Link
+            href={`/student/practice/${slug}`}
+            className="mt-3 block text-center text-sm font-semibold text-admin-muted hover:text-admin-ink"
+          >
+            Choose a different chapter
+          </Link>
         </div>
-
-        <Link
-          href={`/student/practice/${subject}/session`}
-          className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-admin py-4 text-base font-bold text-white hover:opacity-95"
-        >
-          Start Practice
-          <ArrowRightIcon className="size-4" />
-        </Link>
-        <Link
-          href={`/student/practice/${subject}`}
-          className="mt-4 inline-block text-sm font-semibold text-admin-muted hover:text-admin-ink"
-        >
-          Cancel
-        </Link>
       </div>
+    </StudentShell>
+  );
+}
+
+function Fieldset({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-5 last:mb-0">
+      <p className="mb-2 text-sm font-bold text-admin-ink">{label}</p>
+      <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
 
-function InfoTile({
-  icon,
-  value,
+function Choice({
+  active,
+  onClick,
   label,
 }: {
-  icon: React.ReactNode;
-  value: string;
+  active: boolean;
+  onClick: () => void;
   label: string;
 }) {
   return (
-    <div className="flex w-32 flex-col items-center gap-1 rounded-2xl bg-admin-bg py-4">
-      <span className="text-admin">{icon}</span>
-      <span className="text-xl font-bold text-admin-ink">{value}</span>
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
-        {label}
-      </span>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`min-w-16 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+        active
+          ? "border-admin bg-admin text-white"
+          : "border-admin-line/60 bg-white text-admin-ink hover:bg-admin/5"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
