@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 import { Greeting } from "@/components/student/greeting";
 import { LiveExamCard } from "@/components/student/live-exam-card";
@@ -6,14 +9,17 @@ import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
   BarChartIcon,
+  BookOpenIcon,
   CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ClockIcon,
   FileTextIcon,
   PencilIcon,
   TrophyIcon,
 } from "@/components/student/icons";
+import { useExamSchedule } from "@/hooks/use-exam-schedule";
+import { useMyAttempts } from "@/hooks/use-my-attempts";
+import { usePracticeFacets } from "@/hooks/use-practice";
+import type { MyAttempt, UpcomingExam } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -21,102 +27,119 @@ type IconType = ComponentType<SVGProps<SVGSVGElement>>;
 interface Stat {
   label: string;
   value: string;
-  delta: string;
-  deltaTone: "up" | "flat" | "down";
-  pct: number; // filled fraction of the mini bar, 0–100
+  /** Real supporting detail — no invented week-on-week deltas. */
+  sub: string;
+  /** Filled fraction of the mini bar, 0–100. */
+  pct: number;
   icon: IconType;
   iconBg: string;
   iconColor: string;
   barColor: string;
 }
 
-const STATS: Stat[] = [
-  {
-    label: "Mock Tests",
-    value: "24",
-    delta: "2 this week",
-    deltaTone: "up",
-    pct: 70,
-    icon: FileTextIcon,
-    iconBg: "#f3e8ff",
-    iconColor: "#a855f7",
-    barColor: "#a855f7",
-  },
-  {
-    label: "Highest %ile",
-    value: "98.4",
-    delta: "1.2%",
-    deltaTone: "up",
-    pct: 98,
-    icon: TrophyIcon,
-    iconBg: "#fef3c7",
-    iconColor: "#f59e0b",
-    barColor: "#f59e0b",
-  },
-  {
-    label: "Avg. Score",
-    value: "612",
-    delta: "14 pts",
-    deltaTone: "up",
-    pct: 85,
-    icon: BarChartIcon,
-    iconBg: "#dbeafe",
-    iconColor: "#3b82f6",
-    barColor: "#3b82f6",
-  },
-  {
-    label: "Study Hrs",
-    value: "142",
-    delta: "stable",
-    deltaTone: "flat",
-    pct: 60,
-    icon: ClockIcon,
-    iconBg: "#007b5e",
-    iconColor: "#ffffff",
-    barColor: "#006049",
-  },
-  {
-    label: "Attendance",
-    value: "95%",
-    delta: "2%",
-    deltaTone: "down",
-    pct: 95,
-    icon: CalendarIcon,
-    iconBg: "#ccfbf1",
-    iconColor: "#14b8a6",
-    barColor: "#14b8a6",
-  },
-];
-
 export default function StudentHomePage() {
+  const { items: attempts, loading: loadingAttempts } = useMyAttempts();
+  const { live, upcoming, loading: loadingSchedule } = useExamSchedule();
+  const { data: facets } = usePracticeFacets();
+
+  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const scored = sat.filter((a) => a.result !== null);
+  const pending = sat.length - scored.length;
+
+  const pctOf = (a: MyAttempt) =>
+    a.result!.maxScore > 0
+      ? (a.result!.totalScore / a.result!.maxScore) * 100
+      : 0;
+
+  const avgPct = scored.length
+    ? Math.round(scored.reduce((s, a) => s + pctOf(a), 0) / scored.length)
+    : null;
+
+  const bestPercentile = scored.reduce<number | null>((top, a) => {
+    const p = a.result!.percentile;
+    if (p === null) return top;
+    return top === null || p > top ? p : top;
+  }, null);
+
+  const stats: Stat[] = [
+    {
+      label: "Mock Tests",
+      value: loadingAttempts ? "—" : String(sat.length),
+      sub:
+        pending > 0 ? `${pending} awaiting results` : "all results published",
+      pct: sat.length > 0 ? Math.min(100, sat.length * 10) : 0,
+      icon: FileTextIcon,
+      iconBg: "#ede9fe",
+      iconColor: "#8b5cf6",
+      barColor: "#8b5cf6",
+    },
+    {
+      label: "Highest %ile",
+      value: bestPercentile === null ? "—" : bestPercentile.toFixed(1),
+      sub: bestPercentile === null ? "no published results" : "best so far",
+      pct: bestPercentile ?? 0,
+      icon: TrophyIcon,
+      iconBg: "#fef3c7",
+      iconColor: "#f59e0b",
+      barColor: "#f59e0b",
+    },
+    {
+      label: "Avg. Score",
+      value: avgPct === null ? "—" : `${avgPct}%`,
+      sub:
+        scored.length === 0
+          ? "no published results"
+          : `across ${scored.length} test${scored.length === 1 ? "" : "s"}`,
+      pct: avgPct ?? 0,
+      icon: BarChartIcon,
+      iconBg: "#dbeafe",
+      iconColor: "#3b82f6",
+      barColor: "#3b82f6",
+    },
+    {
+      label: "Results Pending",
+      value: loadingAttempts ? "—" : String(pending),
+      sub: pending === 0 ? "nothing waiting" : "awaiting publication",
+      pct: sat.length > 0 ? (pending / sat.length) * 100 : 0,
+      icon: ClockIcon,
+      iconBg: "#d8efe8",
+      iconColor: "#006049",
+      barColor: "#006049",
+    },
+    {
+      label: "Practice Qs",
+      value: facets ? String(facets.total) : "—",
+      sub: facets
+        ? `across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}`
+        : "loading…",
+      pct: facets ? Math.min(100, facets.total) : 0,
+      icon: BookOpenIcon,
+      iconBg: "#ccfbf1",
+      iconColor: "#14b8a6",
+      barColor: "#14b8a6",
+    },
+  ];
+
   return (
     <StudentShell breadcrumb={["Home"]}>
-      {/* Greeting */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <Greeting />
-        </div>
-        <span className="flex items-center gap-2 rounded-full border border-[#fde68a] bg-[#fef3c7] px-3.5 py-1.5 text-sm font-bold text-[#92400e]">
-          🔥 12-day streak!
-        </span>
+      <div className="mb-6">
+        <Greeting />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
         {/* Left column */}
         <div className="flex flex-col gap-5 xl:col-span-8">
-          {/* Performance overview */}
           <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
             <h2 className="text-lg font-semibold text-admin-ink">
               Performance Overview
             </h2>
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-              {STATS.map((stat) => (
+              {stats.map((stat) => (
                 <StatTile key={stat.label} stat={stat} />
               ))}
             </div>
           </section>
 
-          {/* Hero actions */}
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <LiveExamCard />
 
@@ -128,8 +151,9 @@ export default function StudentHomePage() {
                 Practice Mock Test
               </h3>
               <p className="mt-1 text-sm text-admin-muted">
-                Take previous year papers or custom topic-wise tests to improve
-                your weak areas.
+                {facets && facets.total > 0
+                  ? `${facets.total} curated questions across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}, at your own pace.`
+                  : "Practise by subject, chapter or topic to strengthen weak areas."}
               </p>
               <Link
                 href="/student/practice"
@@ -144,8 +168,12 @@ export default function StudentHomePage() {
 
         {/* Right column */}
         <div className="flex flex-col gap-5 xl:col-span-4">
-          <CountdownCard />
-          <CalendarCard />
+          <CountdownCard
+            next={upcoming[0] ?? null}
+            liveNow={live.length > 0}
+            loading={loadingSchedule}
+          />
+          <CalendarCard attempts={attempts} upcoming={upcoming} />
         </div>
       </div>
     </StudentShell>
@@ -154,12 +182,6 @@ export default function StudentHomePage() {
 
 function StatTile({ stat }: { stat: Stat }) {
   const Icon = stat.icon;
-  const deltaColor =
-    stat.deltaTone === "down"
-      ? "text-[#ba1a1a]"
-      : stat.deltaTone === "flat"
-        ? "text-admin-muted"
-        : "text-admin";
   return (
     <div className="flex flex-col gap-1 overflow-hidden rounded-lg bg-admin-bg p-4">
       <span
@@ -172,30 +194,91 @@ function StatTile({ stat }: { stat: Stat }) {
       <p className="text-[28px] font-semibold leading-9 text-admin-ink">
         {stat.value}
       </p>
-      <p className={`pb-1 text-xs font-medium ${deltaColor}`}>
-        {stat.deltaTone === "up"
-          ? "↑ "
-          : stat.deltaTone === "down"
-            ? "↓ "
-            : "– "}
-        {stat.delta}
-      </p>
+      <p className="pb-1 text-xs font-medium text-admin-muted">{stat.sub}</p>
       <div className="h-1 w-full overflow-hidden rounded-full bg-[#e1e3e4]">
         <div
           className="h-full rounded-full"
-          style={{ width: `${stat.pct}%`, backgroundColor: stat.barColor }}
+          style={{
+            width: `${Math.max(0, Math.min(100, stat.pct))}%`,
+            backgroundColor: stat.barColor,
+          }}
         />
       </div>
     </div>
   );
 }
 
-function CountdownCard() {
-  const parts = [
-    { value: "14", label: "DAYS" },
-    { value: "08", label: "HRS" },
-    { value: "45", label: "MINS" },
-  ];
+/** Ticks once a minute — the display only goes down to minutes. */
+function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+function CountdownCard({
+  next,
+  liveNow,
+  loading,
+}: {
+  next: UpcomingExam | null;
+  liveNow: boolean;
+  loading: boolean;
+}) {
+  const now = useNow();
+
+  const parts = useMemo(() => {
+    if (!next) return null;
+    const ms = Math.max(0, Date.parse(next.startAt) - now);
+    const mins = Math.floor(ms / 60_000);
+    return [
+      {
+        value: String(Math.floor(mins / 1440)).padStart(2, "0"),
+        label: "DAYS",
+      },
+      {
+        value: String(Math.floor((mins % 1440) / 60)).padStart(2, "0"),
+        label: "HRS",
+      },
+      { value: String(mins % 60).padStart(2, "0"), label: "MINS" },
+    ];
+  }, [next, now]);
+
+  // An exam that is open right now outranks anything scheduled later.
+  if (liveNow) {
+    return (
+      <section className="rounded-xl bg-admin p-6 text-center text-white shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+        <p className="text-sm font-medium uppercase tracking-[0.7px] text-white/80">
+          Exam Open Now
+        </p>
+        <p className="mt-3 text-lg font-bold">An exam is live for you</p>
+        <p className="mt-1 text-sm text-white/80">
+          Start it from the card on the left.
+        </p>
+      </section>
+    );
+  }
+
+  if (loading || !next || !parts) {
+    return (
+      <section className="rounded-xl bg-admin p-6 text-center text-white shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+        <p className="text-sm font-medium uppercase tracking-[0.7px] text-white/80">
+          Next Mock Test
+        </p>
+        <p className="mt-3 text-base font-semibold">
+          {loading ? "Checking your schedule…" : "Nothing scheduled yet"}
+        </p>
+        {!loading && (
+          <p className="mt-1 text-sm text-white/80">
+            Your institute hasn&apos;t scheduled your next exam.
+          </p>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="relative overflow-hidden rounded-xl bg-admin p-6 text-white shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
       <p className="text-center text-sm font-medium uppercase tracking-[0.7px] text-white/80">
@@ -217,85 +300,96 @@ function CountdownCard() {
         ))}
       </div>
       <div className="mt-6 rounded-lg bg-white/10 p-3">
-        <p className="text-sm font-bold text-white">NEET Grand Test - 05</p>
+        <p className="text-sm font-bold text-white">{next.title}</p>
         <p className="mt-1 flex items-center gap-1.5 text-xs text-white/80">
           <CalendarIcon className="size-3.5" />
-          May 28, 2025
+          {new Date(next.startAt).toLocaleString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
         </p>
       </div>
     </section>
   );
 }
 
-/* --- May 2025 calendar (static, matches design) --- */
-const LEADING = [27, 28, 29, 30]; // trailing April days (greyed)
-const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
-const SUNDAYS = new Set([4, 11, 18, 25]);
-const DOTS: Record<number, string> = {
-  2: "#f59e0b",
-  6: "#3b82f6",
-  11: "#006049",
-  21: "#3b82f6",
-};
-const TODAY = 14;
-const TEST_DAY = 28;
+/**
+ * The current month, with a dot on every day that has something real on it:
+ * an exam the student has already sat, or one scheduled ahead.
+ */
+function CalendarCard({
+  attempts,
+  upcoming,
+}: {
+  attempts: MyAttempt[];
+  upcoming: UpcomingExam[];
+}) {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
 
-function CalendarCard() {
+  // Cheap enough to run each render (a handful of dates), and hand-memoizing
+  // it on values derived from `new Date()` is what the React Compiler rejects.
+  const marks = new Map<number, "past" | "upcoming">();
+  const dayInThisMonth = (iso: string) => {
+    const d = new Date(iso);
+    return d.getFullYear() === year && d.getMonth() === month
+      ? d.getDate()
+      : null;
+  };
+  for (const a of attempts) {
+    const d = dayInThisMonth(a.submittedAt ?? a.startedAt);
+    if (d !== null) marks.set(d, "past");
+  }
+  for (const u of upcoming) {
+    const d = dayInThisMonth(u.startAt);
+    if (d !== null) marks.set(d, "upcoming");
+  }
+
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const monthLabel = today.toLocaleString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+
   return (
     <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-admin-ink">May 2025</h3>
-        <div className="flex gap-1">
-          <button
-            type="button"
-            aria-label="Previous month"
-            className="flex size-8 items-center justify-center rounded text-admin-muted hover:bg-admin-bg"
-          >
-            <ChevronLeftIcon className="size-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Next month"
-            className="flex size-8 items-center justify-center rounded text-admin-muted hover:bg-admin-bg"
-          >
-            <ChevronRightIcon className="size-4" />
-          </button>
-        </div>
+      <h3 className="text-lg font-semibold text-admin-ink">{monthLabel}</h3>
+
+      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-admin-muted">
+        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+          <span key={`${d}-${i}`}>{d}</span>
+        ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-7 gap-1 text-center">
-        {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-          <span key={i} className="py-1 text-xs font-medium text-admin-muted">
-            {d}
-          </span>
+      <div className="mt-1 grid grid-cols-7 gap-1 text-center text-sm">
+        {Array.from({ length: firstWeekday }, (_, i) => (
+          <span key={`pad-${i}`} />
         ))}
-        {LEADING.map((d) => (
-          <span key={`lead-${d}`} className="py-2 text-sm text-admin-muted/30">
-            {d}
-          </span>
-        ))}
-        {DAYS.map((d) => {
-          const isToday = d === TODAY;
-          const isTest = d === TEST_DAY;
-          const isSunday = SUNDAYS.has(d);
+        {days.map((d) => {
+          const isToday = d === today.getDate();
+          const mark = marks.get(d);
           return (
             <span
               key={d}
-              className={`relative flex items-center justify-center rounded-full py-2 text-sm ${
+              className={`relative flex size-8 items-center justify-center rounded-full ${
                 isToday
-                  ? "bg-admin font-bold text-white shadow-sm"
-                  : isTest
-                    ? "rounded border border-admin bg-admin/10 font-bold text-admin"
-                    : isSunday
-                      ? "text-[#ba1a1a]"
-                      : "text-admin-ink"
+                  ? "bg-admin font-bold text-white"
+                  : "text-admin-ink hover:bg-admin/5"
               }`}
             >
               {d}
-              {DOTS[d] && !isToday && (
+              {mark && !isToday && (
                 <span
-                  className="absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full"
-                  style={{ backgroundColor: DOTS[d] }}
+                  aria-hidden
+                  className={`absolute bottom-1 size-1 rounded-full ${
+                    mark === "upcoming" ? "bg-[#f59e0b]" : "bg-admin"
+                  }`}
                 />
               )}
             </span>
@@ -303,10 +397,9 @@ function CalendarCard() {
         })}
       </div>
 
-      <div className="mt-3 flex gap-3 border-t border-admin-line/20 pt-3">
-        <Legend color="#006049" label="Live Class" />
-        <Legend color="#3b82f6" label="Assignment" />
-        <Legend color="#f59e0b" label="Deadline" />
+      <div className="mt-4 flex flex-wrap gap-4 border-t border-admin-line/40 pt-3">
+        <Legend color="#006049" label="Exam taken" />
+        <Legend color="#f59e0b" label="Scheduled" />
       </div>
     </section>
   );
@@ -314,7 +407,7 @@ function CalendarCard() {
 
 function Legend({ color, label }: { color: string; label: string }) {
   return (
-    <span className="flex items-center gap-1 text-[10px] text-admin-muted">
+    <span className="flex items-center gap-1.5 text-xs text-admin-muted">
       <span
         className="size-2 rounded-full"
         style={{ backgroundColor: color }}

@@ -23,12 +23,14 @@ import {
   LockClosedIcon,
   MaximizeIcon,
 } from "@/components/icons";
+import { LeaveConfirmModal } from "@/components/exam/leave-confirm-modal";
 import { SubmitConfirmModal } from "@/components/exam/submit-confirm-modal";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useProctoring } from "@/hooks/use-proctoring";
 import { ApiError } from "@/lib/api";
-import { getUserSnapshot, subscribeSession } from "@/lib/auth";
+import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 import {
+  abandonAttempt,
   reportViolation,
   saveResponse,
   startAttempt,
@@ -61,6 +63,7 @@ function ExamPageSkeleton() {
 
 function ExamPageInner() {
   const params = useSearchParams();
+  const router = useRouter();
   const examId = params.get("examId");
 
   const [attempt, setAttempt] = useState<AttemptState | null>(null);
@@ -94,6 +97,23 @@ function ExamPageInner() {
     }
   }, [examId]);
 
+  /**
+   * Logout mid-exam. The server discards the responses and marks the attempt
+   * spent, so this is NOT a submission — the candidate's work is gone and they
+   * cannot come back in. Confirmed by LeaveConfirmModal before we get here.
+   */
+  const handleLeave = useCallback(async () => {
+    if (attempt) {
+      try {
+        await abandonAttempt(attempt.id);
+      } catch {
+        // Still sign out locally — the attempt expires server-side regardless.
+      }
+    }
+    await logout();
+    router.replace("/login");
+  }, [attempt, router]);
+
   const handleSubmit = useCallback(async () => {
     if (!attempt) return;
     try {
@@ -111,7 +131,13 @@ function ExamPageInner() {
     return (
       <StartGate onStart={startFn} starting={starting} error={startError} />
     );
-  return <ExamRunner attempt={attempt} onSubmit={handleSubmit} />;
+  return (
+    <ExamRunner
+      attempt={attempt}
+      onSubmit={handleSubmit}
+      onLeave={handleLeave}
+    />
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -227,9 +253,11 @@ function SubmittedScreen({ attemptId }: { attemptId: string | undefined }) {
 function ExamRunner({
   attempt,
   onSubmit,
+  onLeave,
 }: {
   attempt: AttemptState;
   onSubmit: () => void;
+  onLeave: () => void | Promise<void>;
 }) {
   /**
    * Flatten the backend's section → question tree into a single array.
@@ -306,6 +334,8 @@ function ExamRunner({
    * there is nothing to confirm once the attempt is over.
    */
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** Logout — abandons the attempt rather than submitting it. */
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const submitSummary = useMemo(() => {
     let answered = 0;
@@ -527,7 +557,7 @@ function ExamRunner({
             </button>
             <button
               type="button"
-              onClick={() => setConfirmOpen(true)}
+              onClick={() => setLeaveOpen(true)}
               className="rounded-[2px] bg-brand-indigo px-4 py-1.5 text-base uppercase text-white"
             >
               Logout
@@ -780,6 +810,14 @@ function ExamRunner({
           summary={submitSummary}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={onSubmit}
+        />
+      )}
+
+      {leaveOpen && (
+        <LeaveConfirmModal
+          answeredCount={submitSummary.answered}
+          onCancel={() => setLeaveOpen(false)}
+          onConfirm={onLeave}
         />
       )}
     </div>

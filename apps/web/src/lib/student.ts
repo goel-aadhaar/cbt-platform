@@ -130,6 +130,29 @@ export async function fetchAvailableExams(): Promise<AvailableExam[]> {
   return res.items;
 }
 
+/** An exam scheduled for this student that hasn't opened yet. */
+export interface UpcomingExam {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  startAt: string;
+  endAt: string;
+}
+
+/** Both halves of GET /attempts/available: sittable now, and scheduled next. */
+export async function fetchExamSchedule(): Promise<{
+  items: AvailableExam[];
+  upcoming: UpcomingExam[];
+}> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const res = await apiFetch<{
+    items: AvailableExam[];
+    upcoming?: UpcomingExam[];
+  }>("/attempts/available", { token });
+  return { items: res.items ?? [], upcoming: res.upcoming ?? [] };
+}
+
 /** GET /attempts/:id — re-fetch the canonical state (auto-submits if expired). */
 export async function getAttempt(attemptId: string): Promise<AttemptState> {
   const token = getToken();
@@ -152,6 +175,21 @@ export async function saveResponse(
     `/attempts/${attemptId}/responses/${questionId}`,
     { method: "PUT", body, token },
   );
+}
+
+/**
+ * POST /attempts/:id/abandon — leave without submitting.
+ *
+ * The server discards the saved responses (only a submitted attempt counts)
+ * but keeps the attempt in a terminal state, so the exam cannot be entered
+ * again. Takes no body.
+ */
+export async function abandonAttempt(
+  attemptId: string,
+): Promise<{ attemptId: string; status: string }> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch(`/attempts/${attemptId}/abandon`, { method: "POST", token });
 }
 
 /** POST /attempts/:id/submit — final submit. Takes no body. */
