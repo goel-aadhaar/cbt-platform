@@ -1,0 +1,254 @@
+/**
+ * Student-facing API client. Mirrors the backend contracts surfaced by
+ * `apps/api/src/modules/attempts`, `apps/api/src/modules/results` and
+ * `apps/api/src/modules/analytics`. STUDENT-role tokens are the only ones that
+ * can call these (the backend rejects STUDENT calls against /exams, /questions
+ * and /students — those are TEACHER/ADMIN only).
+ */
+
+import { apiFetch, ApiError } from "./api";
+import { getToken } from "./auth";
+
+/* ------------------------------------------------------------------ *
+ * ME                                                                 *
+ * ------------------------------------------------------------------ */
+
+export type StudentProfile = {
+  id: string;
+  name: string;
+  email: string;
+  role: "STUDENT";
+  status: "PENDING" | "ACTIVE" | "DISABLED";
+  instituteId: string | null;
+};
+
+/** GET /auth/me — the only student-readable profile endpoint. */
+export async function fetchStudentMe(): Promise<StudentProfile> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<StudentProfile>("/auth/me", { token });
+}
+
+/* ------------------------------------------------------------------ *
+ * EXAM TAKING — attempts                                              *
+ * ------------------------------------------------------------------ */
+
+export type QuestionType = "MCQ" | "MSQ" | "INTEGER";
+
+export interface AttemptQuestion {
+  id: string;
+  order: number;
+  question: {
+    id: string;
+    type: QuestionType;
+    statement: string;
+    options?: { key: string; text: string }[];
+    marks: number;
+  };
+}
+
+export interface AttemptSection {
+  id: string;
+  name: string;
+  order: number;
+  marksCorrect: number;
+  marksWrong: number;
+  questions: AttemptQuestion[];
+}
+
+export interface AttemptExam {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  instructions: string | null;
+  calculatorEnabled: boolean;
+  fullscreenRequired: boolean;
+  maxViolations: number;
+  sections: AttemptSection[];
+}
+
+export interface AttemptResponse {
+  questionId: string;
+  status:
+    "NOT_VISITED" | "NOT_ANSWERED" | "ANSWERED" | "MARKED" | "ANSWERED_MARKED";
+  answer: string | number | string[] | null;
+}
+
+export interface AttemptState {
+  id: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+  startedAt: string;
+  expiresAt: string;
+  submittedAt: string | null;
+  violationCount: number;
+  flagged: boolean;
+  exam: AttemptExam;
+  responses: AttemptResponse[];
+  remainingSeconds: number;
+}
+
+/** POST /attempts — starts an attempt for the given exam. */
+export async function startAttempt(examId: string): Promise<AttemptState> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptState>("/attempts", {
+    method: "POST",
+    body: { examId },
+    token,
+  });
+}
+
+export interface AvailableExam {
+  id: string;
+  title: string;
+  durationMinutes: number;
+  startAt: string;
+  endAt: string;
+  /**
+   * The student's existing attempt at this exam, if any.
+   * `null` ⇒ never started; `{status: 'IN_PROGRESS'}` ⇒ resume; otherwise
+   *  they already submitted/are auto-submitted.
+   */
+  attempt: {
+    id: string;
+    status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+  } | null;
+}
+
+/**
+ * GET /attempts/available — exams the current student can sit right now.
+ * Backs the student portal's "Start" CTAs (no /exams endpoint is exposed to
+ * STUDENT tokens, so the portal gets its own discoverable list).
+ */
+export async function fetchAvailableExams(): Promise<AvailableExam[]> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const res = await apiFetch<{ items: AvailableExam[] }>(
+    "/attempts/available",
+    { token },
+  );
+  return res.items;
+}
+
+/** GET /attempts/:id — re-fetch the canonical state (auto-submits if expired). */
+export async function getAttempt(attemptId: string): Promise<AttemptState> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptState>(`/attempts/${attemptId}`, { token });
+}
+
+/** PUT /attempts/:id/responses/:questionId — auto-save answer / mark for review. */
+export async function saveResponse(
+  attemptId: string,
+  questionId: string,
+  body: {
+    answer?: string | number | string[] | null;
+    markedForReview?: boolean;
+  },
+): Promise<AttemptResponse> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptResponse>(
+    `/attempts/${attemptId}/responses/${questionId}`,
+    { method: "PUT", body, token },
+  );
+}
+
+/** POST /attempts/:id/submit — final submit. Takes no body. */
+export async function submitAttempt(
+  attemptId: string,
+): Promise<AttemptSummary> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptSummary>(`/attempts/${attemptId}/submit`, {
+    method: "POST",
+    token,
+  });
+}
+
+export interface AttemptSummary {
+  attemptId: string;
+  status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+  submittedAt: string | null;
+  total: number;
+  answered: number;
+  markedForReview: number;
+  notAnswered: number;
+  notVisited: number;
+}
+
+/** POST /attempts/:id/violations — report a client-side proctoring infraction. */
+export async function reportViolation(
+  attemptId: string,
+  body: {
+    type:
+      | "TAB_SWITCH"
+      | "FULLSCREEN_EXIT"
+      | "FOCUS_LOSS"
+      | "COPY"
+      | "PASTE"
+      | "OTHER";
+    detail?: string;
+  },
+): Promise<{
+  violationCount: number;
+  maxViolations: number;
+  warningsLeft: number;
+  autoSubmitted: boolean;
+  flagged: boolean;
+}> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch(`/attempts/${attemptId}/violations`, {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * RESULTS — published only                                             *
+ * ------------------------------------------------------------------ */
+
+export interface AttemptResult {
+  totalScore: number;
+  maxScore: number;
+  correctCount: number;
+  incorrectCount: number;
+  unattemptedCount: number;
+  sectionScores: Record<string, number> | null;
+  overallRank: number | null;
+  batchRank: number | null;
+  percentile: number | null;
+  exam: { title: string };
+}
+
+/** GET /attempts/:id/result — only available once the row is `published`. */
+export async function fetchAttemptResult(
+  attemptId: string,
+): Promise<AttemptResult> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptResult>(`/attempts/${attemptId}/result`, { token });
+}
+
+export interface HistoryItem {
+  totalScore: number;
+  maxScore: number;
+  correctCount: number;
+  incorrectCount: number;
+  unattemptedCount: number;
+  overallRank: number | null;
+  batchRank: number | null;
+  percentile: number | null;
+  published: boolean;
+  createdAt: string;
+  exam: { id: string; title: string; startAt: string | null };
+}
+
+/** GET /me/history — published exam history for the current student. */
+export async function fetchMyHistory(): Promise<HistoryItem[]> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<HistoryItem[]>(`/me/history`, { token });
+}

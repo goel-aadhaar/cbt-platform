@@ -1,9 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
+import { AuthGate } from "@/components/auth-gate";
 import { ExamSidebar } from "@/components/exam/exam-sidebar";
 import {
   CalculatorIcon,
@@ -17,61 +25,137 @@ import {
 } from "@/components/icons";
 import { useCountdown } from "@/hooks/use-countdown";
 import { useProctoring } from "@/hooks/use-proctoring";
+import { ApiError } from "@/lib/api";
+import { getUserSnapshot, subscribeSession } from "@/lib/auth";
 import {
-  buildExamQuestions,
-  EXAM_META,
-  formatDuration,
-  type QuestionStatus,
-  type Subject,
-} from "@/lib/exam-data";
+  reportViolation,
+  saveResponse,
+  startAttempt,
+  submitAttempt,
+  type AttemptResponse,
+  type AttemptState,
+} from "@/lib/student";
+import { formatDuration } from "@/lib/exam-data";
+
+// keep the type alias around for the existing sidebar import
+import type { QuestionStatus, Subject } from "@/lib/exam-data";
 
 export default function ExamPage() {
-  const [started, setStarted] = useState(false);
+  return (
+    <AuthGate>
+      <Suspense fallback={<ExamPageSkeleton />}>
+        <ExamPageInner />
+      </Suspense>
+    </AuthGate>
+  );
+}
+
+function ExamPageSkeleton() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-surface">
+      <span className="size-8 animate-pulse rounded-full bg-brand-indigo/40" />
+    </div>
+  );
+}
+
+function ExamPageInner() {
+  const params = useSearchParams();
+  const examId = params.get("examId");
+
+  const [attempt, setAttempt] = useState<AttemptState | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  if (submitted) return <SubmittedScreen />;
-  if (!started) return <StartGate onStart={() => setStarted(true)} />;
-  return <ExamRunner onSubmit={() => setSubmitted(true)} />;
+  // Active start path: POST /attempts with the URL's examId.
+  const startFn = useCallback(async () => {
+    if (!examId) {
+      setStartError("No exam specified. Return to the dashboard.");
+      return;
+    }
+    setStartError(null);
+    setStarting(true);
+    try {
+      const state = await startAttempt(examId);
+      setAttempt(state);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError
+          ? err.status === 403
+            ? "You're not assigned to a batch for this exam."
+            : err.status === 404
+              ? "Exam is not currently available."
+              : err.message
+          : "Could not start the exam. Try again.";
+      setStartError(msg);
+    } finally {
+      setStarting(false);
+    }
+  }, [examId]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!attempt) return;
+    try {
+      await submitAttempt(attempt.id);
+    } catch {
+      // Even if the server submit fails we still want to show the local
+      // confirmation — the attempt row will be auto-submitted on expiry.
+    } finally {
+      setSubmitted(true);
+    }
+  }, [attempt]);
+
+  if (submitted) return <SubmittedScreen attemptId={attempt?.id} />;
+  if (!attempt)
+    return (
+      <StartGate onStart={startFn} starting={starting} error={startError} />
+    );
+  return <ExamRunner attempt={attempt} onSubmit={handleSubmit} />;
 }
 
 /* ------------------------------------------------------------------ */
 /* Pre-exam gate — requests fullscreen from a real user gesture.       */
 /* ------------------------------------------------------------------ */
-function StartGate({ onStart }: { onStart: () => void }) {
-  async function handleStart() {
-    try {
-      await document.documentElement.requestFullscreen();
-    } catch {
-      // Fullscreen may be blocked; proceed anyway — proctoring will nudge.
-    }
-    onStart();
-  }
-
+function StartGate({
+  onStart,
+  starting,
+  error,
+}: {
+  onStart: () => void;
+  starting: boolean;
+  error: string | null;
+}) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface p-6">
       <div className="w-full max-w-lg border border-line bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-bold text-brand">{EXAM_META.examName}</h1>
+        <h1 className="text-2xl font-bold text-brand">DRSK Assessment</h1>
         <p className="mt-1 text-sm text-muted">
-          {EXAM_META.paper} · Candidate {EXAM_META.candidateName} (
-          {EXAM_META.candidateId})
+          Please read the instructions before starting.
         </p>
         <ul className="mt-6 space-y-2 text-sm text-ink">
-          <li>
-            • The exam runs in full-screen mode and is time-bound (3 hours).
-          </li>
+          <li>• The exam runs in full-screen mode and is time-bound.</li>
           <li>
             • Switching tabs or leaving full-screen is recorded as a violation.
-            After {EXAM_META.maxViolations} violations the exam auto-submits.
+            After the allowed number of violations the exam auto-submits.
           </li>
           <li>• Do not refresh or close the browser during the exam.</li>
         </ul>
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+          >
+            {error}
+          </p>
+        )}
         <button
           type="button"
-          onClick={handleStart}
-          className="mt-8 flex w-full items-center justify-center gap-2 rounded bg-brand px-6 py-3 text-sm font-bold uppercase text-white hover:opacity-95"
+          onClick={onStart}
+          disabled={starting}
+          className="mt-8 flex w-full items-center justify-center gap-2 rounded bg-brand px-6 py-3 text-sm font-bold uppercase text-white hover:opacity-95 disabled:opacity-60"
         >
           <MaximizeIcon className="size-4" />
-          Start Exam in Full Screen
+          {starting ? "Starting…" : "Start Exam in Full Screen"}
         </button>
       </div>
     </main>
@@ -81,21 +165,44 @@ function StartGate({ onStart }: { onStart: () => void }) {
 /* ------------------------------------------------------------------ */
 /* Post-submit confirmation.                                           */
 /* ------------------------------------------------------------------ */
-function SubmittedScreen() {
+function SubmittedScreen({ attemptId }: { attemptId: string | undefined }) {
   const router = useRouter();
+  const [result, setResult] = useState<{
+    score: number;
+    max: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!attemptId) return;
+    let cancelled = false;
+    import("@/lib/student")
+      .then(({ fetchAttemptResult }) => fetchAttemptResult(attemptId))
+      .then((r) => {
+        if (!cancelled) setResult({ score: r.totalScore, max: r.maxScore });
+      })
+      .catch(() => {
+        // Result may still be processing — that's fine.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attemptId]);
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface p-6">
       <div className="w-full max-w-md border border-line bg-white p-8 text-center shadow-sm">
         <h1 className="text-2xl font-bold text-success">Exam Submitted</h1>
         <p className="mt-2 text-sm text-muted">
-          Your responses have been recorded. You may now close this window.
+          {result
+            ? `Your responses have been recorded. Score: ${result.score}/${result.max}.`
+            : "Your responses have been recorded. Results will be available once published."}
         </p>
         <button
           type="button"
-          onClick={() => router.replace("/dashboard")}
+          onClick={() => router.replace("/student")}
           className="mt-6 rounded bg-brand px-6 py-2.5 text-sm font-bold uppercase text-white hover:opacity-95"
         >
-          Back to Dashboard
+          Back to Student Portal
         </button>
       </div>
     </main>
@@ -105,27 +212,103 @@ function SubmittedScreen() {
 /* ------------------------------------------------------------------ */
 /* The running exam.                                                    */
 /* ------------------------------------------------------------------ */
-function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
-  const questions = useMemo(() => buildExamQuestions(), []);
+function ExamRunner({
+  attempt,
+  onSubmit,
+}: {
+  attempt: AttemptState;
+  onSubmit: () => void;
+}) {
+  /**
+   * Flatten the backend's section → question tree into a single array.
+   *
+   * `optionKeys` is the important bit: the backend scores an MCQ by comparing
+   * the saved answer against `answerKey`, which is the option KEY ("A".."D") —
+   * not the option text and not its index. We therefore keep the keys alongside
+   * the display text and always persist the key.
+   */
+  const questions = useMemo(() => {
+    const out: {
+      id: string;
+      subject: Subject;
+      type: "MCQ" | "MSQ" | "INTEGER";
+      stem: string;
+      options: string[];
+      optionKeys: string[];
+      positiveMarks: number;
+      negativeMarks: number;
+      sectionName: string;
+    }[] = [];
+    for (const section of attempt.exam.sections) {
+      for (const q of section.questions) {
+        const raw = q.question.options ?? [];
+        out.push({
+          id: q.question.id,
+          subject: subjectFromName(section.name) ?? "Physics",
+          type: q.question.type,
+          stem: q.question.statement,
+          options: raw.map((o) => o.text),
+          optionKeys: raw.map((o) => o.key),
+          positiveMarks: q.question.marks,
+          negativeMarks: section.marksWrong,
+          sectionName: section.name,
+        });
+      }
+    }
+    return out;
+  }, [attempt]);
 
+  /**
+   * Answers are stored in the exact shape the backend scores against, so a
+   * save is a straight passthrough:
+   *   MCQ     → option key      "B"
+   *   MSQ     → option key list ["A","C"]
+   *   INTEGER → number          42
+   */
   const [current, setCurrent] = useState(0);
-  const [selection, setSelection] = useState<(number | null)[]>(() =>
-    questions.map(() => null),
+  const [answers, setAnswers] = useState<(Answer | null)[]>(() =>
+    questions.map((q) => {
+      const r = attempt.responses.find((x) => x.questionId === q.id);
+      return normalizeAnswer(q, r?.answer ?? null);
+    }),
   );
   const [statuses, setStatuses] = useState<QuestionStatus[]>(() =>
-    questions.map((_, i) => (i === 0 ? "not-answered" : "not-visited")),
+    questions.map((q) => {
+      const r = attempt.responses.find((x) => x.questionId === q.id);
+      return mapStatus(r);
+    }),
   );
 
-  const remainingSeconds = useCountdown(EXAM_META.durationSeconds, onSubmit);
+  const user = useSyncExternalStore(
+    subscribeSession,
+    getUserSnapshot,
+    () => null,
+  );
+
+  const remainingSeconds = useCountdown(attempt.remainingSeconds, onSubmit);
   const proctoring = useProctoring({
-    maxViolations: EXAM_META.maxViolations,
+    maxViolations: attempt.exam.maxViolations,
     enabled: true,
     onLimitReached: onSubmit,
   });
 
+  /**
+   * Mirror each client-side proctoring violation to the server. Fire-and-forget:
+   * the server keeps its own count and is the source of truth for auto-submit,
+   * so a dropped report degrades the audit trail, not the exam's integrity.
+   */
+  const attemptId = attempt.id;
+  useEffect(() => {
+    if (proctoring.violations === 0) return;
+    void reportViolation(attemptId, {
+      type: "FULLSCREEN_EXIT",
+      detail: "Client-side proctoring event",
+    }).catch(() => {});
+  }, [proctoring.violations, attemptId]);
+
   const q = questions[current];
   const subject = q.subject;
-  const picked = selection[current];
+  const picked = answers[current];
 
   function visit(index: number) {
     setCurrent(index);
@@ -143,33 +326,68 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
     if (current > 0) visit(current - 1);
   }
 
+  /**
+   * Commit an answer for the current question and auto-save it. `value` is
+   * already in the backend's scoring shape; `null` clears the response.
+   */
+  function commitAnswer(value: Answer | null) {
+    setAnswers((prev) => prev.map((v, idx) => (idx === current ? value : v)));
+    const answered = !isBlank(value);
+    setStatuses((prev) =>
+      prev.map((s, idx) => {
+        if (idx !== current) return s;
+        const marked = s === "marked" || s === "answered-marked";
+        if (marked) return answered ? "answered-marked" : "marked";
+        return answered ? "answered" : "not-answered";
+      }),
+    );
+    void saveResponse(attemptId, questions[current].id, {
+      answer: answered ? value : null,
+    }).catch(() => {
+      // Best-effort; the next interaction re-saves.
+    });
+  }
+
+  /** MCQ — single option key replaces any previous choice. */
   function selectOption(i: number) {
-    setSelection((prev) => prev.map((v, idx) => (idx === current ? i : v)));
+    commitAnswer(q.optionKeys[i] ?? String(i));
+  }
+
+  /** MSQ — toggle an option key in/out of the selected set (order-independent). */
+  function toggleOption(i: number) {
+    const key = q.optionKeys[i] ?? String(i);
+    const chosen = Array.isArray(picked) ? picked : [];
+    const next = chosen.includes(key)
+      ? chosen.filter((k) => k !== key)
+      : [...chosen, key].sort();
+    commitAnswer(next.length > 0 ? next : null);
+  }
+
+  /** INTEGER — free numeric entry. */
+  function setIntegerAnswer(raw: string) {
+    const trimmed = raw.trim();
+    if (trimmed === "") return commitAnswer(null);
+    const n = Number(trimmed);
+    commitAnswer(Number.isFinite(n) ? n : null);
   }
 
   function clearResponse() {
-    setSelection((prev) => prev.map((v, idx) => (idx === current ? null : v)));
-    setStatuses((prev) =>
-      prev.map((s, i) =>
-        i === current
-          ? s === "answered" || s === "answered-marked"
-            ? "not-answered"
-            : s
-          : s,
-      ),
-    );
+    commitAnswer(null);
   }
 
-  /** Commit the current question's status, then advance. */
   function commitAndNext(mark: boolean) {
     setStatuses((prev) =>
       prev.map((s, i) => {
         if (i !== current) return s;
-        const answered = selection[current] != null;
+        const answered = !isBlank(answers[current]);
         if (mark) return answered ? "answered-marked" : "marked";
         return answered ? "answered" : "not-answered";
       }),
     );
+    const question = questions[current];
+    void saveResponse(attemptId, question.id, {
+      markedForReview: mark,
+    }).catch(() => {});
     goNext();
   }
 
@@ -182,9 +400,23 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
   const localNumber =
     questions.slice(0, current).filter((x) => x.subject === subject).length + 1;
 
+  const meta = useMemo(
+    () => ({
+      candidateName: user?.name ?? "Candidate",
+      candidatePhoto: "/exam/candidate-photo.jpg",
+      examName: attempt.exam.title,
+      // The attempt payload carries no paper/roll fields; show the signed-in
+      // email and the section count instead of leaving the block blank.
+      paper: `${attempt.exam.sections.length} sections`,
+      candidateId: user?.email ?? "",
+      durationSeconds: attempt.exam.durationMinutes * 60,
+      maxViolations: attempt.exam.maxViolations,
+    }),
+    [attempt, user],
+  );
+
   return (
     <div className="flex h-screen flex-col bg-surface">
-      {/* Header */}
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
         <div className="flex items-center gap-4">
           <Image
@@ -203,7 +435,7 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
           {proctoring.violations > 0 ? (
             <span className="flex items-center gap-2 rounded-[2px] bg-alert px-3 py-1 text-xs font-semibold uppercase text-white">
               <LockClosedIcon className="h-[12px] w-[9px]" />
-              Warning {proctoring.violations}/{EXAM_META.maxViolations}{" "}
+              Warning {proctoring.violations}/{attempt.exam.maxViolations}{" "}
               Violation
             </span>
           ) : (
@@ -248,17 +480,12 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
         </div>
       </header>
 
-      {/* Main */}
       <div className="flex min-h-0 flex-1">
-        {/* Left: question panel */}
         <section className="flex min-w-0 flex-1 flex-col border-r border-line bg-white">
-          {/* Section header / marking scheme */}
           <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2">
             <div className="flex items-center gap-2 text-sm">
               <span className="font-bold text-ink">Section:</span>
-              <span className="font-semibold text-brand">
-                {subject} - Section A
-              </span>
+              <span className="font-semibold text-brand">{q.sectionName}</span>
             </div>
             <div className="flex gap-4">
               <MarkChip
@@ -274,7 +501,6 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
             </div>
           </div>
 
-          {/* Scrollable question content */}
           <div className="min-h-0 flex-1 overflow-auto p-8">
             <div className="mx-auto max-w-[896px]">
               <div className="flex items-center justify-between border-b border-line pb-2">
@@ -294,55 +520,79 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
                 {q.stem}
               </p>
 
-              {q.imageUrl && (
-                <div className="mt-4 flex justify-center border border-line bg-surface-3 p-4">
-                  <Image
-                    src={q.imageUrl}
-                    alt="Question figure"
-                    width={520}
-                    height={280}
-                    className="h-auto max-w-full"
-                  />
-                </div>
+              {q.type === "MSQ" && (
+                <p className="mt-3 inline-block bg-info/10 px-2 py-1 text-xs font-semibold text-info">
+                  Multiple answers may be correct — select all that apply.
+                </p>
               )}
 
               <div className="mt-4 flex flex-col gap-2 py-4">
-                {q.options.map((opt, i) => {
-                  const isPicked = picked === i;
-                  return (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => selectOption(i)}
-                      className={`flex items-center gap-3 border p-4 text-left transition-colors ${
-                        isPicked
-                          ? "border-2 border-brand bg-brand-soft/20"
-                          : "border-line bg-white hover:bg-surface"
-                      }`}
-                    >
-                      <span
-                        className={`flex size-[18px] shrink-0 items-center justify-center rounded-full border ${
+                {q.type === "INTEGER" ? (
+                  <label className="flex max-w-xs flex-col gap-2">
+                    <span className="text-sm font-semibold text-muted">
+                      Enter your answer (numeric)
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={typeof picked === "number" ? String(picked) : ""}
+                      onChange={(e) => setIntegerAnswer(e.target.value)}
+                      placeholder="e.g. 42"
+                      className="border border-subtle bg-white px-4 py-3 text-lg text-ink outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                    />
+                  </label>
+                ) : (
+                  q.options.map((opt, i) => {
+                    const key = q.optionKeys[i] ?? String(i);
+                    const isMulti = q.type === "MSQ";
+                    const isPicked = isMulti
+                      ? Array.isArray(picked) && picked.includes(key)
+                      : picked === key;
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        aria-pressed={isPicked}
+                        onClick={() =>
+                          isMulti ? toggleOption(i) : selectOption(i)
+                        }
+                        className={`flex items-center gap-3 border p-4 text-left transition-colors ${
                           isPicked
-                            ? "border-brand bg-brand"
-                            : "border-subtle bg-surface"
+                            ? "border-2 border-brand bg-brand-soft/20"
+                            : "border-line bg-white hover:bg-surface"
                         }`}
                       >
-                        {isPicked && (
-                          <span className="size-1.5 rounded-full bg-white" />
-                        )}
-                      </span>
-                      <span
-                        className={`text-base ${
-                          isPicked
-                            ? "font-semibold text-brand-indigo"
-                            : "text-ink"
-                        }`}
-                      >
-                        {opt}
-                      </span>
-                    </button>
-                  );
-                })}
+                        <span
+                          className={`flex size-[18px] shrink-0 items-center justify-center border ${
+                            isMulti ? "rounded-[3px]" : "rounded-full"
+                          } ${
+                            isPicked
+                              ? "border-brand bg-brand"
+                              : "border-subtle bg-surface"
+                          }`}
+                        >
+                          {isPicked &&
+                            (isMulti ? (
+                              <span className="text-[11px] font-bold leading-none text-white">
+                                ✓
+                              </span>
+                            ) : (
+                              <span className="size-1.5 rounded-full bg-white" />
+                            ))}
+                        </span>
+                        <span
+                          className={`text-base ${
+                            isPicked
+                              ? "font-semibold text-brand-indigo"
+                              : "text-ink"
+                          }`}
+                        >
+                          {opt}
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               <div className="border-t border-line pt-4 text-xs font-semibold text-subtle">
@@ -351,7 +601,6 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
             </div>
           </div>
 
-          {/* Action bar */}
           <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface-3 px-4 py-4">
             <button
               type="button"
@@ -404,16 +653,22 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
           </div>
         </section>
 
-        {/* Right: sidebar */}
         <div className="flex flex-col">
           <div className="min-h-0 flex-1 overflow-hidden">
             <ExamSidebar
-              meta={EXAM_META}
+              meta={meta}
               remaining={formatDuration(remainingSeconds)}
               timeLow={timeLow}
               subject={subject}
               onSubjectChange={selectSubject}
-              questions={questions}
+              questions={questions.map((x) => ({
+                id: x.id,
+                subject: x.subject,
+                stem: x.stem,
+                options: x.options,
+                positiveMarks: x.positiveMarks,
+                negativeMarks: x.negativeMarks,
+              }))}
               statuses={statuses}
               currentIndex={current}
               onSelect={visit}
@@ -431,7 +686,6 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
         </div>
       </div>
 
-      {/* Footer */}
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-line bg-fill px-6 text-xs text-muted">
         <span className="font-bold">
           © 2026 DRSK Assessment. Version 4.2.1-SECURE
@@ -445,7 +699,6 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
         </div>
       </footer>
 
-      {/* Proctoring warning modal */}
       {proctoring.warning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6">
           <div className="w-full max-w-md border-2 border-alert bg-white p-6 shadow-lg">
@@ -466,6 +719,81 @@ function ExamRunner({ onSubmit }: { onSubmit: () => void }) {
       )}
     </div>
   );
+}
+
+/** An answer in the exact shape the backend scores against. */
+type Answer = string | number | string[];
+
+function isBlank(a: Answer | null): boolean {
+  return a === null || (Array.isArray(a) && a.length === 0) || a === "";
+}
+
+/**
+ * Coerce a persisted answer into the canonical shape for its question type.
+ * Answers are stored as option KEYS ("A".."D") for MCQ/MSQ and as a number for
+ * INTEGER; rows written by older builds may hold option text, which we map back
+ * to its key so a resumed attempt still highlights correctly.
+ */
+function normalizeAnswer(
+  q: {
+    type: "MCQ" | "MSQ" | "INTEGER";
+    options: string[];
+    optionKeys: string[];
+  },
+  answer: string | number | string[] | null,
+): Answer | null {
+  if (answer === null || answer === undefined) return null;
+
+  const toKey = (v: string | number): string | null => {
+    const s = String(v);
+    if (q.optionKeys.includes(s)) return s;
+    const byText = q.options.indexOf(s);
+    if (byText >= 0) return q.optionKeys[byText] ?? null;
+    const asIndex = Number(s);
+    if (Number.isInteger(asIndex) && q.optionKeys[asIndex])
+      return q.optionKeys[asIndex];
+    return null;
+  };
+
+  if (q.type === "INTEGER") {
+    const n = Number(answer);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (q.type === "MSQ") {
+    const list = Array.isArray(answer) ? answer : [answer];
+    const keys = list
+      .map(toKey)
+      .filter((k): k is string => k !== null)
+      .sort();
+    return keys.length > 0 ? keys : null;
+  }
+  return Array.isArray(answer)
+    ? (toKey(answer[0] ?? "") ?? null)
+    : toKey(answer);
+}
+
+function mapStatus(r: AttemptResponse | undefined): QuestionStatus {
+  if (!r) return "not-visited";
+  switch (r.status) {
+    case "ANSWERED":
+      return "answered";
+    case "MARKED":
+      return "marked";
+    case "ANSWERED_MARKED":
+      return "answered-marked";
+    case "NOT_ANSWERED":
+      return "not-answered";
+    default:
+      return "not-visited";
+  }
+}
+
+function subjectFromName(name: string): Subject | null {
+  const lower = name.toLowerCase();
+  if (lower.startsWith("phy")) return "Physics";
+  if (lower.startsWith("che")) return "Chemistry";
+  if (lower.startsWith("bio")) return "Biology";
+  return null;
 }
 
 function ToolLink({ icon, label }: { icon: React.ReactNode; label: string }) {

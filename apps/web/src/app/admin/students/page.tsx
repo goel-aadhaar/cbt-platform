@@ -2,9 +2,11 @@
 
 import type { ComponentType, SVGProps } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 
 import { AddStudentDrawer } from "@/components/admin/add-student-drawer";
+import { useSearchParams } from "next/navigation";
+
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ImportStudentsModal } from "@/components/admin/import-students-modal";
 import {
@@ -35,13 +37,29 @@ const STATUS_LABEL: Record<StudentListItem["status"], Status> = {
   DISABLED: "Deactivated",
 };
 
+/**
+ * `useSearchParams()` (deep links from the Quick Create menu) forces a client
+ * bail-out, which Next requires to sit behind a Suspense boundary or the
+ * production prerender of this route fails.
+ */
 export default function StudentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <StudentsPageInner />
+    </Suspense>
+  );
+}
+
+function StudentsPageInner() {
   const router = useRouter();
   const hydrated = useIsHydrated();
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
+  const params = useSearchParams();
+  // Deep links from the top bar's Quick Create menu.
+  const [drawerOpen, setDrawerOpen] = useState(params.get("new") === "1");
+  const [importOpen, setImportOpen] = useState(params.get("import") === "1");
   const [activeTab, setActiveTab] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [rows, setRows] = useState<StudentListItem[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -94,6 +112,14 @@ export default function StudentsPage() {
 
   return (
     <AdminShell title="Students">
+      {notice && (
+        <p
+          role="status"
+          className="mb-4 rounded-lg border border-admin/30 bg-admin/5 px-4 py-2.5 text-sm text-admin"
+        >
+          {notice}
+        </p>
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -115,9 +141,20 @@ export default function StudentsPage() {
             <OutlineBtn icon={UploadIcon} onClick={() => setImportOpen(true)}>
               Import Students
             </OutlineBtn>
-            <OutlineBtn icon={DownloadIcon}>Export Students</OutlineBtn>
+            <OutlineBtn
+              icon={DownloadIcon}
+              onClick={() => exportRosterCsv(items)}
+            >
+              Export Students
+            </OutlineBtn>
           </div>
-          <OutlineBtn icon={CheckIcon}>Roll Number Generator</OutlineBtn>
+          <OutlineBtn
+            icon={CheckIcon}
+            disabled
+            title="Roll numbers are generated automatically during CSV import"
+          >
+            Roll Number Generator
+          </OutlineBtn>
         </div>
       </div>
 
@@ -290,10 +327,19 @@ export default function StudentsPage() {
       <AddStudentDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
+        onCreated={(studentName) => {
+          setNotice(`Invite sent to ${studentName}.`);
+          setTimeout(() => window.location.reload(), 900);
+        }}
       />
       <ImportStudentsModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onImported={(s) =>
+          setNotice(
+            `Imported ${s.imported.length} of ${s.total} students into ${s.batch}.`,
+          )
+        }
       />
     </AdminShell>
   );
@@ -353,15 +399,21 @@ function OutlineBtn({
   icon: Icon,
   children,
   onClick,
+  disabled,
+  title,
 }: {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   children: React.ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 rounded-full border border-admin-line bg-white px-5 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+      disabled={disabled}
+      title={title}
+      className="flex items-center gap-2 rounded-full border border-admin-line bg-white px-5 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Icon className="size-4 text-admin-muted" />
       {children}
@@ -392,4 +444,33 @@ function fmtDate(iso: string): string {
   if (Number.isNaN(d.getTime())) return "—";
   const pad = (x: number) => x.toString().padStart(2, "0");
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/**
+ * Client-side CSV of the roster currently loaded. There is no server-side
+ * student export endpoint (only exam results have one), so this serialises
+ * what the table already holds rather than pretending to call an API.
+ */
+function exportRosterCsv(rows: StudentListItem[]): void {
+  const head = "rollNumber,name,email,status,batch,joinedAt";
+  const body = rows
+    .map((r) =>
+      [
+        r.rollNumber,
+        JSON.stringify(r.name),
+        r.email,
+        r.status,
+        r.batch?.name ?? "",
+        new Date(r.createdAt).toISOString().slice(0, 10),
+      ].join(","),
+    )
+    .join("\n");
+  const url = URL.createObjectURL(
+    new Blob([`${head}\n${body}\n`], { type: "text/csv" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `drsk-students-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

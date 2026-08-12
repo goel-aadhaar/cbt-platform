@@ -111,7 +111,11 @@ export function CreateReportDrawer({
           >
             Cancel
           </button>
-          <button className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+          <button
+            disabled
+            title="Reports have no backend endpoint yet"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          >
             Generate Now
           </button>
         </footer>

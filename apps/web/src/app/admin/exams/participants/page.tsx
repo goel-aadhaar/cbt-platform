@@ -1,7 +1,8 @@
 "use client";
 
 import type { ComponentType, SVGProps } from "react";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import {
@@ -17,6 +18,15 @@ import {
   UserCheckIcon,
   UsersIcon,
 } from "@/components/admin/icons";
+import { useAdminData } from "@/hooks/use-admin-data";
+import {
+  downloadResultsExport,
+  fetchExamMonitor,
+  listExamResults,
+  type ExamMonitor,
+  type MonitorStudent,
+} from "@/lib/admin";
+import { examDisplayStatus, listExams } from "@/lib/exams";
 
 type Eligibility = "ELIGIBLE" | "FLAGGED";
 type Attempt = "In Progress" | "COMPLETED" | "NOT STARTED" | "EVALUATING";
@@ -31,63 +41,123 @@ interface Row {
   score: string;
 }
 
-const ROWS: Row[] = [
-  {
-    name: "Oliver John Brown",
-    profile: "Class 12 • Biology Group",
-    roll: "NEET-2024-0012",
-    eligibility: "ELIGIBLE",
-    status: "In Progress",
-    start: "10:05 AM",
-    score: "-- / 720",
-  },
-  {
-    name: "Emma Wilson",
-    profile: "Class 12 • Science Stream",
-    roll: "NEET-2024-0045",
-    eligibility: "ELIGIBLE",
-    status: "COMPLETED",
-    start: "10:00 AM",
-    score: "680 / 720",
-  },
-  {
-    name: "Noah James Smith",
-    profile: "Dropper • Medical Prep",
-    roll: "NEET-2024-0102",
-    eligibility: "FLAGGED",
-    status: "NOT STARTED",
-    start: "--:--",
-    score: "-- / 720",
-  },
-  {
-    name: "Amara Lee",
-    profile: "Class 12 • Biology Group",
-    roll: "NEET-2024-0089",
-    eligibility: "ELIGIBLE",
-    status: "In Progress",
-    start: "10:12 AM",
-    score: "-- / 720",
-  },
-  {
-    name: "Sophia Garcia",
-    profile: "Class 11 • Foundation",
-    roll: "NEET-2024-0151",
-    eligibility: "ELIGIBLE",
-    status: "EVALUATING",
-    start: "10:02 AM",
-    score: "-- / 720",
-  },
-];
+function toRow(
+  s: MonitorStudent,
+  scores: Map<string, { score: number; max: number }>,
+): Row {
+  const status: Attempt =
+    s.status === "IN_PROGRESS"
+      ? "In Progress"
+      : s.status === "NOT_STARTED"
+        ? "NOT STARTED"
+        : scores.has(s.studentId)
+          ? "COMPLETED"
+          : "EVALUATING";
+  const sc = scores.get(s.studentId);
+  return {
+    name: s.name,
+    profile: s.batch ? `Batch ${s.batch.name}` : "Unassigned batch",
+    roll: s.rollNumber,
+    eligibility: s.flagged ? "FLAGGED" : "ELIGIBLE",
+    status,
+    start: s.startedAt
+      ? new Date(s.startedAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "--:--",
+    score: sc ? `${sc.score} / ${sc.max}` : "-- / --",
+  };
+}
 
-const TABS = [
-  "All Students (2,400)",
-  "In Progress (942)",
-  "Completed (156)",
-  "Not Started (1,302)",
-];
+/** Monitor + results for the exam named in `?examId=`, else the best default. */
+function useParticipants(examIdParam: string | null) {
+  const loader = useCallback(async () => {
+    const exams = await listExams();
+    const pick =
+      exams.find((e) => e.id === examIdParam) ??
+      exams.find((e) => examDisplayStatus(e) === "LIVE") ??
+      exams.find((e) => examDisplayStatus(e) === "COMPLETED") ??
+      exams[0];
+    if (!pick) return null;
+
+    const monitor: ExamMonitor = await fetchExamMonitor(pick.id);
+    const scores = new Map<string, { score: number; max: number }>();
+    try {
+      for (const r of await listExamResults(pick.id)) {
+        // Results are keyed by roll number; map back via the monitor rows.
+        const match = monitor.students.find(
+          (s) => s.rollNumber === r.student.rollNumber,
+        );
+        if (match)
+          scores.set(match.studentId, { score: r.totalScore, max: r.maxScore });
+      }
+    } catch {
+      // Not evaluated yet — leave scores empty.
+    }
+    return { exam: pick, monitor, scores };
+  }, [examIdParam]);
+
+  return useAdminData(loader, [examIdParam]);
+}
 
 export default function ParticipantsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ParticipantsInner />
+    </Suspense>
+  );
+}
+
+function ParticipantsInner() {
   const [tab, setTab] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const params = useSearchParams();
+  const { data, loading, error } = useParticipants(params.get("examId"));
+
+  const monitor = data?.monitor ?? null;
+  const rows = useMemo(
+    () =>
+      monitor
+        ? monitor.students.map((s) => toRow(s, data!.scores))
+        : ([] as Row[]),
+    [monitor, data],
+  );
+
+  const TABS = useMemo(() => {
+    const c = monitor?.counts;
+    return [
+      `All Students (${monitor?.totalStudents ?? 0})`,
+      `In Progress (${c?.inProgress ?? 0})`,
+      `Completed (${(c?.submitted ?? 0) + (c?.autoSubmitted ?? 0)})`,
+      `Not Started (${c?.notStarted ?? 0})`,
+    ];
+  }, [monitor]);
+
+  const visible = useMemo(() => {
+    if (tab === 1) return rows.filter((r) => r.status === "In Progress");
+    if (tab === 2)
+      return rows.filter(
+        (r) => r.status === "COMPLETED" || r.status === "EVALUATING",
+      );
+    if (tab === 3) return rows.filter((r) => r.status === "NOT STARTED");
+    return rows;
+  }, [rows, tab]);
+
+  const checkedIn = monitor
+    ? monitor.totalStudents - monitor.counts.notStarted
+    : 0;
+  const submissions = monitor
+    ? monitor.counts.submitted + monitor.counts.autoSubmitted
+    : 0;
+  const avgProgress =
+    monitor && monitor.totalQuestions > 0 && monitor.students.length > 0
+      ? Math.round(
+          (monitor.students.reduce((n, s) => n + s.answered, 0) /
+            (monitor.students.length * monitor.totalQuestions)) *
+            100,
+        )
+      : 0;
 
   return (
     <AdminShell title="Exams">
@@ -96,22 +166,48 @@ export default function ParticipantsPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
-              Exams / NEET Full Mock 04
+              Exams / {data?.exam.title ?? "—"}
             </p>
             <h2 className="mt-1 text-3xl font-bold text-admin-ink">
               Participants &amp; Attempts
             </h2>
             <p className="mt-1 flex items-center gap-2 text-sm text-admin-muted">
               <CalendarIcon className="size-4" />
-              Scheduled for 12 Dec 2024 • 2,400 students enrolled
+              {loading
+                ? "Loading…"
+                : monitor
+                  ? `${monitor.window.startAt ? new Date(monitor.window.startAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "Not scheduled"} • ${monitor.totalStudents} students enrolled`
+                  : "No exam selected"}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
-              <DownloadIcon className="size-4 text-admin-muted" /> Export
-              Attendance
+            <button
+              disabled={!data?.exam || exporting}
+              onClick={async () => {
+                if (!data?.exam) return;
+                setExporting(true);
+                try {
+                  await downloadResultsExport(
+                    data.exam.id,
+                    "csv",
+                    `${data.exam.title}-results.csv`,
+                  );
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : "Export failed");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <DownloadIcon className="size-4 text-admin-muted" />
+              {exporting ? "Exporting…" : "Export Results"}
             </button>
-            <button className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+            <button
+              disabled
+              title="Batch assignment happens in the exam wizard; per-student enrolment has no endpoint yet"
+              className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
               <UsersIcon className="size-4" /> Bulk Enroll
             </button>
           </div>
@@ -122,27 +218,35 @@ export default function ParticipantsPage() {
           <Stat
             icon={UserCheckIcon}
             label="Checked In"
-            value="1,842"
-            sub="76.7% Attendance"
+            value={loading ? "—" : String(checkedIn)}
+            sub={
+              monitor && monitor.totalStudents > 0
+                ? `${Math.round((checkedIn / monitor.totalStudents) * 100)}% Attendance`
+                : "—"
+            }
           />
           <Stat
             icon={ClockIcon}
             label="Active Now"
-            value="942"
+            value={loading ? "—" : String(monitor?.counts.inProgress ?? 0)}
             sub="Real-time"
             subTone="live"
           />
           <Stat
             icon={CheckCircleIcon}
             label="Submissions"
-            value="156"
-            sub="6.5% of total"
+            value={loading ? "—" : String(submissions)}
+            sub={
+              monitor && monitor.totalStudents > 0
+                ? `${Math.round((submissions / monitor.totalStudents) * 100)}% of total`
+                : "—"
+            }
           />
           <Stat
             icon={BarChartIcon}
             label="Avg. Progress"
-            value="42%"
-            progress={42}
+            value={loading ? "—" : `${avgProgress}%`}
+            progress={avgProgress}
           />
         </div>
 
@@ -190,7 +294,27 @@ export default function ParticipantsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-admin-line/50">
-                {ROWS.map((r) => (
+                {loading && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-6 py-10 text-center text-admin-muted"
+                    >
+                      Loading participants…
+                    </td>
+                  </tr>
+                )}
+                {!loading && visible.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-6 py-10 text-center text-admin-muted"
+                    >
+                      {error ?? "No participants for this exam."}
+                    </td>
+                  </tr>
+                )}
+                {visible.map((r) => (
                   <tr
                     key={r.roll}
                     className={`hover:bg-admin-bg/50 ${r.eligibility === "FLAGGED" ? "bg-danger-soft/20" : ""}`}

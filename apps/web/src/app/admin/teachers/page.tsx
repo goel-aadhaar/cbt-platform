@@ -1,9 +1,13 @@
 "use client";
 
 import type { ComponentType, SVGProps } from "react";
-import { useState } from "react";
+import { useMemo, useState, Suspense } from "react";
+
+import { useSearchParams } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { useAdminData } from "@/hooks/use-admin-data";
+import { listStaff, type StaffRow } from "@/lib/admin";
 import {
   AddStaffDrawer,
   StaffDetailsDrawer,
@@ -23,67 +27,79 @@ import {
   UserXIcon,
 } from "@/components/admin/icons";
 
-interface Staff {
-  name: string;
-  email: string;
-  subject: string;
-  batches: string[];
-  role: string;
-  status: "Active" | "Deactivated";
-  lastLogin: string;
+const TAB_DEFS: { label: string; status?: StaffRow["status"] }[] = [
+  { label: "All Staff" },
+  { label: "Invitations", status: "PENDING" },
+  { label: "Deactivated", status: "DISABLED" },
+];
+
+/**
+ * `useSearchParams()` (deep links from the Quick Create menu) forces a client
+ * bail-out, which Next requires to sit behind a Suspense boundary or the
+ * production prerender of this route fails.
+ */
+export default function TeachersPage() {
+  return (
+    <Suspense fallback={null}>
+      <TeachersPageInner />
+    </Suspense>
+  );
 }
 
-const STAFF: Staff[] = [
-  {
-    name: "Anil Kumar",
-    email: "anil.k@drsk.edu",
-    subject: "Zoology",
-    batches: ["Batch A1", "Batch B2"],
-    role: "Senior Lecturer",
-    status: "Active",
-    lastLogin: "Today, 09:41 AM",
-  },
-  {
-    name: "Sunita Sharma",
-    email: "sunita.s@drsk.edu",
-    subject: "Botany",
-    batches: ["Batch A1"],
-    role: "Lecturer",
-    status: "Active",
-    lastLogin: "Yesterday",
-  },
-  {
-    name: "Rahul Desai",
-    email: "rahul.d@drsk.edu",
-    subject: "Genetics",
-    batches: [],
-    role: "Guest Lecturer",
-    status: "Deactivated",
-    lastLogin: "Oct 12, 2023",
-  },
-];
-
-const TABS = [
-  { label: "All Staff", count: null },
-  { label: "Invitations", count: "3" },
-  { label: "Deactivated", count: null },
-  { label: "Archived", count: null },
-];
-
-export default function TeachersPage() {
+function TeachersPageInner() {
   const [tab, setTab] = useState(0);
-  const [addOpen, setAddOpen] = useState(false);
+  const params = useSearchParams();
+  const [addOpen, setAddOpen] = useState(params.get("new") === "1");
+  const [notice, setNotice] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+
+  const { data, loading, error } = useAdminData(() =>
+    listStaff({ limit: 200 }),
+  );
+  const all = useMemo(() => data?.items ?? [], [data]);
+
+  const counts = useMemo(
+    () => ({
+      total: data?.total ?? 0,
+      pending: all.filter((s) => s.status === "PENDING").length,
+      disabled: all.filter((s) => s.status === "DISABLED").length,
+      assignments: all.reduce((n, s) => n + s.questionsAuthored, 0),
+    }),
+    [all, data],
+  );
+
+  const TABS = TAB_DEFS.map((t) => ({
+    label: t.label,
+    count:
+      t.status === "PENDING"
+        ? counts.pending || null
+        : t.status === "DISABLED"
+          ? counts.disabled || null
+          : null,
+  }));
+
+  const wanted = TAB_DEFS[tab]?.status;
+  const STAFF = wanted ? all.filter((s) => s.status === wanted) : all;
 
   return (
     <AdminShell title="Teachers">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
+        {notice && (
+          <p
+            role="status"
+            className="rounded-lg border border-admin/30 bg-admin/5 px-4 py-2.5 text-sm text-admin"
+          >
+            {notice}
+          </p>
+        )}
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-admin-ink">Teachers</h2>
             <p className="mt-1 text-sm text-admin-muted">
-              12 staff members across 4 batches
+              {loading
+                ? "Loading…"
+                : `${counts.total} staff member(s) · ${counts.assignments} questions authored`}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -107,22 +123,25 @@ export default function TeachersPage() {
           <StatCard
             icon={UsersIcon}
             label="Total Staff"
-            value="12"
-            badge="+2 this month"
+            value={loading ? "—" : String(counts.total)}
           />
           <StatCard
             icon={ClipboardIcon}
-            label="Active Assignments"
-            value="48"
+            label="Questions Authored"
+            value={loading ? "—" : String(counts.assignments)}
             tone
           />
           <StatCard
             icon={CalendarIcon}
             label="Pending Invitations"
-            value="3"
+            value={loading ? "—" : String(counts.pending)}
             tone
           />
-          <StatCard icon={UserXIcon} label="Deactivated/Archived" value="2" />
+          <StatCard
+            icon={UserXIcon}
+            label="Deactivated"
+            value={loading ? "—" : String(counts.disabled)}
+          />
         </div>
 
         {/* Panel */}
@@ -176,7 +195,7 @@ export default function TeachersPage() {
                   </th>
                   <th className="px-4 py-3">Staff Name</th>
                   <th className="px-4 py-3">Subject(s)</th>
-                  <th className="px-4 py-3">Batch(es)</th>
+                  <th className="px-4 py-3">Authored</th>
                   <th className="px-4 py-3">Role</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Last Login</th>
@@ -184,6 +203,26 @@ export default function TeachersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-admin-line/50">
+                {loading && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-4 py-10 text-center text-admin-muted"
+                    >
+                      Loading staff…
+                    </td>
+                  </tr>
+                )}
+                {!loading && STAFF.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={8}
+                      className="px-4 py-10 text-center text-admin-muted"
+                    >
+                      {error ?? "No staff in this view."}
+                    </td>
+                  </tr>
+                )}
                 {STAFF.map((s) => (
                   <tr
                     key={s.email}
@@ -207,38 +246,51 @@ export default function TeachersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="rounded-full bg-admin-mint/40 px-2.5 py-1 text-xs font-medium text-admin">
-                        {s.subject}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      {s.batches.length ? (
+                      {s.subjects.length ? (
                         <div className="flex flex-wrap gap-1">
-                          {s.batches.map((b) => (
+                          {s.subjects.map((sub) => (
                             <span
-                              key={b}
-                              className="rounded-full bg-admin-surface px-2.5 py-1 text-xs text-admin-muted"
+                              key={sub}
+                              className="rounded-full bg-admin-mint/40 px-2.5 py-1 text-xs font-medium text-admin"
                             >
-                              {b}
+                              {sub}
                             </span>
                           ))}
                         </div>
                       ) : (
-                        <span className="text-xs text-admin-subtle">
-                          Unassigned
-                        </span>
+                        <span className="text-xs text-admin-subtle">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-4 text-admin-ink">{s.role}</td>
+                    <td className="px-4 py-4 text-admin-muted">
+                      {s.questionsAuthored} q · {s.examsAuthored} exams
+                    </td>
+                    <td className="px-4 py-4 text-admin-ink">Teacher</td>
                     <td className="px-4 py-4">
                       <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${s.status === "Active" ? "bg-admin-mint/50 text-admin" : "bg-admin-surface text-admin-muted"}`}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          s.status === "ACTIVE"
+                            ? "bg-admin-mint/50 text-admin"
+                            : s.status === "PENDING"
+                              ? "bg-warn/15 text-warn"
+                              : "bg-admin-surface text-admin-muted"
+                        }`}
                       >
-                        {s.status}
+                        {s.status === "ACTIVE"
+                          ? "Active"
+                          : s.status === "PENDING"
+                            ? "Invited"
+                            : "Deactivated"}
                       </span>
                     </td>
                     <td className="px-4 py-4 text-admin-muted">
-                      {s.lastLogin}
+                      {s.lastLoginAt
+                        ? new Date(s.lastLoginAt).toLocaleString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Never"}
                     </td>
                     <td className="px-4 py-4 text-right">
                       <button className="text-admin-muted hover:text-admin-ink">
@@ -253,7 +305,7 @@ export default function TeachersPage() {
 
           <div className="flex items-center justify-between border-t border-admin-line/60 px-4 py-3">
             <p className="text-sm text-admin-muted">
-              Showing 1 to 3 of 12 results
+              Showing {STAFF.length} of {counts.total} staff
             </p>
             <div className="flex items-center gap-1">
               <PageBtn>
@@ -268,7 +320,11 @@ export default function TeachersPage() {
         </section>
       </div>
 
-      <AddStaffDrawer open={addOpen} onClose={() => setAddOpen(false)} />
+      <AddStaffDrawer
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onInvited={(staffName) => setNotice(`Invitation sent to ${staffName}.`)}
+      />
       <StaffDetailsDrawer
         open={detailsOpen}
         onClose={() => setDetailsOpen(false)}

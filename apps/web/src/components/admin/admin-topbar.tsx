@@ -1,3 +1,8 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+
 import {
   BellIcon,
   ChevronDownIcon,
@@ -7,7 +12,43 @@ import {
   ShieldCheckIcon,
 } from "./icons";
 
+/**
+ * Quick-create menu. Each entry deep-links to the page that owns the real
+ * flow (the drawers live there and need that page's data), rather than
+ * duplicating the wizards in the top bar.
+ */
+const QUICK_ACTIONS: { label: string; href: string; hint: string }[] = [
+  { label: "New exam", href: "/admin/exams?new=1", hint: "Full exam wizard" },
+  {
+    label: "Add student",
+    href: "/admin/students?new=1",
+    hint: "Send an invite",
+  },
+  {
+    label: "Import students",
+    href: "/admin/students?import=1",
+    hint: "Bulk CSV upload",
+  },
+  {
+    label: "Invite teacher",
+    href: "/admin/teachers?new=1",
+    hint: "Staff invitation",
+  },
+];
+
 export function AdminTopbar({ title }: { title: string }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [menuOpen]);
+
   return (
     <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
       <h1 className="text-xl font-bold text-admin-ink">{title}</h1>
@@ -34,13 +75,42 @@ export function AdminTopbar({ title }: { title: string }) {
           <ChevronDownIcon className="size-4 text-admin-muted" />
         </button>
 
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-full bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-        >
-          <PlusIcon className="size-4" />
-          Quick Create
-        </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="flex items-center gap-2 rounded-full bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          >
+            <PlusIcon className="size-4" />
+            Quick Create
+            <ChevronDownIcon className="size-4" />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-admin-line/60 bg-white py-1 shadow-lg"
+            >
+              {QUICK_ACTIONS.map((a) => (
+                <Link
+                  key={a.href}
+                  href={a.href}
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="block px-4 py-2.5 hover:bg-admin-bg"
+                >
+                  <span className="block text-sm font-semibold text-admin-ink">
+                    {a.label}
+                  </span>
+                  <span className="block text-xs text-admin-muted">
+                    {a.hint}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-1 text-admin-muted">
           <IconButton label="Verified">

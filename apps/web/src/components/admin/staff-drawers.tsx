@@ -2,24 +2,53 @@
 
 import { useState } from "react";
 
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ImageIcon,
-  UserPlusIcon,
-  XIcon,
-} from "./icons";
+import { inviteTeacher } from "@/lib/admin";
+
+import { CheckIcon, ImageIcon, UserPlusIcon, XIcon } from "./icons";
 
 /* ------------------------------ Add Staff ------------------------------ */
 
+/**
+ * Add-staff drawer, wired to POST /invitations/teacher.
+ *
+ * The invite endpoint accepts only `{name, email}` — role is implicitly TEACHER
+ * (admin invites are SUPERADMIN-only) and subject/batch assignments have no
+ * backing field yet, so those inputs are marked as post-activation steps rather
+ * than pretending to save.
+ */
 export function AddStaffDrawer({
   open,
   onClose,
+  onInvited,
 }: {
   open: boolean;
   onClose: () => void;
+  onInvited?: (name: string) => void;
 }) {
   const [invite, setInvite] = useState(true);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const valid = name.trim().length >= 2 && /\S+@\S+\.\S+/.test(email);
+
+  async function submit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      await inviteTeacher({ name: name.trim(), email: email.trim() });
+      onInvited?.(name.trim());
+      setName("");
+      setEmail("");
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send the invite.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -31,12 +60,18 @@ export function AddStaffDrawer({
         <div className="flex w-full items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+            disabled={submitting}
+            className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
           >
             Cancel
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95">
-            <UserPlusIcon className="size-4" /> Add Staff
+          <button
+            onClick={submit}
+            disabled={!valid || submitting}
+            className="flex items-center gap-2 rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-40"
+          >
+            <UserPlusIcon className="size-4" />
+            {submitting ? "Sending…" : "Send Invite"}
           </button>
         </div>
       }
@@ -54,18 +89,34 @@ export function AddStaffDrawer({
 
       <SectionLabel>Basic Information</SectionLabel>
       <Field label="Full Name" required>
-        <input placeholder="e.g. Jane Doe" className={inputCls} />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Jane Doe"
+          className={inputCls}
+        />
       </Field>
       <Field label="Email Address" required>
-        <input placeholder="jane.doe@drsk.edu" className={inputCls} />
-      </Field>
-      <Field label="Contact Number">
-        <input placeholder="+1 (555) 000-0000" className={inputCls} />
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="jane.doe@drsk.edu"
+          className={inputCls}
+        />
       </Field>
 
       <SectionLabel>Role &amp; Assignments</SectionLabel>
-      <Field label="Role" required>
-        <Select>Select a role…</Select>
+      <Field label="Role">
+        <input
+          value="Teacher"
+          readOnly
+          className={`${inputCls} bg-admin-bg text-admin-muted`}
+        />
+        <span className="mt-1 text-xs text-admin-subtle">
+          Staff invites create a Teacher. Admin invites are issued by a
+          superadmin.
+        </span>
       </Field>
       <Field label="Subject(s)">
         <ChipInput
@@ -73,12 +124,24 @@ export function AddStaffDrawer({
           placeholder="Type to search…"
         />
         <span className="mt-1 text-xs text-admin-subtle">
-          Required for Teacher role.
+          Assigned after the teacher activates their account.
         </span>
       </Field>
       <Field label="Batch(es)">
         <ChipInput chips={["2024-A"]} placeholder="Type to search…" />
+        <span className="mt-1 text-xs text-admin-subtle">
+          Assigned after activation.
+        </span>
       </Field>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+        >
+          {error}
+        </p>
+      )}
 
       <label className="mt-6 flex cursor-pointer items-start gap-3">
         <span
@@ -210,14 +273,26 @@ export function StaffDetailsDrawer({
 
         <footer className="flex items-center justify-between border-t border-admin-line/60 bg-white px-8 py-5">
           <div className="flex gap-3">
-            <button className="rounded-lg border border-danger/40 bg-white px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30">
+            <button
+              disabled
+              title="No staff-status endpoint yet"
+              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-danger/40 bg-white px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30"
+            >
               Deactivate Staff
             </button>
-            <button className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
+            <button
+              disabled
+              title="No staff-archive endpoint yet"
+              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+            >
               Archive
             </button>
           </div>
-          <button className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+          <button
+            disabled
+            title="No staff-update endpoint yet"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          >
             Save Changes
           </button>
         </footer>
@@ -315,15 +390,6 @@ function Field({
       </span>
       {children}
     </label>
-  );
-}
-
-function Select({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex w-full items-center justify-between rounded-lg border border-admin-line bg-white px-3.5 py-3 text-sm text-admin-ink hover:bg-admin-bg">
-      {children}
-      <ChevronDownIcon className="size-4 text-admin-muted" />
-    </button>
   );
 }
 

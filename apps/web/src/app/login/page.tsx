@@ -38,7 +38,7 @@ export default function LoginPage() {
         rollNumber: rollNumber.trim(),
         password,
       });
-      router.push("/dashboard");
+      router.push("/student");
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -52,9 +52,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-white">
+    <div className="flex h-screen overflow-hidden bg-white">
       {/* ---------- Left: login form ---------- */}
-      <div className="flex w-full flex-col overflow-auto border-r border-line px-6 py-8 sm:px-12 sm:py-12 lg:w-1/2 lg:shrink-0">
+      <div className="flex w-full flex-col overflow-auto border-r border-line px-6 py-6 sm:px-12 sm:py-8 lg:w-1/2 lg:shrink-0 [@media(min-height:900px)]:sm:py-12">
         {/* Logo */}
         <div className="flex items-center gap-1.5">
           <span className="flex size-12 items-center justify-center rounded-[2px]">
@@ -73,9 +73,9 @@ export default function LoginPage() {
         </div>
 
         {/* Form (vertically centered) */}
-        <div className="flex flex-1 flex-col justify-center py-8">
+        <div className="flex flex-1 flex-col justify-center py-4 [@media(min-height:900px)]:py-8">
           <div className="mx-auto w-full max-w-[448px]">
-            <div className="mb-8 flex flex-col gap-2">
+            <div className="mb-5 flex flex-col gap-2 [@media(min-height:900px)]:mb-8">
               <h1 className="text-3xl font-bold tracking-[-0.6px] text-brand">
                 Candidate Login
               </h1>
@@ -166,7 +166,7 @@ export default function LoginPage() {
         </div>
 
         {/* Footer */}
-        <div className="mt-8 flex flex-col gap-2 border-t border-line pt-4">
+        <div className="mt-6 flex flex-col gap-2 border-t border-line pt-4 [@media(min-height:900px)]:mt-8">
           <div className="flex items-center gap-2">
             <SupportIcon className="h-3 w-[13px] shrink-0 text-muted" />
             <span className="text-xs font-semibold leading-4 text-muted">

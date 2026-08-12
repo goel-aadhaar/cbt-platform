@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import type { ExamMonitor } from "@/lib/admin";
+
 import { AlertTriangleIcon, ClipboardIcon, RadioIcon, XIcon } from "./icons";
 
 type Status = "on-track" | "idle" | "flagged";
@@ -12,7 +14,7 @@ interface Student {
   status: Status;
 }
 
-const STUDENTS: Student[] = [
+const PLACEHOLDER_STUDENTS: Student[] = [
   { name: "John Doe", initials: "JD", status: "on-track" },
   { name: "Sarah Adams", initials: "SA", status: "on-track" },
   { name: "Mike Ross", initials: "MR", status: "idle" },
@@ -21,21 +23,73 @@ const STUDENTS: Student[] = [
   { name: "Ben Clark", initials: "BC", status: "on-track" },
 ];
 
-const STAT = [
-  { label: "Submitted", value: "45 / 120" },
-  { label: "Avg Progress", value: "68%" },
-  { label: "Active Incidents", value: "3", danger: true },
-];
+function initialsOf(name: string): string {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+}
 
+/**
+ * Live session drawer. Given a `monitor` payload (GET /exams/:id/monitor) it
+ * renders real candidates and counts; without one it falls back to the design's
+ * placeholder grid.
+ */
 export function MonitorDetailDrawer({
   open,
   onClose,
+  monitor,
 }: {
   open: boolean;
   onClose: () => void;
+  monitor?: ExamMonitor;
 }) {
   const [tab, setTab] = useState(0);
   if (!open) return null;
+
+  const STUDENTS: Student[] = monitor
+    ? monitor.students.slice(0, 24).map((s) => ({
+        name: s.name,
+        initials: s.flagged ? "!" : initialsOf(s.name),
+        status: s.flagged
+          ? "flagged"
+          : s.status === "IN_PROGRESS"
+            ? "on-track"
+            : "idle",
+      }))
+    : PLACEHOLDER_STUDENTS;
+
+  const submittedCount = monitor
+    ? monitor.counts.submitted + monitor.counts.autoSubmitted
+    : 45;
+  const avgProgress = monitor
+    ? monitor.totalQuestions > 0 && monitor.students.length > 0
+      ? Math.round(
+          (monitor.students.reduce((n, s) => n + s.answered, 0) /
+            (monitor.students.length * monitor.totalQuestions)) *
+            100,
+        )
+      : 0
+    : 68;
+  const incidents = monitor
+    ? monitor.students.filter((s) => s.violations > 0 || s.flagged).length
+    : 3;
+
+  const STAT = [
+    {
+      label: "Submitted",
+      value: `${submittedCount} / ${monitor?.totalStudents ?? 120}`,
+    },
+    { label: "Avg Progress", value: `${avgProgress}%` },
+    {
+      label: "Active Incidents",
+      value: String(incidents),
+      danger: incidents > 0,
+    },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end [font-family:var(--font-hanken)]">
@@ -144,13 +198,25 @@ export function MonitorDetailDrawer({
         </div>
 
         <footer className="flex items-center justify-end gap-3 border-t border-admin-line/60 px-8 py-5">
-          <button className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
+          <button
+            disabled
+            title="No broadcast endpoint yet"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+          >
             📣 Announce
           </button>
-          <button className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
+          <button
+            disabled
+            title="No pause endpoint yet"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+          >
             ❚❚ Pause Exam
           </button>
-          <button className="rounded-lg bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+          <button
+            disabled
+            title="No force-submit endpoint yet"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          >
             Force Submit All
           </button>
         </footer>

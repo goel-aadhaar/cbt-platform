@@ -18,14 +18,16 @@ import {
   FlagIcon,
   MoreVerticalIcon,
   PlusIcon,
-  SearchIcon,
   SlidersIcon,
   TargetIcon,
   UploadIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
+import { QuestionFilterBar } from "@/components/admin/question-filters";
+import { addToPracticeLibrary, removeFromPracticeLibrary } from "@/lib/admin";
 import {
   listQuestions,
+  type QuestionFilters,
   type QuestionListItem,
   type QuestionStatus,
 } from "@/lib/questions";
@@ -52,12 +54,48 @@ export default function QuestionBankPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [notice, setNotice] = useState<string | null>(null);
+  const [filters, setFilters] = useState<QuestionFilters>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const { data, loading, error } = useAdminData(() =>
-    listQuestions({ limit: 200 }),
+  /** Curate (or un-curate) a question for the student practice library. */
+  async function togglePractice(q: QuestionListItem) {
+    setBusyId(q.id);
+    setNotice(null);
+    try {
+      if (q.inPracticeLibrary) {
+        await removeFromPracticeLibrary(q.id);
+        setNotice("Removed from the practice library.");
+      } else {
+        await addToPracticeLibrary(q.id);
+        setNotice("Added to the practice library — students can drill it now.");
+      }
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      setNotice(
+        e instanceof Error ? e.message : "Could not update the library.",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Filters are applied server-side; `deps` re-runs the query when they change.
+  const { data, loading, error } = useAdminData(
+    () => listQuestions({ ...filters, limit: 200 }),
+    [JSON.stringify(filters)],
   );
   const all = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
+
+  // The filter dropdowns are populated from a separate, UNFILTERED query so the
+  // available options don't collapse to whatever the current filter returned.
+  const { data: facetData } = useAdminData(
+    () => listQuestions({ limit: 200 }),
+    [],
+  );
+  const facetSource = useMemo(() => facetData?.items ?? [], [facetData]);
 
   const count = (s: QuestionStatus) => all.filter((q) => q.status === s).length;
   const approved = count("APPROVED");
@@ -68,6 +106,14 @@ export default function QuestionBankPage() {
   return (
     <AdminShell title="Question Bank">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
+        {notice && (
+          <p
+            role="status"
+            className="rounded-lg border border-admin/30 bg-admin/5 px-4 py-2.5 text-sm text-admin"
+          >
+            {notice}
+          </p>
+        )}
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -83,7 +129,11 @@ export default function QuestionBankPage() {
             <OutlineBtn icon={DownloadIcon} onClick={() => setExportOpen(true)}>
               Export
             </OutlineBtn>
-            <button className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95">
+            <button
+              disabled
+              title="Question authoring form isn't built yet — use Import to add questions"
+              className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+            >
               <PlusIcon className="size-4" /> Add Question
             </button>
           </div>
@@ -121,17 +171,15 @@ export default function QuestionBankPage() {
 
         {/* Panel */}
         <section className="overflow-hidden rounded-2xl border border-admin-line/60 bg-white">
-          <div className="flex flex-wrap items-center gap-3 p-4">
-            <div className="relative flex min-w-[240px] flex-1 items-center">
-              <SearchIcon className="pointer-events-none absolute left-3 size-4 text-admin-subtle" />
-              <input
-                placeholder="Search questions, IDs, or tags…"
-                className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
-              />
-            </div>
-            <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink hover:bg-admin-bg">
-              <SlidersIcon className="size-4 text-admin-muted" /> Filters
-            </button>
+          <div className="p-4">
+            <QuestionFilterBar
+              value={filters}
+              onChange={setFilters}
+              facetSource={facetSource}
+              resultCount={all.length}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
             <div className="ml-auto flex items-center gap-4">
               <button
                 type="button"
@@ -202,7 +250,12 @@ export default function QuestionBankPage() {
                     <QuestionRow
                       key={q.id}
                       q={q}
-                      onOpen={() => setDetailOpen(true)}
+                      busy={busyId === q.id}
+                      onTogglePractice={togglePractice}
+                      onOpen={() => {
+                        setSelectedId(q.id);
+                        setDetailOpen(true);
+                      }}
                     />
                   ))}
               </tbody>
@@ -228,6 +281,12 @@ export default function QuestionBankPage() {
       <QuestionDetailDrawer
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
+        questionId={selectedId}
+        onActioned={(action, status) => {
+          setNotice(`Question ${action}d — now ${status}.`);
+          // Counts and tab filters derive from the fetched list, so re-read it.
+          setTimeout(() => window.location.reload(), 800);
+        }}
       />
     </AdminShell>
   );
@@ -236,9 +295,13 @@ export default function QuestionBankPage() {
 function QuestionRow({
   q,
   onOpen,
+  onTogglePractice,
+  busy,
 }: {
   q: QuestionListItem;
   onOpen: () => void;
+  onTogglePractice: (q: QuestionListItem) => void;
+  busy: boolean;
 }) {
   const Icon =
     q.status === "REVIEW"
@@ -266,6 +329,11 @@ function QuestionRow({
               ID: {code}
             </span>
             <p className="mt-1 line-clamp-2 text-admin-ink">{q.statement}</p>
+            {q.inPracticeLibrary && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-bold text-info">
+                ★ In practice library
+              </span>
+            )}
           </div>
         </div>
       </td>
@@ -278,15 +346,38 @@ function QuestionRow({
         <StatusPill status={q.status} />
       </td>
       <td className="px-4 py-4 text-right align-top">
-        {q.status === "REVIEW" ? (
-          <button className="rounded-lg bg-admin px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95">
-            Review Now
-          </button>
-        ) : (
-          <button className="text-admin-muted hover:text-admin-ink">
-            <MoreVerticalIcon className="size-4" />
-          </button>
-        )}
+        <div className="flex items-center justify-end gap-2">
+          {q.status === "APPROVED" && (
+            <button
+              disabled={busy}
+              title={
+                q.inPracticeLibrary
+                  ? "Remove from the student practice library"
+                  : "Add to the student practice library (no approval needed)"
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                onTogglePractice(q);
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-50 ${
+                q.inPracticeLibrary
+                  ? "border-admin-line bg-white text-admin-muted hover:bg-admin-bg"
+                  : "border-admin bg-admin/5 text-admin hover:bg-admin/10"
+              }`}
+            >
+              {q.inPracticeLibrary ? "Remove" : "+ Practice"}
+            </button>
+          )}
+          {q.status === "REVIEW" ? (
+            <button className="rounded-lg bg-admin px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95">
+              Review Now
+            </button>
+          ) : (
+            <button className="text-admin-muted hover:text-admin-ink">
+              <MoreVerticalIcon className="size-4" />
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );

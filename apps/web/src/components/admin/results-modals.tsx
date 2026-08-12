@@ -1,6 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import {
+  evaluateExam,
+  fetchExam,
+  publishResults,
+  type ExamDetail,
+} from "@/lib/admin";
 
 import {
   ChevronDownIcon,
@@ -55,11 +62,70 @@ const INITIAL_BATCHES: Batch[] = [
 export function PublishResultsModal({
   open,
   onClose,
+  examId,
+  examTitle,
+  onPublished,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Without an exam there is nothing to publish — the CTA stays disabled. */
+  examId?: string;
+  examTitle?: string;
+  onPublished?: (count: number) => void;
 }) {
-  const [batches, setBatches] = useState(INITIAL_BATCHES);
+  const [batches, setBatches] = useState<Batch[]>(INITIAL_BATCHES);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Replace the placeholder rows with the exam's real batch assignments.
+  useEffect(() => {
+    if (!open || !examId) return;
+    let cancelled = false;
+    fetchExam(examId)
+      .then((e: ExamDetail) => {
+        if (cancelled) return;
+        setBatches(
+          e.batches.map((b) => ({
+            id: b.batch.id,
+            name: b.batch.name,
+            meta: "Assigned to this exam",
+            on: true,
+          })),
+        );
+      })
+      .catch((err: unknown) =>
+        setError(
+          err instanceof Error ? err.message : "Could not load batches.",
+        ),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, examId]);
+
+  async function publish() {
+    if (!examId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const chosen = batches.filter((b) => b.on);
+      let count = 0;
+      if (chosen.length === batches.length) {
+        // All batches — one call without a batchId publishes the whole exam.
+        count = (await publishResults(examId)).published;
+      } else {
+        for (const b of chosen)
+          count += (await publishResults(examId, b.id)).published;
+      }
+      onPublished?.(count);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Publish failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!open) return null;
 
   const toggle = (id: string) =>
@@ -76,8 +142,9 @@ export function PublishResultsModal({
                 Publish Results
               </h2>
               <p className="mt-1 text-sm text-admin-muted">
-                Select the batches to release results for the Mid-Term
-                Examination.
+                {examTitle
+                  ? `Select the batches to release results for ${examTitle}.`
+                  : "Select an exam from the results table to release its results."}
               </p>
             </div>
             <button
@@ -166,14 +233,33 @@ export function PublishResultsModal({
             </span>
           </p>
           <div className="flex items-center gap-3">
+            {error && (
+              <span role="alert" className="mr-2 text-sm text-danger">
+                {error}
+              </span>
+            )}
+            {!examId && (
+              <span className="mr-2 text-sm text-admin-muted">
+                Choose an exam from the results table to publish.
+              </span>
+            )}
             <button
               onClick={onClose}
               className="rounded-lg px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-admin-muted hover:text-admin-ink"
             >
               Cancel
             </button>
-            <button className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:opacity-95">
-              ▷ Publish Now
+            <button
+              onClick={publish}
+              disabled={!examId || busy || batches.every((b) => !b.on)}
+              title={
+                examId
+                  ? undefined
+                  : "Open a specific exam from the results table first"
+              }
+              className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {busy ? "Publishing…" : "▷ Publish Now"}
             </button>
           </div>
         </div>
@@ -237,10 +323,36 @@ const HISTORY = [
 export function RecalculateResultsModal({
   open,
   onClose,
+  examId,
+  onRecalculated,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Without an exam there is nothing to recalculate. */
+  examId?: string;
+  onRecalculated?: (evaluated: number) => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function recalc() {
+    if (!examId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Re-running evaluate re-scores every submitted attempt, which is what
+      // "recalculate" means here. Per-question bonus/drop rules are a separate
+      // endpoint (PATCH .../questions/:qid/scoring) not yet surfaced in this UI.
+      const res = await evaluateExam(examId);
+      onRecalculated?.(res.evaluated);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Recalculation failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 [font-family:var(--font-hanken)]">
@@ -354,14 +466,33 @@ export function RecalculateResultsModal({
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t border-admin-line/60 px-7 py-4">
+          {error && (
+            <span role="alert" className="mr-auto text-sm text-danger">
+              {error}
+            </span>
+          )}
+          {!examId && (
+            <span className="mr-auto text-sm text-admin-muted">
+              Choose an exam from the results table to recalculate.
+            </span>
+          )}
           <button
             onClick={onClose}
             className="rounded-lg px-5 py-2.5 text-sm font-semibold text-admin-muted hover:text-admin-ink"
           >
             Cancel
           </button>
-          <button className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95">
-            Apply Recalculation
+          <button
+            onClick={recalc}
+            disabled={!examId || busy}
+            title={
+              examId
+                ? undefined
+                : "Open a specific exam from the results table first"
+            }
+            className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Recalculating…" : "Apply Recalculation"}
           </button>
         </div>
       </div>

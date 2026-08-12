@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { actOnQuestion, type QuestionAction } from "@/lib/admin";
+
 import { AlertTriangleIcon, CheckCircleIcon, PlusIcon, XIcon } from "./icons";
 
 interface Option {
@@ -38,11 +40,39 @@ const META = [
 export function QuestionDetailDrawer({
   open,
   onClose,
+  questionId,
+  onActioned,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Question under review; enables the Approve/Reject/Archive actions. */
+  questionId?: string;
+  /** Called after a successful transition so the list can refresh. */
+  onActioned?: (action: QuestionAction, status: string) => void;
 }) {
   const [tab, setTab] = useState(0);
+  const [pending, setPending] = useState<QuestionAction | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function act(action: QuestionAction) {
+    if (!questionId) return;
+    setPending(action);
+    setActionError(null);
+    try {
+      const res = await actOnQuestion(questionId, action);
+      onActioned?.(action, res.status);
+      onClose();
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : `Could not ${action} the question.`,
+      );
+    } finally {
+      setPending(null);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -195,13 +225,36 @@ export function QuestionDetailDrawer({
         </div>
 
         {/* Footer */}
-        <footer className="flex items-center justify-end gap-3 border-t border-admin-line/60 px-8 py-5">
-          <button className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30">
-            Reject
-          </button>
-          <button className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95">
-            Approve Question
-          </button>
+        <footer className="flex items-center justify-between gap-3 border-t border-admin-line/60 px-8 py-5">
+          <p
+            className={`text-sm ${actionError ? "text-danger" : "text-admin-muted"}`}
+            role={actionError ? "alert" : undefined}
+          >
+            {actionError ?? (questionId ? "" : "Open a question to review it.")}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              disabled={!questionId || pending !== null}
+              onClick={() => act("archive")}
+              className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-muted hover:bg-admin-bg disabled:opacity-50"
+            >
+              {pending === "archive" ? "Archiving…" : "Archive"}
+            </button>
+            <button
+              disabled={!questionId || pending !== null}
+              onClick={() => act("reject")}
+              className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30 disabled:opacity-50"
+            >
+              {pending === "reject" ? "Rejecting…" : "Reject"}
+            </button>
+            <button
+              disabled={!questionId || pending !== null}
+              onClick={() => act("approve")}
+              className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {pending === "approve" ? "Approving…" : "Approve Question"}
+            </button>
+          </div>
         </footer>
       </div>
     </div>

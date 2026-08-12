@@ -1,10 +1,24 @@
 import { apiFetch } from "./api";
 import { getToken } from "./auth";
 
-export type ExamStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type ExamStatus =
+  "DRAFT" | "REVIEW" | "APPROVED" | "PUBLISHED" | "ARCHIVED";
+
 /** Derived, display-level status used across the exam screens. */
 export type ExamDisplayStatus =
-  "DRAFT" | "SCHEDULED" | "LIVE" | "COMPLETED" | "PUBLISHED" | "ARCHIVED";
+  | "DRAFT"
+  | "REVIEW"
+  | "APPROVED"
+  | "SCHEDULED"
+  | "LIVE"
+  | "COMPLETED"
+  | "PUBLISHED"
+  | "ARCHIVED";
+
+interface UserRef {
+  id: string;
+  name: string;
+}
 
 export interface ExamListItem {
   id: string;
@@ -16,6 +30,13 @@ export interface ExamListItem {
   startAt: string | null;
   endAt: string | null;
   createdAt: string;
+  /* Approval workflow (§2.3). */
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  createdBy: UserRef | null;
+  reviewer: UserRef | null;
+  approvedBy: UserRef | null;
   _count: { sections: number; questions: number; batches: number };
 }
 
@@ -27,6 +48,9 @@ export function listExams(): Promise<ExamListItem[]> {
 /** Derive the exam's lifecycle state from status + schedule window. */
 export function examDisplayStatus(e: ExamListItem): ExamDisplayStatus {
   if (e.status === "DRAFT") return "DRAFT";
+  if (e.status === "REVIEW") return "REVIEW";
+  // "Qualified" — approved but not yet started by an admin.
+  if (e.status === "APPROVED") return "APPROVED";
   if (e.status === "ARCHIVED") return "ARCHIVED";
   const now = Date.now();
   const start = e.startAt ? Date.parse(e.startAt) : null;

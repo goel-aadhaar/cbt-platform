@@ -87,7 +87,11 @@ export function QuestionImportModal({
           >
             Cancel
           </button>
-          <button className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95">
+          <button
+            disabled
+            title="Question import mapping not implemented"
+            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
+          >
             Proceed to map fields →
           </button>
         </>

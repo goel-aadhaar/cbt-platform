@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { MonitorDetailDrawer } from "@/components/admin/monitor-detail-drawer";
@@ -13,69 +13,126 @@ import {
   GraduationCapIcon,
   RadioIcon,
 } from "@/components/admin/icons";
+import { useAdminData } from "@/hooks/use-admin-data";
+import { fetchExamMonitor, type ExamMonitor } from "@/lib/admin";
+import { examDisplayStatus, listExams } from "@/lib/exams";
 
 interface Session {
+  examId: string;
   scope: string;
   name: string;
-  attempting: string;
+  attempting: number;
   remaining: string;
-  submitted: string;
+  submitted: number;
   progress: number;
-  incidents?: number;
+  incidents: number;
+  monitor: ExamMonitor;
 }
 
-const SESSIONS: Session[] = [
-  {
-    scope: "Batch 2024",
-    name: "NEET Full Mock 04",
-    attempting: "2,450",
-    remaining: "~45m remaining",
-    submitted: "845",
-    progress: 25,
-    incidents: 2,
-  },
-  {
-    scope: "Class 12 - Section A",
-    name: "Physics Weekly Test",
-    attempting: "120",
-    remaining: "~12m remaining",
-    submitted: "1,105",
-    progress: 90,
-  },
-];
+function relative(iso: string | null): string {
+  if (!iso) return "—";
+  const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  return `${h}h ago`;
+}
 
-const INCIDENTS = [
-  {
-    title: "Tab-switch flagged",
-    who: "Rohan S., NEET Full Mock 04",
-    ago: "2 min ago",
-    action: "Review Snapshot",
-    severe: true,
-  },
-  {
-    title: "Network disconnect",
-    who: "Ananya P., Physics Weekly Test",
-    ago: "5 min ago",
-    action: "Auto-resolved",
-    severe: false,
-  },
-  {
-    title: "Multiple faces detected",
-    who: "Vikram K., NEET Full Mock 04",
-    ago: "12 min ago",
-    action: "Review Video",
-    severe: true,
-  },
-];
+function remainingLabel(m: ExamMonitor): string {
+  const live = m.students.filter(
+    (s) => s.status === "IN_PROGRESS" && s.remainingSeconds != null,
+  );
+  if (live.length === 0) {
+    if (!m.window.endAt) return "no window";
+    const left = Math.round((Date.parse(m.window.endAt) - Date.now()) / 60000);
+    return left > 0 ? `~${left}m of window left` : "window closed";
+  }
+  const max = Math.max(...live.map((s) => s.remainingSeconds ?? 0));
+  return `~${Math.round(max / 60)}m remaining`;
+}
 
-const CONCLUDED = [
-  { name: "Chemistry Term 1", meta: "Ended 45m ago · 450 students" },
-  { name: "Math Unit Test", meta: "Ended 2h ago · 1,200 students" },
-  { name: "Biology Mock B", meta: "Ended 4h ago · 320 students" },
-];
+/** Live exams + their monitor payloads, plus recently-closed exams. */
+function useMonitoring() {
+  const loader = useCallback(async () => {
+    const exams = await listExams();
+    const live = exams.filter((e) => examDisplayStatus(e) === "LIVE");
+    const closed = exams
+      .filter((e) => examDisplayStatus(e) === "COMPLETED")
+      .slice(0, 5);
+
+    const monitors = await Promise.all(
+      live.map(async (e) => {
+        try {
+          return await fetchExamMonitor(e.id);
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    const sessions: Session[] = monitors
+      .filter((m): m is ExamMonitor => m !== null)
+      .map((m) => ({
+        examId: m.examId,
+        scope: `${m.totalStudents} assigned`,
+        name: m.title,
+        attempting: m.counts.inProgress,
+        remaining: remainingLabel(m),
+        submitted: m.counts.submitted + m.counts.autoSubmitted,
+        progress:
+          m.totalStudents > 0
+            ? Math.round(
+                ((m.counts.submitted + m.counts.autoSubmitted) /
+                  m.totalStudents) *
+                  100,
+              )
+            : 0,
+        incidents: m.students.filter((s) => s.violations > 0 || s.flagged)
+          .length,
+        monitor: m,
+      }));
+
+    return {
+      sessions,
+      concluded: closed.map((e) => ({
+        name: e.title,
+        meta: `Ended ${relative(e.endAt)} · ${e._count.batches} batch(es)`,
+      })),
+    };
+  }, []);
+
+  return useAdminData(loader, []);
+}
 
 export default function MonitoringPage() {
   const [detailOpen, setDetailOpen] = useState(false);
+  const [active, setActive] = useState<Session | null>(null);
+  const { data, loading, error } = useMonitoring();
+
+  const SESSIONS = useMemo(() => data?.sessions ?? [], [data]);
+  const CONCLUDED = useMemo(() => data?.concluded ?? [], [data]);
+
+  /** Flatten flagged / violating candidates across live exams into a feed. */
+  const INCIDENTS = useMemo(
+    () =>
+      SESSIONS.flatMap((s) =>
+        s.monitor.students
+          .filter((st) => st.violations > 0 || st.flagged)
+          .slice(0, 6)
+          .map((st) => ({
+            title: st.flagged
+              ? "Attempt flagged for review"
+              : `${st.violations} proctoring violation(s)`,
+            who: `${st.name}, ${s.name}`,
+            ago: relative(st.lastActivityAt),
+            action: st.flagged ? "Review Attempt" : "Monitor",
+            severe: st.flagged,
+          })),
+      ).slice(0, 8),
+    [SESSIONS],
+  );
+
+  const totalAttempting = SESSIONS.reduce((n, s) => n + s.attempting, 0);
 
   return (
     <AdminShell title="Live Monitoring">
@@ -95,9 +152,19 @@ export default function MonitoringPage() {
         <div>
           <h2 className="text-3xl font-bold text-admin-ink">Live Monitoring</h2>
           <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-admin-line bg-white px-4 py-2 text-sm font-semibold text-admin-ink">
-            <span className="size-2 rounded-full bg-admin" />3 exams live ·
-            4,680 students currently attempting
+            <span className="size-2 rounded-full bg-admin" />
+            {loading
+              ? "Loading live sessions…"
+              : `${SESSIONS.length} exam(s) live · ${totalAttempting} student(s) currently attempting`}
           </span>
+          {error && (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg border border-danger/30 bg-danger/5 px-4 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.9fr_1fr]">
@@ -107,12 +174,22 @@ export default function MonitoringPage() {
               <RadioIcon className="size-5 text-admin" /> Active Sessions
             </h3>
 
+            {!loading && SESSIONS.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-admin-line bg-white p-8 text-center text-sm text-admin-muted">
+                No exams are live right now. Sessions appear here once an exam
+                window opens.
+              </div>
+            )}
+
             {SESSIONS.map((s) => (
               <div
-                key={s.name}
+                key={s.examId}
                 role="button"
                 tabIndex={0}
-                onClick={() => setDetailOpen(true)}
+                onClick={() => {
+                  setActive(s);
+                  setDetailOpen(true);
+                }}
                 className="flex cursor-pointer items-center gap-4 rounded-2xl border border-admin-line/60 border-l-4 border-l-admin bg-white p-5 hover:bg-admin-bg/40"
               >
                 <div className="min-w-0 flex-1">
@@ -120,7 +197,7 @@ export default function MonitoringPage() {
                     <span className="rounded bg-admin-surface px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-admin-muted">
                       {s.scope}
                     </span>
-                    {s.incidents && (
+                    {s.incidents > 0 && (
                       <span className="flex items-center gap-1 rounded bg-danger/10 px-2 py-0.5 text-[11px] font-bold uppercase text-danger">
                         <AlertTriangleIcon className="size-3" /> {s.incidents}{" "}
                         Incidents
@@ -165,6 +242,13 @@ export default function MonitoringPage() {
               </button>
             </div>
             <div className="overflow-hidden rounded-2xl border border-admin-line/60 bg-white">
+              {INCIDENTS.length === 0 && (
+                <p className="p-6 text-center text-sm text-admin-muted">
+                  {loading
+                    ? "Loading incidents…"
+                    : "No proctoring incidents reported in live sessions."}
+                </p>
+              )}
               {INCIDENTS.map((it, i) => (
                 <div
                   key={i}
@@ -208,6 +292,11 @@ export default function MonitoringPage() {
                 Concluded
               </h3>
               <div className="mt-3 flex flex-col gap-2">
+                {!loading && CONCLUDED.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-admin-line bg-white p-4 text-center text-sm text-admin-muted">
+                    No exams have concluded yet.
+                  </p>
+                )}
                 {CONCLUDED.map((c) => (
                   <div
                     key={c.name}
@@ -229,6 +318,7 @@ export default function MonitoringPage() {
       <MonitorDetailDrawer
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
+        monitor={active?.monitor}
       />
     </AdminShell>
   );

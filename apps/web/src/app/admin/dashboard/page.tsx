@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { AdminShell } from "@/components/admin/admin-shell";
 import { DashboardStats } from "@/components/admin/dashboard-stats";
 import {
@@ -63,19 +65,19 @@ function WelcomeCard() {
           system health from one premium command center.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <button
-            type="button"
+          <Link
+            href="/admin/exams?new=1"
             className="flex items-center gap-2 rounded-full bg-admin px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
           >
             <PlusIcon className="size-4" />
             Create Exam
-          </button>
-          <button
-            type="button"
+          </Link>
+          <Link
+            href="/admin/students?import=1"
             className="rounded-full border border-admin-line bg-white px-6 py-3 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
           >
             Import Students
-          </button>
+          </Link>
         </div>
       </div>
 

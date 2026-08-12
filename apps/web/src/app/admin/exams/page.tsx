@@ -1,7 +1,9 @@
 "use client";
 
 import type { ComponentType, SVGProps } from "react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
+
+import { useSearchParams } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ExamBuilderDrawer } from "@/components/admin/exam-builder-drawer";
@@ -17,6 +19,7 @@ import {
   TemplateIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
+import { approveExam, rejectExam, startExamNow } from "@/lib/admin";
 import {
   type ExamDisplayStatus,
   type ExamListItem,
@@ -28,6 +31,8 @@ import {
 const TABS: { label: string; match: ExamDisplayStatus[] | null }[] = [
   { label: "All Exams", match: null },
   { label: "Draft", match: ["DRAFT"] },
+  { label: "Awaiting Approval", match: ["REVIEW"] },
+  { label: "Qualified", match: ["APPROVED"] },
   { label: "Scheduled", match: ["SCHEDULED"] },
   {
     label: "Published",
@@ -38,9 +43,58 @@ const TABS: { label: string; match: ExamDisplayStatus[] | null }[] = [
   { label: "Cancelled", match: ["ARCHIVED"] },
 ];
 
+/**
+ * `useSearchParams()` (deep links from the Quick Create menu) forces a client
+ * bail-out, which Next requires to sit behind a Suspense boundary or the
+ * production prerender of this route fails.
+ */
 export default function ExamsPage() {
-  const [builderOpen, setBuilderOpen] = useState(false);
+  return (
+    <Suspense fallback={null}>
+      <ExamsPageInner />
+    </Suspense>
+  );
+}
+
+function ExamsPageInner() {
+  const params = useSearchParams();
+  // Deep link from the top bar's Quick Create menu.
+  const [builderOpen, setBuilderOpen] = useState(params.get("new") === "1");
+  const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  /** Run an approval-workflow transition, then re-read the list. */
+  async function runAction(
+    action: "approve" | "reject" | "start",
+    exam: ExamListItem,
+  ) {
+    setBusy(exam.id);
+    setNotice(null);
+    try {
+      if (action === "approve") {
+        await approveExam(exam.id);
+        setNotice(`"${exam.title}" approved — it is now a qualified test.`);
+      } else if (action === "reject") {
+        const reason = window.prompt(
+          `Send "${exam.title}" back to ${exam.createdBy?.name ?? "its author"}. Reason (optional):`,
+        );
+        if (reason === null) return; // cancelled
+        await rejectExam(exam.id, reason || undefined);
+        setNotice(`"${exam.title}" sent back to the author.`);
+      } else {
+        const res = await startExamNow(exam.id);
+        setNotice(
+          `"${exam.title}" is live until ${new Date(res.endAt).toLocaleTimeString()}.`,
+        );
+      }
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const { data, loading, error } = useAdminData(() => listExams());
   const exams = useMemo(() => data ?? [], [data]);
@@ -62,6 +116,14 @@ export default function ExamsPage() {
   return (
     <AdminShell title="Exams">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
+        {notice && (
+          <p
+            role="status"
+            className="rounded-lg border border-admin/30 bg-admin/5 px-4 py-2.5 text-sm text-admin"
+          >
+            {notice}
+          </p>
+        )}
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -91,10 +153,16 @@ export default function ExamsPage() {
             value={pad(countS("DRAFT"))}
           />
           <ExamStat
-            icon={CalendarIcon}
-            tint="bg-[#e7edff] text-[#3d5afe]"
-            label="Scheduled"
-            value={pad(countS("SCHEDULED"))}
+            icon={AlertTriangleIcon}
+            tint="bg-warn/15 text-warn"
+            label="Awaiting Approval"
+            value={pad(countS("REVIEW"))}
+          />
+          <ExamStat
+            icon={CheckCircleIcon}
+            tint="bg-admin/10 text-admin"
+            label="Qualified"
+            value={pad(countS("APPROVED"))}
           />
           <ExamStat
             icon={RadioIcon}
@@ -168,6 +236,7 @@ export default function ExamsPage() {
                     <th className="px-4 py-3">Schedule</th>
                     <th className="px-4 py-3">Questions</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-admin-line/50">
@@ -178,7 +247,15 @@ export default function ExamsPage() {
                   )}
                   {!loading &&
                     !error &&
-                    rows.map(({ e, s }) => <ExamRow key={e.id} e={e} s={s} />)}
+                    rows.map(({ e, s }) => (
+                      <ExamRow
+                        key={e.id}
+                        e={e}
+                        s={s}
+                        busy={busy !== null}
+                        onAction={runAction}
+                      />
+                    ))}
                 </tbody>
               </table>
               <div className="border-t border-admin-line/60 px-4 py-3 text-sm text-admin-muted">
@@ -234,12 +311,27 @@ export default function ExamsPage() {
       <ExamBuilderDrawer
         open={builderOpen}
         onClose={() => setBuilderOpen(false)}
+        onCreated={(_id, createdTitle) => {
+          setNotice(`Exam "${createdTitle}" created.`);
+          // Stat cards + status pills derive from the fetched list, so re-read.
+          setTimeout(() => window.location.reload(), 800);
+        }}
       />
     </AdminShell>
   );
 }
 
-function ExamRow({ e, s }: { e: ExamListItem; s: ExamDisplayStatus }) {
+function ExamRow({
+  e,
+  s,
+  busy,
+  onAction,
+}: {
+  e: ExamListItem;
+  s: ExamDisplayStatus;
+  busy: boolean;
+  onAction: (a: "approve" | "reject" | "start", e: ExamListItem) => void;
+}) {
   const code = `EX-${e.id.slice(0, 5).toUpperCase()}`;
   return (
     <tr className="hover:bg-admin-bg/50">
@@ -267,6 +359,52 @@ function ExamRow({ e, s }: { e: ExamListItem; s: ExamDisplayStatus }) {
       <td className="px-4 py-4 text-admin-ink">{e._count.questions}</td>
       <td className="px-4 py-4">
         <ExamStatusPill status={s} />
+        {s === "REVIEW" && e.reviewer && (
+          <p className="mt-1 text-xs text-admin-subtle">
+            for {e.reviewer.name}
+          </p>
+        )}
+        {s === "DRAFT" && e.rejectionReason && (
+          <p className="mt-1 max-w-[180px] text-xs text-danger">
+            Sent back: {e.rejectionReason}
+          </p>
+        )}
+      </td>
+      <td className="px-4 py-4">
+        <div className="flex items-center justify-end gap-2">
+          {s === "REVIEW" && (
+            <>
+              <button
+                disabled={busy}
+                onClick={() => onAction("reject", e)}
+                className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-danger hover:bg-danger-soft/30 disabled:opacity-50"
+              >
+                Reject
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => onAction("approve", e)}
+                className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-50"
+              >
+                Approve
+              </button>
+            </>
+          )}
+          {s === "APPROVED" && (
+            <button
+              disabled={busy}
+              onClick={() => onAction("start", e)}
+              title={
+                e._count.batches === 0
+                  ? "Assign a batch before starting"
+                  : "Opens the window now"
+              }
+              className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-50"
+            >
+              Start Now
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -277,10 +415,13 @@ function ExamStatusPill({ status }: { status: ExamDisplayStatus }) {
     LIVE: "bg-danger/10 text-danger",
     SCHEDULED: "bg-[#e7edff] text-[#3d5afe]",
     DRAFT: "bg-admin-surface text-admin-muted",
+    REVIEW: "bg-warn/15 text-warn",
+    APPROVED: "bg-admin/10 text-admin",
     COMPLETED: "bg-admin-mint/50 text-admin",
     PUBLISHED: "bg-admin-mint/50 text-admin",
     ARCHIVED: "bg-admin-surface text-admin-muted",
   };
+  const label = status === "APPROVED" ? "QUALIFIED" : status;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${map[status]}`}
@@ -288,7 +429,7 @@ function ExamStatusPill({ status }: { status: ExamDisplayStatus }) {
       {status === "LIVE" && (
         <span className="size-1.5 rounded-full bg-danger" />
       )}
-      {status}
+      {label}
     </span>
   );
 }

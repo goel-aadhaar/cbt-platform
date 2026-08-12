@@ -1,41 +1,81 @@
 "use client";
 
+import type { ExamResultRow } from "@/lib/admin";
+
 import { XIcon } from "./icons";
 
-const STATS = [
-  { label: "Participants", value: "145" },
-  { label: "Avg. Score", value: "72%" },
-  { label: "Pass Rate", value: "88%" },
-  { label: "Highest", value: "98" },
-];
+const BANDS = ["0-20", "21-40", "41-60", "61-80", "81-100"];
 
-// Score-distribution buckets (0-20 … 80-100) as % of cohort.
-const DIST = [
-  { band: "0-20", pct: 6 },
-  { band: "21-40", pct: 14 },
-  { band: "41-60", pct: 28 },
-  { band: "61-80", pct: 34 },
-  { band: "81-100", pct: 18 },
-];
+/** Bucket scores into the five display bands as a % of the cohort. */
+function distribution(results: ExamResultRow[]) {
+  const counts = [0, 0, 0, 0, 0];
+  for (const r of results) {
+    const pct = r.maxScore > 0 ? (r.totalScore / r.maxScore) * 100 : 0;
+    const idx = Math.min(4, Math.max(0, Math.floor(pct / 20.0001)));
+    counts[idx] += 1;
+  }
+  const total = results.length || 1;
+  return BANDS.map((band, i) => ({
+    band,
+    pct: Math.round((counts[i] / total) * 100),
+  }));
+}
 
 /**
  * Exam result detail drawer — opened from a Results row "Review". Summarises the
  * exam and links to the Publish / Recalculate flows. (Approximation: its Figma
  * capture, 119:18178, was a mid-transition render.)
+ *
+ * Renders live rows from GET /exams/:id/results when given; falls back to the
+ * design's placeholder copy when opened without a selection.
  */
 export function ResultDetailDrawer({
   open,
   onClose,
   onPublish,
   onRecalculate,
+  examTitle,
+  results,
 }: {
   open: boolean;
   onClose: () => void;
   onPublish: () => void;
   onRecalculate: () => void;
+  examTitle?: string;
+  results?: ExamResultRow[];
 }) {
   if (!open) return null;
-  const max = Math.max(...DIST.map((d) => d.pct));
+
+  const rows = results ?? [];
+  const maxScore = rows[0]?.maxScore ?? 0;
+  const avg =
+    rows.length > 0
+      ? Math.round(
+          (rows.reduce((n, r) => n + r.totalScore, 0) /
+            rows.length /
+            (maxScore || 1)) *
+            100,
+        )
+      : 0;
+  const highest =
+    rows.length > 0 ? Math.max(...rows.map((r) => r.totalScore)) : 0;
+  const passed = rows.filter(
+    (r) => maxScore > 0 && r.totalScore / r.maxScore >= 0.33,
+  ).length;
+  const published = rows.length > 0 && rows.every((r) => r.published);
+
+  const STATS = [
+    { label: "Participants", value: String(rows.length) },
+    { label: "Avg. Score", value: rows.length ? `${avg}%` : "—" },
+    {
+      label: "Pass Rate",
+      value: rows.length ? `${Math.round((passed / rows.length) * 100)}%` : "—",
+    },
+    { label: "Highest", value: rows.length ? String(highest) : "—" },
+  ];
+
+  const DIST = distribution(rows);
+  const max = Math.max(1, ...DIST.map((d) => d.pct));
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end [font-family:var(--font-hanken)]">
@@ -52,14 +92,24 @@ export function ResultDetailDrawer({
             </p>
             <div className="mt-1 flex items-center gap-3">
               <h2 className="text-xl font-bold text-admin-ink">
-                Biology Mid-Term Alpha
+                {examTitle ?? "Exam"}
               </h2>
-              <span className="rounded-full bg-admin-mint/50 px-3 py-1 text-xs font-bold text-admin">
-                PUBLISHED
-              </span>
+              {rows.length > 0 && (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    published
+                      ? "bg-admin-mint/50 text-admin"
+                      : "bg-admin-bg text-admin-muted"
+                  }`}
+                >
+                  {published ? "PUBLISHED" : "HELD"}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-sm text-admin-muted">
-              Class XII - Science • Oct 12, 2023
+              {rows.length > 0
+                ? `${rows.length} participants • max ${maxScore}`
+                : "No results yet"}
             </p>
           </div>
           <button
@@ -108,9 +158,70 @@ export function ResultDetailDrawer({
             ))}
           </div>
 
+          {rows.length > 0 && (
+            <>
+              <h3 className="mt-8 font-bold text-admin-ink">Ranked Results</h3>
+              <div className="mt-3 overflow-hidden rounded-xl border border-admin-line/60">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-admin-bg/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
+                      <th className="px-4 py-2">Rank</th>
+                      <th className="px-4 py-2">Candidate</th>
+                      <th className="px-4 py-2">Roll</th>
+                      <th className="px-4 py-2 text-right">Score</th>
+                      <th className="px-4 py-2 text-right">%ile</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-admin-line/50">
+                    {rows.slice(0, 10).map((r) => (
+                      <tr
+                        key={r.id}
+                        className={r.attempt.flagged ? "bg-[#fbf3f2]" : ""}
+                      >
+                        <td className="px-4 py-2 font-semibold text-admin-ink">
+                          {r.overallRank ?? "—"}
+                        </td>
+                        <td className="px-4 py-2 text-admin-ink">
+                          {r.student.user.name}
+                          {r.attempt.flagged && (
+                            <span className="ml-2 rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold text-danger">
+                              FLAGGED
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-admin-muted [font-family:var(--font-courier-prime)]">
+                          {r.student.rollNumber}
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-admin-ink">
+                          {r.totalScore}
+                          <span className="font-normal text-admin-muted">
+                            /{r.maxScore}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-right text-admin-muted">
+                          {r.percentile == null
+                            ? "—"
+                            : `${Math.round(r.percentile * 10) / 10}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {rows.length > 10 && (
+                  <p className="border-t border-admin-line/50 px-4 py-2 text-xs text-admin-muted">
+                    Showing top 10 of {rows.length}.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
           <div className="mt-8 flex items-center gap-2 rounded-xl border border-admin-line/60 bg-admin-bg p-4 text-sm text-admin-muted">
-            Results are published for all batches. Use Recalculate to apply
-            bonus marks or drop questions, then re-publish.
+            {rows.length === 0
+              ? "This exam has no evaluated results yet. Run Evaluate from the results table first."
+              : published
+                ? "Results are visible to students. Use Hold to withdraw them, or Recalculate to apply bonus marks then re-publish."
+                : "Results are evaluated but not yet released. Publish to make them visible to students."}
           </div>
         </div>
 
