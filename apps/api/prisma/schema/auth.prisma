@@ -52,7 +52,10 @@ model User {
   questionsCreated  Question[] @relation("QuestionCreatedBy")
   questionsEdited   Question[] @relation("QuestionEditedBy")
   questionsApproved Question[] @relation("QuestionApprovedBy")
+  questionsAddedToPractice Question[] @relation("QuestionPracticeAddedBy")
   examsCreated      Exam[]     @relation("ExamCreatedBy")
+  examsToReview     Exam[]     @relation("ExamReviewer")
+  examsApproved     Exam[]     @relation("ExamApprovedBy")
 
   @@index([instituteId])
   @@index([role])

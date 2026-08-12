@@ -34,6 +34,15 @@ export class AttemptsController {
     return this.attempts.start(dto.examId);
   }
 
+  /**
+   * List exams the current student can sit right now. Backs the student
+   * portal's "Start" CTAs without leaking /exams (TEACHER/ADMIN-only).
+   */
+  @Get('available')
+  available() {
+    return this.attempts.availableForStudent();
+  }
+
   /** Full attempt state (questions without answers, responses, remaining time).
    * Refresh/reconnection-safe. */
   @Get(':id')

@@ -92,6 +92,50 @@ export class AttemptsService {
   }
 
   /**
+   * List the exams the current student can sit RIGHT NOW — published, in window,
+   * assigned to the student's batch, and not yet submitted. Backs the student
+   * portal's "Start a live exam" CTA so the wizard doesn't need a hard-coded
+   * examId (the seed wipes + re-ids the demo tenant on every reseed).
+   */
+  async availableForStudent() {
+    const student = await this.currentStudent();
+    const now = new Date();
+
+    const exams = await this.prisma.exam.findMany({
+      where: {
+        instituteId: student.instituteId,
+        status: 'PUBLISHED',
+        startAt: { lte: now },
+        endAt: { gt: now },
+        batches: { some: { batchId: student.batchId } },
+      },
+      orderBy: { startAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        durationMinutes: true,
+        startAt: true,
+        endAt: true,
+        attempts: {
+          where: { studentId: student.id },
+          select: { id: true, status: true },
+        },
+      },
+    });
+
+    return {
+      items: exams.map((e) => ({
+        id: e.id,
+        title: e.title,
+        durationMinutes: e.durationMinutes,
+        startAt: e.startAt,
+        endAt: e.endAt,
+        attempt: e.attempts[0] ?? null,
+      })),
+    };
+  }
+
+  /**
    * Start (or resume) the candidate's attempt.
    *
    * This is the platform's thundering-herd path: an entire batch clicks "Start"

@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -17,7 +19,9 @@ import {
   AssignBatchDto,
   CloneExamDto,
   CreateSectionDto,
+  RejectExamDto,
   ScheduleExamDto,
+  SubmitExamDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
 import { ExamsService } from './exams.service';
@@ -70,6 +74,42 @@ export class ExamsController {
     @Body() dto: AddQuestionDto,
   ) {
     return this.exams.addQuestion(id, sectionId, dto);
+  }
+
+  /**
+   * Approval workflow (§2.3). The author (teacher or admin) submits a finished
+   * draft to a named admin; an admin then approves it into the qualified pool,
+   * rejects it back to the author, or starts it immediately.
+   */
+  @Post(':id/submit')
+  @HttpCode(HttpStatus.OK)
+  submitForReview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SubmitExamDto,
+  ) {
+    return this.exams.submitForReview(id, dto.reviewerId);
+  }
+
+  @Post(':id/approve')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  approve(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exams.approve(id);
+  }
+
+  @Post(':id/reject')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RejectExamDto) {
+    return this.exams.reject(id, dto.reason);
+  }
+
+  /** Open the window now and make an approved exam live. */
+  @Post(':id/start')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  startNow(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exams.startNow(id);
   }
 
   // --- Admin-only: finalize + publish ---

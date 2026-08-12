@@ -56,6 +56,14 @@ model Question {
   /// alter the GENERATED expression.
   searchVector Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
 
+  /// Practice library (§2.4). A teacher curates a SUBSET of APPROVED questions
+  /// that students may drill — the library is not the whole bank. No admin
+  /// approval is required to add or remove one. A question may sit in the
+  /// library AND be used in exams; the exam builder surfaces that overlap.
+  inPracticeLibrary Boolean   @default(false) @map("in_practice_library")
+  practiceAddedById String?   @map("practice_added_by_id") @db.Uuid
+  practiceAddedAt   DateTime? @map("practice_added_at")
+
   // Lifecycle & edit tracking (§2.5).
   status       QuestionStatus @default(DRAFT)
   isActive     Boolean        @default(true) @map("is_active")
@@ -70,13 +78,15 @@ model Question {
   institute  Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   createdBy  User      @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   editedBy   User?     @relation("QuestionEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
-  approvedBy    User?          @relation("QuestionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedBy      User? @relation("QuestionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  practiceAddedBy User? @relation("QuestionPracticeAddedBy", fields: [practiceAddedById], references: [id], onDelete: SetNull)
   examQuestions ExamQuestion[]
   responses     Response[]
 
   @@index([instituteId])
   @@index([instituteId, status])
   @@index([instituteId, subject])
+  @@index([instituteId, inPracticeLibrary])
   @@index([searchVector], type: Gin)
   @@map("questions")
 }

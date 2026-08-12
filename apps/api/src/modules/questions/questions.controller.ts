@@ -2,7 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -116,6 +119,22 @@ export class QuestionsController {
   @Roles(Role.ADMIN)
   reject(@Param('id', ParseUUIDPipe) id: string) {
     return this.questions.reject(id);
+  }
+
+  /**
+   * Practice-library curation (§2.4) — TEACHER or ADMIN, no approval step.
+   * Adding here does not remove the question from exam use.
+   */
+  @Post(':id/practice')
+  @HttpCode(HttpStatus.OK)
+  addToPractice(@Param('id', ParseUUIDPipe) id: string) {
+    return this.questions.addToPracticeLibrary(id);
+  }
+
+  @Delete(':id/practice')
+  @HttpCode(HttpStatus.OK)
+  removeFromPractice(@Param('id', ParseUUIDPipe) id: string) {
+    return this.questions.removeFromPracticeLibrary(id);
   }
 
   @Post(':id/archive')

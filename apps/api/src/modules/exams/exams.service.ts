@@ -34,6 +34,13 @@ const examSelect = {
   endAt: true,
   createdAt: true,
   updatedAt: true,
+  // Approval workflow (§2.3) — who authored it, who must review, who approved.
+  submittedAt: true,
+  approvedAt: true,
+  rejectionReason: true,
+  createdBy: { select: { id: true, name: true } },
+  reviewer: { select: { id: true, name: true } },
+  approvedBy: { select: { id: true, name: true } },
 } satisfies Prisma.ExamSelect;
 
 const examDetailSelect = {
@@ -338,8 +345,15 @@ export class ExamsService {
       },
     });
     if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.status !== ExamStatus.DRAFT) {
-      throw new BadRequestException('Only draft exams can be published');
+    // An exam must clear review before it can go live. DRAFT is still accepted
+    // so an admin authoring their own paper isn't forced to review themselves.
+    if (
+      exam.status !== ExamStatus.DRAFT &&
+      exam.status !== ExamStatus.APPROVED
+    ) {
+      throw new BadRequestException(
+        'Only draft or approved exams can be published',
+      );
     }
     if (!exam.startAt || !exam.endAt) {
       throw new BadRequestException('Schedule the exam before publishing');
@@ -357,6 +371,140 @@ export class ExamsService {
     return this.prisma.exam.update({
       where: { id: examId },
       data: { status: 'PUBLISHED' },
+      select: examSelect,
+    });
+  }
+
+  /* ---------------- Approval workflow (§2.3) ---------------- */
+
+  /**
+   * Teacher hands a finished DRAFT to a named admin for review.
+   * The paper must actually be assembled — an empty shell wastes a review pass.
+   */
+  async submitForReview(examId: string, reviewerId: string) {
+    const { instituteId } = this.ctx();
+
+    const [exam, reviewer] = await Promise.all([
+      this.prisma.exam.findFirst({
+        where: { id: examId, instituteId },
+        select: {
+          id: true,
+          status: true,
+          _count: { select: { sections: true, questions: true } },
+        },
+      }),
+      this.prisma.user.findFirst({
+        where: { id: reviewerId, instituteId, role: 'ADMIN' },
+        select: { id: true },
+      }),
+    ]);
+
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (exam.status !== ExamStatus.DRAFT) {
+      throw new BadRequestException('Only draft exams can be submitted');
+    }
+    if (!reviewer) {
+      throw new BadRequestException(
+        'Assign an admin of this institute as the reviewer',
+      );
+    }
+    if (exam._count.sections === 0 || exam._count.questions === 0) {
+      throw new BadRequestException(
+        'Add sections and questions before submitting for approval',
+      );
+    }
+
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: 'REVIEW',
+        reviewerId,
+        submittedAt: new Date(),
+        rejectionReason: null,
+      },
+      select: examSelect,
+    });
+  }
+
+  /**
+   * Admin approves a submitted exam into the "qualified" pool. Any admin of the
+   * institute may action the queue (so an absent reviewer can't deadlock it);
+   * whoever approves is recorded in `approvedById`.
+   */
+  async approve(examId: string) {
+    const { userId } = this.ctx();
+    const exam = await this.getOwned(examId);
+    if (exam.status !== ExamStatus.REVIEW) {
+      throw new BadRequestException('Only exams under review can be approved');
+    }
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: 'APPROVED',
+        approvedById: userId,
+        approvedAt: new Date(),
+        rejectionReason: null,
+      },
+      select: examSelect,
+    });
+  }
+
+  /** Admin sends a submitted exam back to its author with optional feedback. */
+  async reject(examId: string, reason?: string) {
+    const exam = await this.getOwned(examId);
+    if (exam.status !== ExamStatus.REVIEW) {
+      throw new BadRequestException('Only exams under review can be rejected');
+    }
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: 'DRAFT',
+        rejectionReason: reason ?? null,
+        submittedAt: null,
+      },
+      select: examSelect,
+    });
+  }
+
+  /**
+   * Admin starts a qualified exam immediately: the window opens now and runs for
+   * the exam's duration, and the paper goes live for its assigned batches.
+   */
+  async startNow(examId: string) {
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: examId, instituteId: this.ctx().instituteId },
+      select: {
+        id: true,
+        status: true,
+        durationMinutes: true,
+        _count: { select: { sections: true, questions: true, batches: true } },
+      },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+    if (exam.status !== ExamStatus.APPROVED) {
+      throw new BadRequestException(
+        'Only approved exams can be started. Get it approved first.',
+      );
+    }
+    if (exam._count.batches === 0) {
+      throw new BadRequestException(
+        'Assign at least one batch before starting',
+      );
+    }
+    if (exam._count.sections === 0 || exam._count.questions === 0) {
+      throw new BadRequestException(
+        'Add sections and questions before starting',
+      );
+    }
+
+    const now = new Date();
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: 'PUBLISHED',
+        startAt: now,
+        endAt: new Date(now.getTime() + exam.durationMinutes * 60_000),
+      },
       select: examSelect,
     });
   }

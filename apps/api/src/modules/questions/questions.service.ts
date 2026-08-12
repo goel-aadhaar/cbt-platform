@@ -54,6 +54,10 @@ const listSelect = {
   isActive: true,
   statement: true,
   createdAt: true,
+  // Practice-library membership — the exam builder shows this as a marker so a
+  // teacher can see a question is already drillable before reusing it.
+  inPracticeLibrary: true,
+  practiceAddedAt: true,
 } satisfies Prisma.QuestionSelect;
 
 const detailSelect = {
@@ -184,6 +188,9 @@ export class QuestionsService {
       ...(query.type ? { type: query.type } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.examType ? { examType: query.examType } : {}),
+      ...(query.inPracticeLibrary !== undefined
+        ? { inPracticeLibrary: query.inPracticeLibrary }
+        : {}),
       ...(query.tag ? { tags: { has: query.tag } } : {}),
     };
 
@@ -324,6 +331,48 @@ export class QuestionsService {
       throw new BadRequestException('Only questions in review can be rejected');
     }
     return this.setStatus(id, QuestionStatus.DRAFT);
+  }
+
+  /**
+   * Add an APPROVED question to the practice library (§2.4).
+   *
+   * Deliberately NOT an approval-gated transition: curating practice content is
+   * a teaching decision, so any teacher or admin may do it. Only APPROVED
+   * questions qualify — students must never drill unreviewed content. A question
+   * in the library can still be used in exams.
+   */
+  async addToPracticeLibrary(id: string) {
+    const { userId } = this.ctx();
+    const question = await this.getOwned(id);
+    if (question.status !== QuestionStatus.APPROVED) {
+      throw new BadRequestException(
+        'Only approved questions can be added to the practice library',
+      );
+    }
+    if (question.inPracticeLibrary) return this.findOne(id);
+    return this.prisma.question.update({
+      where: { id },
+      data: {
+        inPracticeLibrary: true,
+        practiceAddedById: userId,
+        practiceAddedAt: new Date(),
+      },
+      select: detailSelect,
+    });
+  }
+
+  /** Remove a question from the practice library (it stays in the bank). */
+  async removeFromPracticeLibrary(id: string) {
+    await this.getOwned(id);
+    return this.prisma.question.update({
+      where: { id },
+      data: {
+        inPracticeLibrary: false,
+        practiceAddedById: null,
+        practiceAddedAt: null,
+      },
+      select: detailSelect,
+    });
   }
 
   async archive(id: string) {

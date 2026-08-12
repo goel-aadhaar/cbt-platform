@@ -1,5 +1,13 @@
-import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { Difficulty, QuestionStatus, QuestionType } from '../question.types';
 
@@ -36,6 +44,12 @@ export class QueryQuestionsDto {
   @IsOptional()
   @IsString()
   tag?: string;
+
+  /** Restrict to (or exclude) questions curated into the practice library. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  inPracticeLibrary?: boolean;
 
   /** Free-text query, served by the PostgreSQL full-text search port (§2.6). */
   @IsOptional()

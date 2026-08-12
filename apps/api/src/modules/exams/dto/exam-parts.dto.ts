@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
 } from 'class-validator';
 
@@ -46,4 +47,19 @@ export class CloneExamDto {
   @IsString()
   @MinLength(2)
   title?: string;
+}
+
+/** Hand a finished draft to a named admin for approval (§2.3). */
+export class SubmitExamDto {
+  /** Admin of this institute who should review the paper. */
+  @IsUUID()
+  reviewerId!: string;
+}
+
+/** Send a submitted exam back to its author. */
+export class RejectExamDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

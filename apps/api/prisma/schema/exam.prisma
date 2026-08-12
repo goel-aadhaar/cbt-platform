@@ -1,5 +1,11 @@
+/// Exam approval lifecycle (§2.3). A teacher authors a DRAFT and submits it to a
+/// named admin (REVIEW); that admin approves it into the "qualified" pool
+/// (APPROVED); an admin then starts it, which opens the window and makes it
+/// PUBLISHED — the only state a candidate can sit. Rejection returns it to DRAFT.
 enum ExamStatus {
   DRAFT
+  REVIEW
+  APPROVED
   PUBLISHED
   ARCHIVED
 }
@@ -42,12 +48,25 @@ model Exam {
   startAt           DateTime?    @map("start_at")
   endAt             DateTime?    @map("end_at")
   createdById       String       @map("created_by_id") @db.Uuid
+
+  /// Approval workflow (§2.3). `reviewerId` is the admin the author assigned to
+  /// review it; any admin may action the queue, but the assignment drives whose
+  /// queue it lands in. `approvedById` records who actually approved.
+  reviewerId      String?   @map("reviewer_id") @db.Uuid
+  submittedAt     DateTime? @map("submitted_at")
+  approvedById    String?   @map("approved_by_id") @db.Uuid
+  approvedAt      DateTime? @map("approved_at")
+  /// Feedback captured when an admin sends an exam back to the author.
+  rejectionReason String?   @map("rejection_reason")
+
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  institute Institute      @relation(fields: [instituteId], references: [id], onDelete: Cascade)
-  program   Program?       @relation(fields: [programId], references: [id], onDelete: SetNull)
-  createdBy User           @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  institute  Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  program    Program?  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  createdBy  User      @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  reviewer   User?     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  approvedBy User?     @relation("ExamApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   sections  ExamSection[]
   questions ExamQuestion[]
   batches   ExamBatch[]
