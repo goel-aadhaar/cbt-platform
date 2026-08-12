@@ -74,8 +74,11 @@ function PracticeStartInner() {
   return (
     <StudentShell
       breadcrumb={[
-        "Practice Library",
-        subjectName ?? "Subject",
+        { label: "Practice Library", href: "/student/practice" },
+        {
+          label: subjectName ?? "Subject",
+          href: `/student/practice/${subjectSlug}`,
+        },
         `${preset.name} (${size} Qs)`,
       ]}
     >

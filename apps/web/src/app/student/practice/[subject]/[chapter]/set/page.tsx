@@ -68,9 +68,12 @@ function PracticeSetInner() {
   return (
     <StudentShell
       breadcrumb={[
-        "Practice Library",
-        subjectName ?? "Subject",
-        chapter?.chapter ?? "Chapter",
+        { label: "Practice Library", href: "/student/practice" },
+        {
+          label: subjectName ?? "Subject",
+          href: `/student/practice/${subjectSlug}`,
+        },
+        { label: chapter?.chapter ?? "Chapter", href: back },
         "Set",
       ]}
     >

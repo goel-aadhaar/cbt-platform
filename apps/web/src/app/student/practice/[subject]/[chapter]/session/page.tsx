@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
-import { StudentShell } from "@/components/student/student-shell";
+import { StudentShell, type Crumb } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
   CheckCircleIcon,
@@ -183,12 +183,19 @@ function PracticeSessionInner() {
   }
 
   // Empty segments would render as a stray "/" and collide as React keys.
-  const crumbs = [
-    "Practice Library",
-    subjectName,
-    chapter?.chapter,
+  const crumbs: Crumb[] = [
+    { label: "Practice Library", href: "/student/practice" },
+    subjectName
+      ? { label: subjectName, href: `/student/practice/${subjectSlug}` }
+      : null,
+    chapter?.chapter
+      ? {
+          label: chapter.chapter,
+          href: `/student/practice/${subjectSlug}/${chapterSlug}`,
+        }
+      : null,
     "Set",
-  ].filter((c): c is string => Boolean(c));
+  ].filter((c): c is Crumb => c !== null);
 
   if (summary) {
     return (

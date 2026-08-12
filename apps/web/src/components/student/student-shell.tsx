@@ -1,5 +1,15 @@
+import Link from "next/link";
+
 import { StudentSidebar } from "./student-sidebar";
 import { BellIcon, SettingsIcon } from "./icons";
+
+/**
+ * One step in the breadcrumb trail. A bare string is a label with nowhere to
+ * go; give it an `href` to make it a way back to that page.
+ */
+export type Crumb = string | { label: string; href: string };
+
+const crumbLabel = (c: Crumb) => (typeof c === "string" ? c : c.label);
 
 /**
  * Shared layout for all /student/* screens: dark-green sidebar + a top app bar
@@ -12,7 +22,7 @@ export function StudentShell({
   breadcrumb = [],
   children,
 }: {
-  breadcrumb?: string[];
+  breadcrumb?: Crumb[];
   children: React.ReactNode;
 }) {
   return (
@@ -24,23 +34,43 @@ export function StudentShell({
             aria-label="Breadcrumb"
             className="flex items-center gap-2 text-sm"
           >
-            <span className="font-semibold text-admin-muted">
+            <Link
+              href="/student"
+              className="font-semibold text-admin-muted hover:text-admin hover:underline"
+            >
               DRSK Student Portal
-            </span>
-            {breadcrumb.map((crumb, i) => (
-              <span key={crumb} className="flex items-center gap-2">
-                <span className="text-admin-line">/</span>
-                <span
-                  className={
-                    i === breadcrumb.length - 1
-                      ? "font-bold text-admin-ink"
-                      : "font-semibold text-admin-muted"
-                  }
-                >
-                  {crumb}
+            </Link>
+            {breadcrumb.map((crumb, i) => {
+              const label = crumbLabel(crumb);
+              // The last crumb is the page you are on: a link to here would go
+              // nowhere, so it stays plain text even when an href was given.
+              const isCurrent = i === breadcrumb.length - 1;
+              const href = typeof crumb === "string" ? null : crumb.href;
+              return (
+                <span key={label} className="flex items-center gap-2">
+                  <span className="text-admin-line">/</span>
+                  {isCurrent || !href ? (
+                    <span
+                      aria-current={isCurrent ? "page" : undefined}
+                      className={
+                        isCurrent
+                          ? "font-bold text-admin-ink"
+                          : "font-semibold text-admin-muted"
+                      }
+                    >
+                      {label}
+                    </span>
+                  ) : (
+                    <Link
+                      href={href}
+                      className="font-semibold text-admin-muted hover:text-admin hover:underline"
+                    >
+                      {label}
+                    </Link>
+                  )}
                 </span>
-              </span>
-            ))}
+              );
+            })}
           </nav>
 
           <div className="ml-auto flex items-center gap-3">

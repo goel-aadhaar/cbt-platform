@@ -30,7 +30,12 @@ export default function PracticeSubjectPage() {
   const entry = data?.subjects.find((s) => s.subject === subject) ?? null;
 
   return (
-    <StudentShell breadcrumb={["Practice Library", subject ?? "Subject"]}>
+    <StudentShell
+      breadcrumb={[
+        { label: "Practice Library", href: "/student/practice" },
+        subject ?? "Subject",
+      ]}
+    >
       <PracticeBack href="/student/practice" label="Practice Library" />
 
       <header className="mb-6">

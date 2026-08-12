@@ -22,6 +22,12 @@ type Section = { sectionId?: string; name?: string; score?: number };
  * 404s until an admin publishes — that 404 is the "results pending" state, not
  * an error, so it gets its own screen rather than a failure message.
  */
+/** The reports index is where a single result belongs. */
+const REPORTS_CRUMB = {
+  label: "Performance Reports",
+  href: "/student/reports",
+};
+
 export default function StudentResultPage() {
   const params = useParams<{ attemptId: string }>();
   const attemptId = params.attemptId ?? "";
@@ -54,7 +60,7 @@ export default function StudentResultPage() {
 
   if (loading) {
     return (
-      <StudentShell breadcrumb={["Performance Reports", "Result"]}>
+      <StudentShell breadcrumb={[REPORTS_CRUMB, "Result"]}>
         <div className="h-64 animate-pulse rounded-2xl bg-admin-line/10" />
       </StudentShell>
     );
@@ -62,7 +68,7 @@ export default function StudentResultPage() {
 
   if (pending) {
     return (
-      <StudentShell breadcrumb={["Performance Reports", "Result"]}>
+      <StudentShell breadcrumb={[REPORTS_CRUMB, "Result"]}>
         <ResultPending />
       </StudentShell>
     );
@@ -70,7 +76,7 @@ export default function StudentResultPage() {
 
   if (error || !result) {
     return (
-      <StudentShell breadcrumb={["Performance Reports", "Result"]}>
+      <StudentShell breadcrumb={[REPORTS_CRUMB, "Result"]}>
         <p
           role="alert"
           className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
@@ -90,7 +96,7 @@ export default function StudentResultPage() {
     : [];
 
   return (
-    <StudentShell breadcrumb={["Performance Reports", result.exam.title]}>
+    <StudentShell breadcrumb={[REPORTS_CRUMB, result.exam.title]}>
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
           {result.exam.title}

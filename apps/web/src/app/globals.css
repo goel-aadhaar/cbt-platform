@@ -59,3 +59,43 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
 }
+
+/**
+ * Cursor affordances.
+ *
+ * Tailwind v4's preflight sets `cursor: default` on buttons, so an app that
+ * uses <button> for nearly every action ends up with no pointer anywhere and
+ * controls read as decoration. This restores the pointer for anything that
+ * acts when clicked, and marks unavailable controls as such instead of leaving
+ * them silently inert.
+ *
+ * Text inputs are left alone: browsers already give them an I-beam, and
+ * overriding it would be worse than the default.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="option"],
+  summary,
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="range"]:not(:disabled),
+  input[type="color"]:not(:disabled),
+  input[type="submit"]:not(:disabled),
+  input[type="reset"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="file"]:not(:disabled)::file-selector-button,
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  select:disabled,
+  input:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+}

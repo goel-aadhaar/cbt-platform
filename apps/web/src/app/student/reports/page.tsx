@@ -29,7 +29,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function StudentReportsPage() {
   const [tab, setTab] = useState<Tab>("overall");
   return (
-    <StudentShell breadcrumb={["Reports"]}>
+    <StudentShell breadcrumb={["Performance Reports"]}>
       {/* Tabs */}
       <div className="mb-6 flex gap-6 border-b border-admin-line/60">
         {TABS.map((t) => (

@@ -115,7 +115,12 @@ export default function FullMockTestsPage() {
   const cards: MockTest[] = [...liveCards, ...PLACEHOLDER_UPCOMING];
 
   return (
-    <StudentShell breadcrumb={["Exams", "Full Mock Tests"]}>
+    <StudentShell
+      breadcrumb={[
+        { label: "Exams", href: "/student/exams" },
+        "Full Mock Tests",
+      ]}
+    >
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
           Full Mock Tests

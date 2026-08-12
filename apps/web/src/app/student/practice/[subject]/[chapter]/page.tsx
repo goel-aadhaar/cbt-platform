@@ -38,8 +38,11 @@ export default function PracticeChapterPage() {
   return (
     <StudentShell
       breadcrumb={[
-        "Practice Library",
-        subjectName ?? "Subject",
+        { label: "Practice Library", href: "/student/practice" },
+        {
+          label: subjectName ?? "Subject",
+          href: `/student/practice/${subjectSlug}`,
+        },
         chapter?.chapter ?? "Chapter",
       ]}
     >
