@@ -18,6 +18,7 @@ import {
   type StaffRow,
 } from "@/lib/admin";
 import { getUserSnapshot } from "@/lib/auth";
+import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   listQuestions,
   type QuestionFilters,
@@ -75,6 +76,8 @@ export function ExamBuilderDrawer({
   const [durationMinutes, setDuration] = useState(180);
   const [maxViolations, setMaxViolations] = useState(3);
   const [programId, setProgramId] = useState("");
+  const [categoryId, setCategoryId] = useState("");
+  const [categories, setCategories] = useState<ExamCategory[]>([]);
   const [instructions, setInstructions] = useState("");
   const [calculatorEnabled, setCalculator] = useState(false);
   const [fullscreenRequired, setFullscreen] = useState(true);
@@ -95,6 +98,7 @@ export function ExamBuilderDrawer({
   // Teachers can author and submit, but cannot assign batches / schedule /
   // publish (those routes are ADMIN-only), so their flow ends at submission.
   const isTeacher = getUserSnapshot()?.role === "TEACHER";
+  const selectedCategory = categories.find((c) => c.id === categoryId) ?? null;
   const [reviewerId, setReviewerId] = useState("");
   const [admins, setAdmins] = useState<StaffRow[]>([]);
 
@@ -121,11 +125,14 @@ export function ExamBuilderDrawer({
       isTeacher ? Promise.resolve([] as BatchRow[]) : listBatches(),
       listQuestions({ status: "APPROVED", limit: 200 }),
       isTeacher ? listAdmins() : Promise.resolve([] as StaffRow[]),
-    ]).then(([p, b, q, a]) => {
+      // Only categories still on offer — a retired one would be refused.
+      listExamCategories(true),
+    ]).then(([p, b, q, a, c]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPrograms(p.value);
       if (b.status === "fulfilled") setBatches(b.value);
       if (a.status === "fulfilled") setAdmins(a.value);
+      if (c.status === "fulfilled") setCategories(c.value.items);
       if (q.status === "fulfilled") {
         setApproved(q.value.items);
         setFacetSource(q.value.items);
@@ -176,7 +183,12 @@ export function ExamBuilderDrawer({
   );
 
   const canAdvance = (() => {
-    if (step === 0) return title.trim().length >= 2 && durationMinutes > 0;
+    // A category is required: it is what names the paper on approval, so a
+    // paper without one would reach candidates under its working title.
+    if (step === 0)
+      return (
+        title.trim().length >= 2 && durationMinutes > 0 && categoryId !== ""
+      );
     if (step === 1)
       return sections.length > 0 && sections.every((s) => s.name.trim());
     if (step === 2) return totalQuestions > 0;
@@ -195,6 +207,7 @@ export function ExamBuilderDrawer({
     setDuration(180);
     setMaxViolations(3);
     setProgramId("");
+    setCategoryId("");
     setInstructions("");
     setSections([
       { name: "Physics", marksCorrect: 4, marksWrong: 1, questionIds: [] },
@@ -222,6 +235,7 @@ export function ExamBuilderDrawer({
         fullscreenRequired,
         ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
         ...(programId ? { programId } : {}),
+        ...(categoryId ? { categoryId } : {}),
       });
 
       // Each call is a separate round-trip (the API has no bulk endpoint), so a
@@ -290,7 +304,10 @@ export function ExamBuilderDrawer({
         className="absolute inset-0 bg-admin-ink/30"
       />
 
-      <div className="relative flex h-full w-full max-w-[720px] flex-col bg-white shadow-2xl">
+      {/* Fills the viewport except the 280px sidebar, so the nav stays reachable
+          while a long paper is being assembled. Falls back to full width on
+          narrow screens, where the sidebar is not beside it anyway. */}
+      <div className="relative flex h-full w-full flex-col bg-white shadow-2xl lg:w-[calc(100vw-280px)]">
         <header className="flex items-start justify-between border-b border-admin-line/60 px-8 py-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
@@ -352,13 +369,48 @@ export function ExamBuilderDrawer({
           {/* ---------- Step 1: Basic info ---------- */}
           {step === 0 && (
             <div className="flex flex-col gap-5">
-              <Field label="Exam Title" required>
+              <Field label="Exam Category" required>
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">— select a category —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.examCount} so far)
+                    </option>
+                  ))}
+                </select>
+                {categories.length === 0 ? (
+                  <p className="mt-1 text-xs text-admin-muted">
+                    No categories yet — an administrator creates these before
+                    papers can be authored.
+                  </p>
+                ) : (
+                  selectedCategory && (
+                    // The name candidates will see, so the author knows the
+                    // working title below is not what gets published.
+                    <p className="mt-1 text-xs text-admin-muted">
+                      On approval this paper becomes{" "}
+                      <span className="font-bold text-admin">
+                        {selectedCategory.nextName}
+                      </span>
+                      .
+                    </p>
+                  )
+                )}
+              </Field>
+              <Field label="Working title" required>
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. NEET Grand Test 06"
+                  placeholder="e.g. Optics + Thermodynamics, week 6"
                   className={inputCls}
                 />
+                <p className="mt-1 text-xs text-admin-muted">
+                  For your own reference while the paper is in review.
+                </p>
               </Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Duration (minutes)" required>

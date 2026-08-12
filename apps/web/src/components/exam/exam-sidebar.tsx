@@ -134,7 +134,11 @@ export function ExamSidebar({
       {/* Question grid */}
       <div className="flex-1 overflow-auto bg-surface p-2">
         <p className="px-1 text-xs font-bold text-ink">Choose a Question</p>
-        <div className="mt-2 grid grid-cols-5 gap-2">
+        {/* Auto-fill rather than a fixed 5 columns: at 360px the old grid gave
+            ~62px cells and five per row, so a 90-question paper meant a lot of
+            scrolling. Sized to the widest realistic label (three digits) and
+            packed as tightly as the panel allows — about eight per row. */}
+        <div className="mt-2 grid gap-1.5 [grid-template-columns:repeat(auto-fill,minmax(34px,1fr))]">
           {subjectIndices.map((globalIdx, localIdx) => (
             <PaletteSquare
               key={globalIdx}
@@ -142,6 +146,7 @@ export function ExamSidebar({
               status={statuses[globalIdx]}
               active={globalIdx === currentIndex}
               onClick={() => onSelect(globalIdx)}
+              className="text-xs"
             />
           ))}
         </div>

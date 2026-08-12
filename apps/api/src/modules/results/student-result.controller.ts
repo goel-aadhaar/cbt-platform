@@ -17,4 +17,13 @@ export class StudentResultController {
   getResult(@Param('id', ParseUUIDPipe) id: string) {
     return this.results.getForStudent(id);
   }
+
+  /**
+   * Per-question review of the candidate's own attempt. Carries answer keys,
+   * so it is gated on the result being published.
+   */
+  @Get(':id/review')
+  getReview(@Param('id', ParseUUIDPipe) id: string) {
+    return this.results.getReviewForStudent(id);
+  }
 }

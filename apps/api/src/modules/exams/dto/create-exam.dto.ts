@@ -43,6 +43,14 @@ export class CreateExamDto {
   @IsUUID()
   programId?: string;
 
+  /**
+   * The catalogue entry this paper belongs to (§2.3). On approval the paper is
+   * renamed "<Category> - <n>", so candidates see a predictable series.
+   */
+  @IsOptional()
+  @IsUUID()
+  categoryId?: string;
+
   @IsOptional()
   @IsEnum(ResultPolicy)
   resultPolicy?: ResultPolicy;

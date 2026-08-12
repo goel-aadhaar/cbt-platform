@@ -18,6 +18,7 @@ import {
   GridIcon,
   LogOutIcon,
   SettingsIcon,
+  TemplateIcon,
   UploadIcon,
   UsersIcon,
 } from "./icons";
@@ -33,6 +34,11 @@ const NAV: NavItem[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: GridIcon },
   { label: "Students", href: "/admin/students", icon: UsersIcon },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
+  {
+    label: "Exam Categories",
+    href: "/admin/exam-categories",
+    icon: TemplateIcon,
+  },
   { label: "Question Bank", href: "/admin/questions", icon: DatabaseIcon },
   { label: "Results", href: "/admin/results", icon: BarChartIcon },
   { label: "Reports", href: "/admin/reports", icon: FileTextIcon },

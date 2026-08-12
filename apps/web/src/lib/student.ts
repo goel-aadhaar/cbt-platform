@@ -332,3 +332,65 @@ export async function fetchMyAttempts(): Promise<MyAttempt[]> {
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
   return apiFetch<MyAttempt[]>(`/me/attempts`, { token });
 }
+
+/* ------------------------------------------------------------------ *
+ * PER-QUESTION REVIEW — published results only                        *
+ * ------------------------------------------------------------------ */
+
+export type ReviewStatus =
+  "CORRECT" | "INCORRECT" | "UNATTEMPTED" | "DROPPED" | "BONUS";
+
+export interface ReviewQuestion {
+  number: number;
+  questionId: string;
+  section: string;
+  type: QuestionType;
+  statement: string;
+  options: { key: string; text: string }[] | null;
+  yourAnswer: string | number | string[] | null;
+  correctAnswer: string | number | string[];
+  explanation: string | null;
+  status: ReviewStatus;
+  marksAwarded: number;
+  marksCorrect: number;
+  marksWrong: number;
+}
+
+export interface AttemptReview {
+  attemptId: string;
+  exam: { title: string };
+  submittedAt: string | null;
+  summary: {
+    totalScore: number;
+    maxScore: number;
+    correctCount: number;
+    incorrectCount: number;
+    unattemptedCount: number;
+    overallRank: number | null;
+    batchRank: number | null;
+    percentile: number | null;
+    totalQuestions: number;
+    attempted: number;
+  };
+  questions: ReviewQuestion[];
+}
+
+/**
+ * GET /attempts/:id/review — the candidate's own answers beside the correct
+ * ones. 404s until the result is published, which is deliberate: this is the
+ * only student payload that carries answer keys.
+ */
+export async function fetchAttemptReview(
+  attemptId: string,
+): Promise<AttemptReview> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptReview>(`/attempts/${attemptId}/review`, { token });
+}
+
+/** Render an answer for display — MSQ answers are arrays. */
+export function formatAnswer(value: string | number | string[] | null): string {
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+  return String(value);
+}

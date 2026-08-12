@@ -9,6 +9,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { ExamCategoriesService } from '../exam-categories/exam-categories.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
@@ -30,6 +31,9 @@ const examSelect = {
   status: true,
   resultPolicy: true,
   programId: true,
+  categoryId: true,
+  categorySequence: true,
+  category: { select: { id: true, name: true } },
   startAt: true,
   endAt: true,
   createdAt: true,
@@ -87,6 +91,7 @@ export class ExamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly categories: ExamCategoriesService,
   ) {}
 
   private ctx() {
@@ -105,6 +110,18 @@ export class ExamsService {
       });
       if (!program) throw new NotFoundException('Program not found');
     }
+    if (dto.categoryId) {
+      const category = await this.prisma.examCategory.findFirst({
+        where: { id: dto.categoryId, instituteId },
+        select: { id: true, isActive: true },
+      });
+      if (!category) throw new NotFoundException('Exam category not found');
+      if (!category.isActive) {
+        throw new BadRequestException(
+          'That exam category has been retired and cannot take new papers.',
+        );
+      }
+    }
     return this.prisma.exam.create({
       data: {
         instituteId,
@@ -115,6 +132,7 @@ export class ExamsService {
         fullscreenRequired: dto.fullscreenRequired ?? true,
         maxViolations: dto.maxViolations ?? 0,
         programId: dto.programId,
+        categoryId: dto.categoryId,
         resultPolicy: dto.resultPolicy ?? 'ON_PUBLISH',
         createdById: userId,
       },
@@ -432,11 +450,30 @@ export class ExamsService {
    * whoever approves is recorded in `approvedById`.
    */
   async approve(examId: string) {
-    const { userId } = this.ctx();
+    const { userId, instituteId } = this.ctx();
     const exam = await this.getOwned(examId);
     if (exam.status !== ExamStatus.REVIEW) {
       throw new BadRequestException('Only exams under review can be approved');
     }
+
+    /**
+     * Approval is where a paper gets its candidate-facing name: the category
+     * plus the next number in that category ("Physics Practice Test - 2").
+     *
+     * Numbered here rather than at creation because a draft may never run, and
+     * a number burned on an abandoned draft would leave a gap candidates could
+     * see. Re-approval keeps the number it already has, so a paper never
+     * changes name under a candidate who has already seen it.
+     */
+    let numbering: { categorySequence?: number; title?: string } = {};
+    if (exam.categoryId && exam.categorySequence === null) {
+      const next = await this.categories.claimNextSequence(
+        exam.categoryId,
+        instituteId,
+      );
+      numbering = { categorySequence: next.sequence, title: next.title };
+    }
+
     return this.prisma.exam.update({
       where: { id: examId },
       data: {
@@ -444,6 +481,7 @@ export class ExamsService {
         approvedById: userId,
         approvedAt: new Date(),
         rejectionReason: null,
+        ...numbering,
       },
       select: examSelect,
     });

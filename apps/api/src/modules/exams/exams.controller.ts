@@ -33,7 +33,14 @@ import { ExamsService } from './exams.service';
 export class ExamsController {
   constructor(private readonly exams: ExamsService) {}
 
+  /**
+   * Authoring is the teacher's job (§2.3): a teacher builds the paper and an
+   * administrator approves, schedules and publishes it. Keeping creation out of
+   * the admin's hands is what makes the approval step meaningful — an approver
+   * who wrote the paper is not reviewing it.
+   */
   @Post()
+  @Roles(Role.TEACHER)
   create(@Body() dto: CreateExamDto) {
     return this.exams.create(dto);
   }
@@ -54,7 +61,9 @@ export class ExamsController {
   }
 
   /** Clone an exam into a fresh draft (§2.3). */
+  // Cloning creates a paper, so it follows the same rule as creation.
   @Post(':id/clone')
+  @Roles(Role.TEACHER)
   clone(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CloneExamDto) {
     return this.exams.clone(id, dto.title);
   }

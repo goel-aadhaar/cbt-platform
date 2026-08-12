@@ -16,6 +16,7 @@ model Institute {
   students      Student[]
   questions     Question[]
   exams         Exam[]
+  examCategories ExamCategory[]
   examSections  ExamSection[]
   examQuestions ExamQuestion[]
   examBatches   ExamBatch[]

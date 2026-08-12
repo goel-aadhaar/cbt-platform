@@ -1,12 +1,11 @@
 "use client";
 
-import type { ComponentType, SVGProps } from "react";
-import { useMemo, useState, Suspense } from "react";
+import Link from "next/link";
 
-import { useSearchParams } from "next/navigation";
+import type { ComponentType, SVGProps } from "react";
+import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
-import { ExamBuilderDrawer } from "@/components/admin/exam-builder-drawer";
 import {
   AlertTriangleIcon,
   CalendarIcon,
@@ -41,23 +40,7 @@ const TABS: { label: string; match: ExamDisplayStatus[] | null }[] = [
   { label: "Cancelled", match: ["ARCHIVED"] },
 ];
 
-/**
- * `useSearchParams()` (deep links from the Quick Create menu) forces a client
- * bail-out, which Next requires to sit behind a Suspense boundary or the
- * production prerender of this route fails.
- */
 export default function ExamsPage() {
-  return (
-    <Suspense fallback={null}>
-      <ExamsPageInner />
-    </Suspense>
-  );
-}
-
-function ExamsPageInner() {
-  const params = useSearchParams();
-  // Deep link from the top bar's Quick Create menu.
-  const [builderOpen, setBuilderOpen] = useState(params.get("new") === "1");
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -133,12 +116,15 @@ function ExamsPageInner() {
           <div className="flex flex-wrap gap-3">
             <OutlineBtn icon={TemplateIcon}>Exam Templates</OutlineBtn>
             <OutlineBtn icon={CalendarIcon}>Exam Calendar</OutlineBtn>
-            <button
-              onClick={() => setBuilderOpen(true)}
+            {/* Authoring is a teacher's job (§2.3) — an administrator who
+                wrote the paper would be approving their own work. The link
+                leads to the catalogue that names every paper instead. */}
+            <Link
+              href="/admin/exam-categories"
               className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
             >
-              <PlusCircleIcon className="size-4" /> Create Exam
-            </button>
+              <PlusCircleIcon className="size-4" /> Exam Categories
+            </Link>
           </div>
         </div>
 
@@ -300,16 +286,6 @@ function ExamsPageInner() {
           </div>
         </div>
       </div>
-
-      <ExamBuilderDrawer
-        open={builderOpen}
-        onClose={() => setBuilderOpen(false)}
-        onCreated={(_id, createdTitle) => {
-          setNotice(`Exam "${createdTitle}" created.`);
-          // Stat cards + status pills derive from the fetched list, so re-read.
-          setTimeout(() => window.location.reload(), 800);
-        }}
-      />
     </AdminShell>
   );
 }

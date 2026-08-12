@@ -18,7 +18,11 @@ import {
  * duplicating the wizards in the top bar.
  */
 const QUICK_ACTIONS: { label: string; href: string; hint: string }[] = [
-  { label: "New exam", href: "/admin/exams?new=1", hint: "Full exam wizard" },
+  {
+    label: "New exam category",
+    href: "/admin/exam-categories",
+    hint: "Papers are authored by teachers",
+  },
   {
     label: "Add student",
     href: "/admin/students?new=1",

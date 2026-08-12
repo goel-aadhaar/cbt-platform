@@ -192,12 +192,21 @@ export default function StudentResultPage() {
         </section>
       )}
 
-      <Link
-        href="/student/reports"
-        className="mt-6 inline-flex rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin hover:bg-admin/5"
-      >
-        Back to Performance Reports
-      </Link>
+      <div className="mt-6 flex flex-wrap gap-3">
+        {/* The scores above say what happened; this says why. */}
+        <Link
+          href={`/student/results/${attemptId}/review`}
+          className="inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
+        >
+          Review my answers
+        </Link>
+        <Link
+          href="/student/reports"
+          className="inline-flex rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin hover:bg-admin/5"
+        >
+          Back to Performance Reports
+        </Link>
+      </div>
     </StudentShell>
   );
 }

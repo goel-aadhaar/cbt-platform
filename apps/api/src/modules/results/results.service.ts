@@ -766,6 +766,167 @@ export class ResultsService {
     return result;
   }
 
+  /**
+   * Per-question review of a candidate's own attempt (§2.8).
+   *
+   * Only once the result is published: this is the one payload that carries
+   * answer keys to a student, so it must never be reachable while an exam is
+   * still being sat or held back for review.
+   *
+   * Scoring mirrors `evaluate` exactly — including BONUS, DROPPED and MANUAL
+   * overrides (§2.9) — because a review that disagreed with the score sheet
+   * would be worse than no review at all.
+   */
+  async getReviewForStudent(attemptId: string) {
+    const ctx = this.tenant.get();
+    if (!ctx?.instituteId) {
+      throw new ForbiddenException('No institute in the current context');
+    }
+    const student = await this.prisma.student.findUnique({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    });
+    if (!student) throw new ForbiddenException('Not a student account');
+
+    const attempt = await this.prisma.attempt.findFirst({
+      where: { id: attemptId, studentId: student.id },
+      select: {
+        id: true,
+        examId: true,
+        submittedAt: true,
+        responses: { select: { questionId: true, answer: true } },
+      },
+    });
+    if (!attempt) throw new NotFoundException('Attempt not found');
+
+    const result = await this.prisma.result.findFirst({
+      where: { attemptId, studentId: student.id, published: true },
+      select: {
+        totalScore: true,
+        maxScore: true,
+        correctCount: true,
+        incorrectCount: true,
+        unattemptedCount: true,
+        overallRank: true,
+        batchRank: true,
+        percentile: true,
+      },
+    });
+    // Withholding the key until publication is the whole point of the check.
+    if (!result) throw new NotFoundException('Result not available yet');
+
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: attempt.examId },
+      select: {
+        title: true,
+        sections: {
+          orderBy: { order: 'asc' },
+          select: {
+            id: true,
+            name: true,
+            marksCorrect: true,
+            marksWrong: true,
+            questions: {
+              orderBy: { order: 'asc' },
+              select: {
+                order: true,
+                scoring: true,
+                question: {
+                  select: {
+                    id: true,
+                    type: true,
+                    statement: true,
+                    options: true,
+                    answerKey: true,
+                    explanation: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const manual = await this.prisma.manualScore.findMany({
+      where: { attemptId, instituteId: ctx.instituteId },
+      select: { questionId: true, marks: true },
+    });
+    const manualByQuestion = new Map(
+      manual.map((m) => [m.questionId, m.marks]),
+    );
+    const answers = new Map(
+      attempt.responses.map((r) => [r.questionId, r.answer]),
+    );
+
+    let number = 0;
+    const questions = exam.sections.flatMap((section) =>
+      section.questions.map((eq) => {
+        number += 1;
+        const q = eq.question;
+        const given = answers.get(q.id) ?? null;
+        const attempted = given !== null && given !== undefined;
+
+        let status:
+          'CORRECT' | 'INCORRECT' | 'UNATTEMPTED' | 'DROPPED' | 'BONUS';
+        let marksAwarded = 0;
+
+        if (eq.scoring === ExamQuestionScoring.DROPPED) {
+          status = 'DROPPED';
+        } else if (eq.scoring === ExamQuestionScoring.BONUS) {
+          status = 'BONUS';
+          marksAwarded = section.marksCorrect;
+        } else if (eq.scoring === ExamQuestionScoring.MANUAL) {
+          marksAwarded = manualByQuestion.get(q.id) ?? 0;
+          status =
+            marksAwarded > 0
+              ? 'CORRECT'
+              : attempted
+                ? 'INCORRECT'
+                : 'UNATTEMPTED';
+        } else if (!attempted) {
+          status = 'UNATTEMPTED';
+        } else if (isCorrect(q.type, given, q.answerKey)) {
+          status = 'CORRECT';
+          marksAwarded = section.marksCorrect;
+        } else {
+          status = 'INCORRECT';
+          marksAwarded = -section.marksWrong;
+        }
+
+        return {
+          number,
+          questionId: q.id,
+          section: section.name,
+          type: q.type,
+          statement: q.statement,
+          options: q.options,
+          yourAnswer: given,
+          correctAnswer: q.answerKey,
+          explanation: q.explanation,
+          status,
+          marksAwarded,
+          /** What this question was worth, so a negative mark is explicable. */
+          marksCorrect: section.marksCorrect,
+          marksWrong: section.marksWrong,
+        };
+      }),
+    );
+
+    return {
+      attemptId: attempt.id,
+      exam: { title: exam.title },
+      submittedAt: attempt.submittedAt,
+      summary: {
+        ...result,
+        totalQuestions: questions.length,
+        attempted: questions.filter((q) => q.yourAnswer !== null).length,
+      },
+      questions,
+    };
+  }
+
   private async requireExam(examId: string) {
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, instituteId: this.instituteId() },

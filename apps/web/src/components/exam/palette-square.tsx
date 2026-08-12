@@ -74,7 +74,7 @@ export function PaletteSquare({
     >
       {n}
       {status === "answered-marked" && (
-        <span className="absolute -bottom-0.5 -right-0.5 flex size-[14px] items-center justify-center rounded-full border-2 border-white bg-success text-[9px] font-bold leading-none text-white">
+        <span className="absolute -bottom-0.5 -right-0.5 flex size-3 items-center justify-center rounded-full border border-white bg-success text-[8px] font-bold leading-none text-white">
           ✓
         </span>
       )}

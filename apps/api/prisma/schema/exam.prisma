@@ -28,12 +28,44 @@ enum ExamQuestionScoring {
   MANUAL
 }
 
+/// A kind of examination an institute runs — "JEE Mock Test", "Physics Practice
+/// Test". Administrators define the catalogue; teachers pick one when authoring
+/// a paper, and on approval the paper is numbered within its category so
+/// candidates see "Physics Practice Test - 2". Tenant-scoped.
+model ExamCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  name        String
+  description String?
+  /// Retired categories stay for the exams that already reference them, but are
+  /// no longer offered when authoring a new paper.
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("ExamCategoryCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  exams     Exam[]
+
+  /// One name per tenant, so numbering within a category is unambiguous.
+  @@unique([instituteId, name])
+  @@index([instituteId])
+  @@map("exam_categories")
+}
+
 /// An examination (§2.3). Assembled from APPROVED bank questions into sections,
 /// assigned to batches, scheduled, then published. Tenant-scoped.
 model Exam {
   id                String       @id @default(uuid()) @db.Uuid
   instituteId       String       @map("institute_id") @db.Uuid
   programId         String?      @map("program_id") @db.Uuid
+  /// The catalogue entry this paper belongs to. Optional so papers authored
+  /// before categories existed keep working.
+  categoryId        String?      @map("category_id") @db.Uuid
+  /// Sequence within the category, assigned on approval. Null until then —
+  /// an unapproved paper has no number because it may never run.
+  categorySequence  Int?         @map("category_sequence")
   title             String
   instructions      String?
   durationMinutes   Int          @map("duration_minutes")
@@ -64,6 +96,7 @@ model Exam {
 
   institute  Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   program    Program?  @relation(fields: [programId], references: [id], onDelete: SetNull)
+  category   ExamCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   createdBy  User      @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   reviewer   User?     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   approvedBy User?     @relation("ExamApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
@@ -75,6 +108,7 @@ model Exam {
 
   @@index([instituteId])
   @@index([instituteId, status])
+  @@index([instituteId, categoryId])
   @@map("exams")
 }
 
