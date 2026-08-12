@@ -101,3 +101,42 @@ export async function listQuestions(
   }
   return res;
 }
+
+/** A single question with its full detail, including attached media keys. */
+export interface QuestionDetail extends QuestionListItem {
+  options: { key: string; text: string }[] | null;
+  answerKey: string | number | string[];
+  explanation: string | null;
+  /** Storage keys (§2.7) — resolve to URLs via the media library. */
+  mediaKeys: string[];
+}
+
+/** GET /questions/:id */
+export function getQuestion(id: string): Promise<QuestionDetail> {
+  return apiFetch<QuestionDetail>(`/questions/${id}`, {
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * PATCH /questions/:id — replace the attached media.
+ *
+ * Questions reference media by key, so re-pointing the bucket or adding a CDN
+ * never invalidates what a question shows.
+ */
+export function setQuestionMedia(
+  id: string,
+  mediaKeys: string[],
+  /**
+   * Required when the question already appears in an exam. The server refuses
+   * with 409 QuestionUsedInExams otherwise, so a past paper can never change
+   * under a candidate without someone acknowledging it.
+   */
+  confirm = false,
+): Promise<QuestionDetail> {
+  return apiFetch<QuestionDetail>(`/questions/${id}`, {
+    method: "PATCH",
+    body: confirm ? { mediaKeys, confirm: true } : { mediaKeys },
+    token: getToken() ?? undefined,
+  });
+}

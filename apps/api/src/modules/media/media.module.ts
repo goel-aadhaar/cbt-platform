@@ -32,5 +32,6 @@ import { MediaStoragePort } from './ports/media-storage.port';
       ) => (config.get<string>('AWS_S3_BUCKET') ? s3 : local),
     },
   ],
+  exports: [MediaStoragePort], // attempts/practice resolve keys to URLs
 })
 export class MediaModule {}

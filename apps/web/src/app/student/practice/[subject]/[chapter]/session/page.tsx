@@ -13,6 +13,7 @@ import {
   XCircleIcon,
 } from "@/components/student/icons";
 import { ProgressBar } from "@/components/student/practice-bits";
+import { mediaSrc } from "@/lib/media";
 import { usePracticeFacets } from "@/hooks/use-practice";
 import {
   answerInSession,
@@ -291,6 +292,21 @@ function PracticeSessionInner() {
           <p className="text-base leading-relaxed text-admin-ink">
             {q.statement}
           </p>
+
+          {/* Diagrams (§2.7) — same treatment as the exam screen. */}
+          {(q.media ?? []).length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-3">
+              {(q.media ?? []).map((m) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={m.key}
+                  src={mediaSrc(m.url)}
+                  alt="Question diagram"
+                  className="max-h-72 max-w-full rounded-lg border border-admin-line/60 bg-white object-contain"
+                />
+              ))}
+            </div>
+          )}
 
           <div className="mt-5 space-y-3">
             {q.type === "INTEGER" ? (

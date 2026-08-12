@@ -40,6 +40,7 @@ import {
   type AttemptState,
 } from "@/lib/student";
 import { formatDuration } from "@/lib/exam-data";
+import { mediaSrc } from "@/lib/media";
 
 // keep the type alias around for the existing sidebar import
 import type { QuestionStatus, Subject } from "@/lib/exam-data";
@@ -282,6 +283,7 @@ function ExamRunner({
       positiveMarks: number;
       negativeMarks: number;
       sectionName: string;
+      media: { key: string; url: string }[];
     }[] = [];
     for (const section of attempt.exam.sections) {
       for (const q of section.questions) {
@@ -296,6 +298,7 @@ function ExamRunner({
           positiveMarks: q.question.marks,
           negativeMarks: section.marksWrong,
           sectionName: section.name,
+          media: q.question.media ?? [],
         });
       }
     }
@@ -653,6 +656,22 @@ function ExamRunner({
               <p className="mt-4 whitespace-pre-line text-[18px] leading-[29px] text-ink">
                 {q.stem}
               </p>
+
+              {/* Diagrams (§2.7). A figure question is unanswerable without
+                  them, so they sit directly under the stem. */}
+              {q.media.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {q.media.map((m) => (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      key={m.key}
+                      src={mediaSrc(m.url)}
+                      alt="Question diagram"
+                      className="max-h-80 max-w-full rounded border border-line bg-white object-contain"
+                    />
+                  ))}
+                </div>
+              )}
 
               {q.type === "MSQ" && (
                 <p className="mt-3 inline-block bg-info/10 px-2 py-1 text-xs font-semibold text-info">

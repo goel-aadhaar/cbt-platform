@@ -9,6 +9,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { AttemptStatus, ResponseStatus } from './attempt.types';
 import {
   RecordSectionTimeDto,
@@ -55,6 +56,9 @@ const stateSelect = {
                   statement: true,
                   options: true,
                   marks: true,
+                  // Diagram-based questions are unanswerable without their
+                  // image (§2.7); keys are resolved to URLs in buildState.
+                  mediaKeys: true,
                 },
               },
             },
@@ -76,7 +80,20 @@ export class AttemptsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly media: MediaStoragePort,
   ) {}
+
+  /**
+   * Turn stored media keys into something the browser can load (§2.7). A CDN
+   * URL when the backend has one, otherwise the API's own streaming route.
+   */
+  private mediaUrls(keys: string[]): { key: string; url: string }[] {
+    return keys.map((key) => ({
+      key,
+      url:
+        this.media.publicUrl(key) ?? `/media/file/${encodeURIComponent(key)}`,
+    }));
+  }
 
   private async currentStudent() {
     const ctx = this.tenant.get();
@@ -486,7 +503,23 @@ export class AttemptsService {
       0,
       Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
     );
-    return { ...attempt, remainingSeconds };
+    return {
+      ...attempt,
+      exam: {
+        ...attempt.exam,
+        sections: attempt.exam.sections.map((s) => ({
+          ...s,
+          questions: s.questions.map((q) => ({
+            ...q,
+            question: {
+              ...q.question,
+              media: this.mediaUrls(q.question.mediaKeys),
+            },
+          })),
+        })),
+      },
+      remainingSeconds,
+    };
   }
 
   private async ensureOwned(attemptId: string, studentId: string) {

@@ -8,6 +8,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { isCorrect } from '../results/scoring';
 import {
   CheckAnswerDto,
@@ -39,6 +40,8 @@ const practiceSelect = {
   options: true,
   marks: true,
   negativeMarks: true,
+  // A diagram question is unanswerable without its image (§2.7).
+  mediaKeys: true,
 } satisfies Prisma.QuestionSelect;
 
 @Injectable()
@@ -46,7 +49,20 @@ export class PracticeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly media: MediaStoragePort,
   ) {}
+
+  /** Stored keys -> loadable URLs (CDN when configured, else the API route). */
+  private withMedia<T extends { mediaKeys: string[] }>(q: T) {
+    return {
+      ...q,
+      media: q.mediaKeys.map((key) => ({
+        key,
+        url:
+          this.media.publicUrl(key) ?? `/media/file/${encodeURIComponent(key)}`,
+      })),
+    };
+  }
 
   private instituteId(): string {
     const id = this.tenant.get()?.instituteId;
@@ -232,7 +248,7 @@ export class PracticeService {
       take: Math.min(query.limit ?? 25, 50),
       orderBy: { createdAt: 'desc' },
     });
-    return { items, total: items.length };
+    return { items: items.map((q) => this.withMedia(q)), total: items.length };
   }
 
   /* ---------------------------------------------------------------- *
@@ -278,7 +294,7 @@ export class PracticeService {
       select: { id: true, startedAt: true, totalCount: true, timed: true },
     });
 
-    return { session, items };
+    return { session, items: items.map((q) => this.withMedia(q)) };
   }
 
   /**

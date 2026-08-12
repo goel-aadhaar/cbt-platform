@@ -44,6 +44,8 @@ export interface AttemptQuestion {
     statement: string;
     options?: { key: string; text: string }[];
     marks: number;
+    /** Diagrams attached to the question (§2.7), already resolved to URLs. */
+    media?: { key: string; url: string }[];
   };
 }
 

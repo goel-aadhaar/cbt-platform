@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { actOnQuestion, type QuestionAction } from "@/lib/admin";
 
@@ -37,6 +37,10 @@ const META = [
  * Question review drawer (Figma 114:13872) — opened from the Question Bank list.
  * Presentational; Approve/Reject are stubs.
  */
+import { MediaPicker } from "./media-picker";
+import { getQuestion, setQuestionMedia } from "@/lib/questions";
+import { ApiError } from "@/lib/api";
+
 export function QuestionDetailDrawer({
   open,
   onClose,
@@ -53,6 +57,61 @@ export function QuestionDetailDrawer({
   const [tab, setTab] = useState(0);
   const [pending, setPending] = useState<QuestionAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  /* Attached images (§2.7). Loaded lazily — only this drawer needs them. */
+  const [mediaKeys, setMediaKeys] = useState<string[]>([]);
+  const [mediaSaving, setMediaSaving] = useState(false);
+  const [mediaNote, setMediaNote] = useState<string | null>(null);
+  /** Set when the server asks us to confirm editing a question used in exams. */
+  const [confirmKeys, setConfirmKeys] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!open || !questionId) return;
+    let cancelled = false;
+    getQuestion(questionId)
+      .then((q) => {
+        if (!cancelled) setMediaKeys(q.mediaKeys ?? []);
+      })
+      .catch(() => {
+        // Detail is a nice-to-have here; the actions below still work.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, questionId]);
+
+  async function saveMedia(keys: string[], confirm = false) {
+    if (!questionId) return;
+    const previous = mediaKeys;
+    setMediaKeys(keys); // optimistic — the grid should feel instant
+    setMediaSaving(true);
+    setMediaNote(null);
+    try {
+      await setQuestionMedia(questionId, keys, confirm);
+      setConfirmKeys(null);
+      setMediaNote(
+        keys.length === 0
+          ? "Images removed."
+          : `${keys.length} image${keys.length === 1 ? "" : "s"} attached.`,
+      );
+    } catch (e: unknown) {
+      setMediaKeys(previous); // roll back so the UI never lies about what saved
+      // The server guards edits to questions already used in exams; ask rather
+      // than silently overriding it.
+      if (e instanceof ApiError && e.status === 409) {
+        setConfirmKeys(keys);
+        setMediaNote(e.message);
+      } else {
+        setMediaNote(
+          e instanceof Error
+            ? e.message
+            : "Could not save the attached images.",
+        );
+      }
+    } finally {
+      setMediaSaving(false);
+    }
+  }
 
   async function act(action: QuestionAction) {
     if (!questionId) return;
@@ -128,6 +187,41 @@ export function QuestionDetailDrawer({
             </p>
           ) : (
             <div className="flex flex-col gap-6">
+              {questionId && (
+                <section className="rounded-xl border border-admin-line/60 p-4">
+                  <MediaPicker
+                    selected={mediaKeys}
+                    onChange={(keys) => void saveMedia(keys)}
+                    disabled={mediaSaving}
+                  />
+                  {mediaNote && (
+                    <p className="mt-2 text-xs font-semibold text-admin-muted">
+                      {mediaSaving ? "Saving…" : mediaNote}
+                    </p>
+                  )}
+                  {confirmKeys && !mediaSaving && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveMedia(confirmKeys, true)}
+                        className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+                      >
+                        Attach anyway
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmKeys(null);
+                          setMediaNote(null);
+                        }}
+                        className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </section>
+              )}
               {/* Duplicate banner */}
               <div className="flex items-start gap-3 rounded-r-lg border-l-4 border-warn bg-admin-surface p-4">
                 <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-warn" />

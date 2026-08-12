@@ -63,6 +63,8 @@ export interface PracticeQuestion {
   options: { key: string; text: string }[] | null;
   marks: number;
   negativeMarks: number;
+  /** Diagrams attached to the question (§2.7), already resolved to URLs. */
+  media?: { key: string; url: string }[];
 }
 
 export interface PracticeCheckResult {
