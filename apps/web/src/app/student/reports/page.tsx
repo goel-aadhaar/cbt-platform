@@ -15,6 +15,7 @@ import {
   TrophyIcon,
 } from "@/components/student/icons";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
+import { usePracticeFacets } from "@/hooks/use-practice";
 import type { SVGProps } from "react";
 
 type Tab = "overall" | "subject" | "mock";
@@ -202,12 +203,12 @@ function OverallTab() {
             <h3 className="text-lg font-semibold text-admin-ink">
               Recent Practice Sessions
             </h3>
-            <button
-              type="button"
+            <Link
+              href="/student/practice"
               className="flex items-center gap-1 text-sm font-semibold text-admin hover:underline"
             >
-              View All <ArrowRightIcon className="size-4" />
-            </button>
+              Practice Library <ArrowRightIcon className="size-4" />
+            </Link>
           </div>
           <div className="grid grid-cols-[1.6fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-admin-line/40 pb-2 text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
             <span>Subject / Chapter</span>
@@ -256,37 +257,6 @@ function OverallTab() {
           })}
         </section>
       </div>
-
-      <section className="flex flex-col items-center gap-6 rounded-xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)] md:flex-row">
-        <div className="flex h-32 w-full items-end justify-center gap-2 rounded-lg bg-admin-bg p-4 md:w-64">
-          {[30, 50, 40, 65, 90].map((h, i) => (
-            <div
-              key={i}
-              className="w-6 rounded bg-admin"
-              style={{ height: `${h}%`, opacity: 0.3 + (h / 100) * 0.7 }}
-            />
-          ))}
-        </div>
-        <div className="flex-1">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-admin-ink">
-            Advanced Weakness Analysis
-            <span className="rounded-full bg-admin px-2 py-0.5 text-[10px] font-bold text-white">
-              PRO
-            </span>
-          </h3>
-          <p className="mt-1 max-w-xl text-sm text-admin-muted">
-            Unlock deep insights into your practice patterns. Our AI identifies
-            specific micro-topics where you consistently lose time or accuracy,
-            helping you focus your revision exactly where it matters most.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-bold text-admin hover:bg-admin/5"
-        >
-          Explore Insights <BarChartIcon className="size-4" />
-        </button>
-      </section>
     </div>
   );
 }
@@ -294,171 +264,130 @@ function OverallTab() {
 /* ---------------- Subject-wise (static design) ---------------- */
 
 function SubjectTab() {
-  const subjects = [
-    {
-      name: "Physics",
-      accuracy: 78,
-      chapters: "18/24 chapters practiced",
-      icon: AtomIcon,
-    },
-    {
-      name: "Chemistry",
-      accuracy: 62,
-      chapters: "14/30 chapters practiced",
-      icon: FlaskIcon,
-    },
-    {
-      name: "Biology",
-      accuracy: 85,
-      chapters: "32/38 chapters practiced",
-      icon: LeafIcon,
-    },
-  ];
-  const chapters = [
-    {
-      name: "Kinematics",
-      qs: 145,
-      acc: 82,
-      mastery: "High",
-      tone: "#006049",
-      fill: 82,
-    },
-    {
-      name: "Laws of Motion",
-      qs: 120,
-      acc: 75,
-      mastery: "Good",
-      tone: "#22a06b",
-      fill: 75,
-    },
-    {
-      name: "Work, Energy and Power",
-      qs: 95,
-      acc: 45,
-      mastery: "Needs Work",
-      tone: "#ba1a1a",
-      fill: 45,
-    },
-    {
-      name: "Rotational Motion",
-      qs: 210,
-      acc: 60,
-      mastery: "Average",
-      tone: "#556158",
-      fill: 60,
-    },
-  ];
+  const { data, loading, error } = usePracticeFacets();
+  const [openSubject, setOpenSubject] = useState<string | null>(null);
+
+  if (error) {
+    return (
+      <p
+        role="alert"
+        className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
+        {error}
+      </p>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className="h-64 animate-pulse rounded-2xl border border-admin-line/40 bg-admin-line/10"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const subjects = data?.subjects ?? [];
+  if (subjects.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-admin-line bg-white p-12 text-center">
+        <p className="text-base font-bold text-admin-ink">
+          No subject data yet
+        </p>
+        <p className="mx-auto mt-1 max-w-md text-sm text-admin-muted">
+          Subject accuracy is built from your practice sessions. Once you drill
+          a few sets in the Practice Library, your breakdown appears here.
+        </p>
+        <Link
+          href="/student/practice"
+          className="mt-5 inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
+        >
+          Go to Practice Library
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        {subjects.map((s) => {
-          const Icon = s.icon;
-          return (
-            <div
-              key={s.name}
-              className="flex flex-col items-center rounded-2xl border border-admin-line/40 bg-white p-6 text-center shadow-[0_4px_10px_rgba(0,0,0,0.04)]"
-            >
-              <h3 className="flex items-center gap-2 text-lg font-bold text-admin-ink">
-                <Icon className="size-5 text-admin" />
-                {s.name}
-              </h3>
-              <div className="my-4">
-                <BigRing value={s.accuracy} />
-              </div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
-                Accuracy
-              </p>
-              <p className="mt-1 text-sm text-admin-muted">{s.chapters}</p>
-              <button
-                type="button"
-                className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-admin hover:underline"
-              >
-                View Chapter Breakdown <ArrowRightIcon className="size-4" />
-              </button>
+        {subjects.map((s) => (
+          <div
+            key={s.subject}
+            className="flex flex-col items-center rounded-2xl border border-admin-line/40 bg-white p-6 text-center shadow-[0_4px_10px_rgba(0,0,0,0.04)]"
+          >
+            <h3 className="text-lg font-bold text-admin-ink">{s.subject}</h3>
+            <div className="my-4">
+              <BigRing value={s.mastery} />
             </div>
-          );
-        })}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
+              Mastery
+            </p>
+            <p className="mt-1 text-sm text-admin-muted">
+              {s.practised} of {s.count} questions practised
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                setOpenSubject((o) => (o === s.subject ? null : s.subject))
+              }
+              className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-admin hover:underline"
+            >
+              {openSubject === s.subject ? "Hide" : "View"} Chapter Breakdown
+              <ArrowRightIcon className="size-4" />
+            </button>
+          </div>
+        ))}
       </div>
 
-      <section className="rounded-2xl bg-admin/5 p-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-admin-ink">
-            Physics Chapter Breakdown
-          </h3>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-admin-muted">
-              ⌕
-            </span>
-            <input
-              type="search"
-              placeholder="Search chapters..."
-              className="h-9 w-64 rounded-lg border border-admin-line bg-white pl-8 pr-3 text-sm outline-none focus:border-admin"
-            />
+      {openSubject && (
+        <section className="rounded-2xl border border-admin-line/40 bg-white shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
+          <div className="border-b border-admin-line/40 px-6 py-4">
+            <h3 className="text-lg font-semibold text-admin-ink">
+              {openSubject} — chapter breakdown
+            </h3>
+            <p className="mt-0.5 text-xs text-admin-muted">
+              Mastery is the share of a chapter&apos;s questions you have
+              answered correctly at least once.
+            </p>
           </div>
-        </div>
-        <div className="overflow-hidden rounded-xl bg-white">
-          <div className="grid grid-cols-[2fr_1fr_1fr_2fr] gap-4 border-b border-admin-line/40 px-5 py-3 text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
-            <span>Chapter Name</span>
-            <span>Questions</span>
-            <span>Accuracy</span>
-            <span>Mastery Level</span>
-          </div>
-          {chapters.map((c) => (
+          {(
+            subjects.find((s) => s.subject === openSubject)?.chapters ?? []
+          ).map((c) => (
             <div
-              key={c.name}
-              className="grid grid-cols-[2fr_1fr_1fr_2fr] items-center gap-4 border-b border-admin-line/20 px-5 py-4 text-sm last:border-b-0"
+              key={c.chapter}
+              className="flex items-center gap-4 border-b border-admin-line/20 px-6 py-4 last:border-b-0"
             >
-              <span className="font-medium text-admin-ink">{c.name}</span>
-              <span className="text-admin-muted">{c.qs}</span>
-              <span className="text-admin-ink">{c.acc}%</span>
-              <span className="flex items-center gap-3">
-                <span className="h-2 w-40 overflow-hidden rounded-full bg-[#e1e3e4]">
-                  <span
-                    className="block h-full rounded-full"
-                    style={{ width: `${c.fill}%`, backgroundColor: c.tone }}
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-admin-ink">
+                  {c.chapter}
+                </span>
+                <span className="block text-xs text-admin-muted">
+                  {c.practised}/{c.count} practised
+                </span>
+              </span>
+              <span className="w-40 shrink-0">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-admin-line/30">
+                  <div
+                    className="h-full rounded-full bg-admin"
+                    style={{ width: `${c.mastery}%` }}
                   />
-                </span>
-                <span
-                  className="text-xs font-semibold"
-                  style={{ color: c.tone }}
-                >
-                  {c.mastery}
-                </span>
+                </div>
+              </span>
+              <span className="w-12 shrink-0 text-right text-sm font-bold text-admin-ink">
+                {c.mastery}%
               </span>
             </div>
           ))}
-          <div className="py-3 text-center">
-            <button
-              type="button"
-              className="text-sm font-semibold text-admin hover:underline"
-            >
-              Load More Chapters
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="flex flex-col items-center justify-between gap-4 rounded-2xl bg-admin p-6 text-white md:flex-row">
-        <div>
-          <h3 className="text-lg font-bold">Ready for deeper insights?</h3>
-          <p className="mt-1 text-sm text-white/80">
-            See how you rank nationally and get an AI-generated revision plan.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-lg bg-white px-4 py-2.5 text-sm font-bold text-admin hover:opacity-95"
-        >
-          Explore Advanced Analysis
-        </button>
-      </section>
+        </section>
+      )}
     </div>
   );
 }
-
-/* ---------------- Mock Tests (LIVE from GET /me/history) ---------------- */
-
 function MockTab() {
   // /me/attempts, not /me/history: history is published-only, so an exam that
   // has been sat but not yet published would otherwise vanish from the portal.
@@ -598,24 +527,6 @@ function MockTab() {
               </span>
             </Link>
           ))}
-      </section>
-
-      <section className="flex flex-col items-center justify-between gap-4 rounded-2xl bg-admin/5 p-6 md:flex-row">
-        <div>
-          <h3 className="text-lg font-semibold text-admin-ink">
-            Need deeper insights?
-          </h3>
-          <p className="mt-1 max-w-lg text-sm text-admin-muted">
-            Unlock advanced analytics to identify weak areas, optimize time
-            management, and compare performance globally.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-bold text-admin hover:bg-admin/5"
-        >
-          Explore Advanced Analysis
-        </button>
       </section>
     </div>
   );

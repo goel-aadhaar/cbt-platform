@@ -237,9 +237,6 @@ export default function MonitoringPage() {
                 <AlertTriangleIcon className="size-5 text-danger" /> Live
                 Incident Feed
               </h3>
-              <button className="text-xs font-bold uppercase tracking-wide text-admin-2">
-                View All
-              </button>
             </div>
             <div className="overflow-hidden rounded-2xl border border-admin-line/60 bg-white">
               {INCIDENTS.length === 0 && (

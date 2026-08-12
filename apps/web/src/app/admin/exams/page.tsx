@@ -12,10 +12,8 @@ import {
   CalendarIcon,
   CheckCircleIcon,
   FileTextIcon,
-  FilterIcon,
   PlusCircleIcon,
   RadioIcon,
-  ScaleIcon,
   TemplateIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
@@ -208,11 +206,6 @@ function ExamsPageInner() {
 
             {/* Filter bar */}
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-admin-line/60 bg-white p-3">
-              <Chip icon={FilterIcon}>Batch: All</Chip>
-              <Chip icon={ScaleIcon}>Class: All</Chip>
-              <button className="text-sm font-semibold text-admin-2 hover:underline">
-                Clear all
-              </button>
               <div className="ml-auto flex items-center gap-3">
                 <span className="text-sm text-admin-muted">
                   Sort by:{" "}
@@ -483,21 +476,6 @@ function OutlineBtn({
       <Icon className="size-4 text-admin-muted" />
       {children}
     </button>
-  );
-}
-
-function Chip({
-  icon: Icon,
-  children,
-}: {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  children: React.ReactNode;
-}) {
-  return (
-    <span className="flex items-center gap-2 rounded-lg bg-admin-bg px-3 py-1.5 text-sm font-medium text-admin-ink">
-      <Icon className="size-3.5 text-admin-muted" />
-      {children}
-    </span>
   );
 }
 

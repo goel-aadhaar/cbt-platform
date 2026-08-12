@@ -369,11 +369,25 @@ function QuestionRow({
             </button>
           )}
           {q.status === "REVIEW" ? (
-            <button className="rounded-lg bg-admin px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen();
+              }}
+              title="Open this question to approve or reject it"
+              className="rounded-lg bg-admin px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95"
+            >
               Review Now
             </button>
           ) : (
-            <button className="text-admin-muted hover:text-admin-ink">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpen();
+              }}
+              title="Open question details"
+              className="text-admin-muted hover:text-admin-ink"
+            >
               <MoreVerticalIcon className="size-4" />
             </button>
           )}
