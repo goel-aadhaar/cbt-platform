@@ -38,6 +38,9 @@ export interface DocxImportSummary {
 
 const MAX_IMPORT_QUESTIONS = 500;
 
+/** Page size when a caller doesn't ask for one (§2.4 — the bank is large). */
+const DEFAULT_PAGE_SIZE = 50;
+
 const listSelect = {
   id: true,
   subject: true,
@@ -194,27 +197,50 @@ export class QuestionsService {
       ...(query.tag ? { tags: { has: query.tag } } : {}),
     };
 
+    /**
+     * ALWAYS paginated, and always an envelope (§2.4). The bank is specified to
+     * hold 20,000+ questions per institute, so an uncapped findMany would ship
+     * the whole bank in one response; callers also need `total` to paginate.
+     */
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    const offset = query.offset ?? 0;
+
     const term = query.search?.trim();
     if (!term) {
-      return this.prisma.question.findMany({
-        where: structuralWhere,
-        orderBy: { createdAt: 'desc' },
-        select: listSelect,
-      });
+      const [items, total] = await this.prisma.$transaction([
+        this.prisma.question.findMany({
+          where: structuralWhere,
+          orderBy: { createdAt: 'desc' },
+          select: listSelect,
+          take: limit,
+          skip: offset,
+        }),
+        this.prisma.question.count({ where: structuralWhere }),
+      ]);
+      return { items, total, limit, offset };
     }
 
     // Search via the Search port (§2.6) — relevance-ranked ids — then hydrate
     // the rows through Prisma (applying the structural filters) and restore the
     // relevance order.
     const rankedIds = await this.search.search({ instituteId, term });
-    if (rankedIds.length === 0) return [];
+    if (rankedIds.length === 0) return { items: [], total: 0, limit, offset };
 
     const rows = await this.prisma.question.findMany({
       where: { ...structuralWhere, id: { in: rankedIds } },
       select: listSelect,
     });
     const order = new Map(rankedIds.map((id, i) => [id, i]));
-    return rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    rows.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+
+    // The structural filters can drop ranked ids, so the page is taken after
+    // re-ordering rather than from the id list.
+    return {
+      items: rows.slice(offset, offset + limit),
+      total: rows.length,
+      limit,
+      offset,
+    };
   }
 
   async findOne(id: string) {
