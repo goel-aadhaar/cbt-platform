@@ -16,7 +16,7 @@ import { AuthService } from './auth.service';
 import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
-import { LoginDto, StudentLoginDto } from './dto/login.dto';
+import { GoogleLoginDto, LoginDto, StudentLoginDto } from './dto/login.dto';
 import { ChangePasswordDto, UpdateMyProfileDto } from './dto/profile.dto';
 
 @ApiTags('auth')
@@ -49,6 +49,29 @@ export class AuthController {
     );
     this.attachActor(req, result);
     return result;
+  }
+
+  /**
+   * Platform owner sign-in. Separate from the institute login on purpose: the
+   * account that can cross tenants does not share a door with the accounts that
+   * cannot, and /auth/login refuses SUPERADMIN even with valid credentials.
+   */
+  @Public()
+  @Post('platform/login')
+  @HttpCode(HttpStatus.OK)
+  async loginPlatform(@Body() dto: LoginDto, @Req() req: Request) {
+    return this.auth.loginPlatform(dto.email, dto.password, this.meta(req));
+  }
+
+  /**
+   * Staff sign-in with Google. The role and institute come from the existing
+   * account matched by verified email — never from the request.
+   */
+  @Public()
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  async loginWithGoogle(@Body() dto: GoogleLoginDto, @Req() req: Request) {
+    return this.auth.loginStaffWithGoogle(dto.credential, this.meta(req));
   }
 
   @Post('logout')

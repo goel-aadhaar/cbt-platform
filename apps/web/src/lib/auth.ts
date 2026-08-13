@@ -56,9 +56,43 @@ export interface StaffLoginInput {
   password: string;
 }
 
-/** POST /auth/login — authenticates staff (admin/teacher/superadmin) by email. */
+/**
+ * POST /auth/login — institute staff (administrator or teacher) by email.
+ *
+ * The caller does not say which role they are: the server decides from the
+ * account and returns it. Platform accounts are refused here and must use
+ * `platformLogin`.
+ */
 export async function staffLogin(input: StaffLoginInput): Promise<LoginResult> {
   const result = await apiFetch<LoginResult>("/auth/login", {
+    method: "POST",
+    body: input,
+  });
+  saveSession(result);
+  return result;
+}
+
+/**
+ * POST /auth/google — staff sign-in with a Google credential.
+ *
+ * The credential is only an assertion of identity; the server verifies it and
+ * looks up the role and institute from the existing account. Nothing is
+ * provisioned by signing in.
+ */
+export async function googleLogin(credential: string): Promise<LoginResult> {
+  const result = await apiFetch<LoginResult>("/auth/google", {
+    method: "POST",
+    body: { credential },
+  });
+  saveSession(result);
+  return result;
+}
+
+/** POST /auth/platform/login — platform owner only, on its own endpoint. */
+export async function platformLogin(
+  input: StaffLoginInput,
+): Promise<LoginResult> {
+  const result = await apiFetch<LoginResult>("/auth/platform/login", {
     method: "POST",
     body: input,
   });

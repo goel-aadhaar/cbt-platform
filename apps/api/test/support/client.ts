@@ -116,7 +116,8 @@ export async function waitForInviteTokens(
 // --- Domain builders -------------------------------------------------------
 
 export async function loginSuperadmin(): Promise<string> {
-  const res = await api<{ accessToken: string }>('/auth/login', {
+  // The platform owner has its own door; /auth/login refuses SUPERADMIN.
+  const res = await api<{ accessToken: string }>('/auth/platform/login', {
     method: 'POST',
     body: SUPERADMIN,
   });

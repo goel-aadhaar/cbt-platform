@@ -38,9 +38,18 @@ export function useIsHydrated(): boolean {
 }
 
 /**
- * Guard for a role-specific console. Waits for hydration before deciding, then
- * sends anyone who does not belong to their own home instead of leaving them on
- * a console that will refuse every request they make.
+ * Guard for a role-specific console.
+ *
+ * NAVIGATION ONLY — never an authorization boundary. It reads a role out of
+ * localStorage, which the person holding the browser can edit, so it decides
+ * nothing that matters. Authorization lives entirely in the API: every route
+ * carries @Roles and is checked against the session behind the bearer token.
+ * Editing the stored role here buys a nicer-looking console whose every request
+ * still comes back 403.
+ *
+ * What it is for: waiting for hydration, then sending anyone who does not
+ * belong to their own home instead of leaving them on a console that will
+ * refuse every request they make.
  *
  * Returns null while it is still deciding, so callers render nothing rather
  * than flashing a console the user is about to be moved away from.

@@ -24,3 +24,10 @@ export class StudentLoginDto {
   @MinLength(1)
   password: string;
 }
+
+/** Google Identity Services returns a signed ID token it calls `credential`. */
+export class GoogleLoginDto {
+  @IsString()
+  @MinLength(20)
+  credential: string;
+}

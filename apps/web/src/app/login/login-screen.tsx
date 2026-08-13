@@ -15,40 +15,18 @@ import {
   SupportIcon,
 } from "@/components/icons";
 import { homeForRole } from "@/hooks/use-auth";
+import Link from "next/link";
+
+import { GoogleSignIn } from "@/components/auth/google-sign-in";
 import { ApiError } from "@/lib/api";
-import { logout, staffLogin, studentLogin, type Role } from "@/lib/auth";
+import {
+  googleLogin,
+  staffLogin,
+  studentLogin,
+  type LoginResult,
+} from "@/lib/auth";
 
 const DEFAULT_INSTITUTE = process.env.NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG ?? "";
-
-/** Everyone who is not a candidate signs in through the staff branch. */
-type StaffRole = Exclude<Role, "STUDENT">;
-
-const ROLE_LABEL: Record<Role, string> = {
-  STUDENT: "Student",
-  TEACHER: "Teacher",
-  ADMIN: "Administrator",
-  SUPERADMIN: "Super Admin",
-};
-
-/**
- * The staff roles, in the order they are offered. Ordered by how often each
- * signs in, not by privilege — the rarest account should not be the first
- * thing a teacher has to read past.
- */
-const STAFF_ROLES: { value: StaffRole; blurb: string }[] = [
-  {
-    value: "TEACHER",
-    blurb: "Author questions, build papers and review results.",
-  },
-  {
-    value: "ADMIN",
-    blurb: "Run the institute: students, staff, exams and publishing.",
-  },
-  {
-    value: "SUPERADMIN",
-    blurb: "Platform owner. Access across every institute.",
-  },
-];
 
 export function LoginScreen() {
   const router = useRouter();
@@ -61,7 +39,6 @@ export function LoginScreen() {
   const [audience, setAudience] = useState<"student" | "staff" | null>(
     preselectStaff ? "staff" : null,
   );
-  const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
 
   const [instituteSlug, setInstituteSlug] = useState(DEFAULT_INSTITUTE);
   const [rollNumber, setRollNumber] = useState("");
@@ -71,12 +48,14 @@ export function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const step: "audience" | "role" | "credentials" =
-    audience === null
-      ? "audience"
-      : audience === "staff" && staffRole === null
-        ? "role"
-        : "credentials";
+  /**
+   * Two steps only. Staff no longer pick a role before signing in: the account
+   * decides that, the server reports it, and asking first would imply the
+   * choice carried weight. It never did — the API authorises every request
+   * from the token, not from anything chosen here.
+   */
+  const step: "audience" | "credentials" =
+    audience === null ? "audience" : "credentials";
 
   /**
    * 401 is the one failure worth softening: the server says "Invalid
@@ -116,31 +95,18 @@ export function LoginScreen() {
     }
   }
 
-  async function handleStaffSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!staffRole) return;
+  /**
+   * Sign in as staff, by password or with a verified Google credential.
+   *
+   * Where the user lands comes from the role the SERVER reports. Nothing here
+   * asked them who they are, so nothing here can be wrong about it — and even
+   * if the browser lied, every API call is authorised from the token.
+   */
+  async function signInAsStaff(attempt: () => Promise<LoginResult>) {
     setError(null);
     setSubmitting(true);
     try {
-      const result = await staffLogin({ email: email.trim(), password });
-
-      // The chosen role has to match the account, or the selection would be
-      // decorative: a teacher who picked Administrator would authenticate fine
-      // and then meet a console that refuses them at every turn. Better to say
-      // so here than to strand them on a dashboard full of errors.
-      if (result.user.role !== staffRole) {
-        await logout();
-        setError(
-          `This account signs in as ${ROLE_LABEL[result.user.role]}, not ` +
-            `${ROLE_LABEL[staffRole]}. Go back and choose ` +
-            `${ROLE_LABEL[result.user.role]}.`,
-        );
-        setSubmitting(false);
-        return;
-      }
-
-      // Each role has its own console; sending everyone to /admin would strand
-      // a superadmin on pages that refuse them.
+      const result = await attempt();
       router.push(homeForRole(result.user.role));
     } catch (err) {
       setError(
@@ -150,16 +116,16 @@ export function LoginScreen() {
     }
   }
 
-  /** Step back one screen, dropping anything typed on the screen being left. */
+  async function handleStaffSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await signInAsStaff(() => staffLogin({ email: email.trim(), password }));
+  }
+
+  /** Back to the audience choice, dropping anything typed on the way. */
   function back() {
     setError(null);
     setPassword("");
-    if (step === "credentials" && audience === "staff") {
-      setStaffRole(null);
-      return;
-    }
     setAudience(null);
-    setStaffRole(null);
   }
 
   return (
@@ -212,36 +178,14 @@ export function LoginScreen() {
                     }}
                   />
                   <ChoiceCard
-                    title="Administrator"
-                    blurb="Staff access: teachers, administrators and platform owners."
+                    title="Staff / Administration"
+                    blurb="Teachers and administrators. Sign in with your institute email."
                     icon={<StaffIcon className="size-6" />}
                     onClick={() => {
                       setError(null);
                       setAudience("staff");
                     }}
                   />
-                </div>
-              </>
-            )}
-
-            {step === "role" && (
-              <>
-                <Heading
-                  title="Select your role"
-                  subtitle="Sign in as the role your account was created with."
-                />
-                <div className="flex flex-col gap-3">
-                  {STAFF_ROLES.map((r) => (
-                    <ChoiceCard
-                      key={r.value}
-                      title={ROLE_LABEL[r.value]}
-                      blurb={r.blurb}
-                      onClick={() => {
-                        setError(null);
-                        setStaffRole(r.value);
-                      }}
-                    />
-                  ))}
                 </div>
               </>
             )}
@@ -287,15 +231,23 @@ export function LoginScreen() {
               </>
             )}
 
-            {step === "credentials" && audience === "staff" && staffRole && (
+            {step === "credentials" && audience === "staff" && (
               <>
                 <Heading
-                  title={`${ROLE_LABEL[staffRole]} Login`}
-                  subtitle="Enter your registered credentials to access your dashboard."
+                  title="Staff Sign In"
+                  subtitle="Use your institute email. Your role and institute are determined by your account."
                 />
+
+                <GoogleSignIn
+                  disabled={submitting}
+                  onCredential={(credential) =>
+                    void signInAsStaff(() => googleLogin(credential))
+                  }
+                />
+
                 <form
                   onSubmit={handleStaffSubmit}
-                  className="flex flex-col gap-4"
+                  className="mt-4 flex flex-col gap-4"
                   noValidate
                 >
                   <Field
@@ -317,6 +269,19 @@ export function LoginScreen() {
                   {error && <ErrorNote>{error}</ErrorNote>}
                   <SubmitButton submitting={submitting} />
                 </form>
+
+                {/* The platform console is a different door, not a role on
+                    this one. Linked quietly: almost nobody signing in here
+                    wants it. */}
+                <p className="mt-5 text-center text-xs text-subtle">
+                  Platform administrator?{" "}
+                  <Link
+                    href="/platform/login"
+                    className="font-semibold text-brand hover:underline"
+                  >
+                    Sign in to the platform console
+                  </Link>
+                </p>
               </>
             )}
           </div>

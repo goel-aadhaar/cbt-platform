@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../database/prisma.service';
 import { Role, UserStatus } from './auth.types';
+import { GoogleTokenService } from './google-token.service';
 import { PasswordService } from './password.service';
 
 interface SessionMeta {
@@ -45,8 +46,18 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly jwt: JwtService,
+    private readonly google: GoogleTokenService,
   ) {}
 
+  /**
+   * Institute staff — administrators and teachers.
+   *
+   * Superadmins are refused here even with correct credentials: the platform
+   * owner signs in through its own endpoint, so a tenant-facing login page can
+   * never be the way into cross-tenant access. That separation is enforced
+   * here, not in the UI, because a login screen is not an authorization
+   * boundary.
+   */
   async loginStaff(
     email: string,
     password: string,
@@ -57,7 +68,79 @@ export class AuthService {
     if (!user || user.role === Role.STUDENT) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    if (user.role === Role.SUPERADMIN) {
+      // Said plainly: the credentials are right, the door is wrong. Revealing
+      // this costs nothing — they already proved nothing at this point, and a
+      // superadmin left guessing would be worse.
+      throw new ForbiddenException(
+        'Platform accounts sign in through the platform console, not an institute login.',
+      );
+    }
     return this.completeLogin(user, password, meta);
+  }
+
+  /** Platform owner. Deliberately its own door; nobody else may use it. */
+  async loginPlatform(
+    email: string,
+    password: string,
+    meta: SessionMeta,
+  ): Promise<LoginResult> {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || user.role !== Role.SUPERADMIN) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    return this.completeLogin(user, password, meta);
+  }
+
+  /**
+   * Staff sign-in with a verified Google identity.
+   *
+   * Matching is by email against an account that ALREADY EXISTS and has been
+   * invited. Nothing is auto-provisioned: on a multi-tenant examination
+   * platform, "signed in with Google" must never be able to conjure a staff
+   * account, or anyone with a Google address could walk into a tenant. Which
+   * institute and which role they get comes from that existing record, never
+   * from the request.
+   */
+  async loginStaffWithGoogle(
+    credential: string,
+    meta: SessionMeta,
+  ): Promise<LoginResult> {
+    const identity = await this.google.verify(credential);
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: identity.email },
+    });
+    if (!user || user.role === Role.STUDENT) {
+      throw new UnauthorizedException(
+        `No staff account exists for ${identity.email}. Ask your administrator to invite you first.`,
+      );
+    }
+    if (user.role === Role.SUPERADMIN) {
+      throw new ForbiddenException(
+        'Platform accounts sign in through the platform console, not an institute login.',
+      );
+    }
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException(
+        user.status === UserStatus.PENDING
+          ? 'Your invitation has not been accepted yet. Use the link in your invitation email to set a password first.'
+          : 'Your account has been disabled. Contact your administrator.',
+      );
+    }
+    await this.assertInstituteActive(user.instituteId);
+
+    const accessToken = await this.issueSession(user.id, meta);
+    return {
+      accessToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        instituteId: user.instituteId,
+      },
+    };
   }
 
   async loginStudent(
@@ -236,22 +319,9 @@ export class AuthService {
     const ok = await this.passwords.verify(user.passwordHash, password);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
 
-    // A suspended tenant must not be able to sign in — otherwise deactivating
-    // an institute would change nothing for the people inside it. Checked after
-    // the password so the reason only reaches someone who owns the account;
-    // it is a state they can act on, not a credential hint.
-    if (user.instituteId) {
-      const institute = await this.prisma.institute.findUnique({
-        where: { id: user.instituteId },
-        select: { isActive: true, name: true },
-      });
-      if (!institute?.isActive) {
-        throw new ForbiddenException(
-          `${institute?.name ?? 'This institute'} has been suspended. ` +
-            'Contact your administrator.',
-        );
-      }
-    }
+    // Checked after the password so the reason only reaches someone who owns
+    // the account; it is a state they can act on, not a credential hint.
+    await this.assertInstituteActive(user.instituteId);
 
     const accessToken = await this.issueSession(user.id, meta);
     return {
@@ -264,6 +334,24 @@ export class AuthService {
         instituteId: user.instituteId,
       },
     };
+  }
+
+  /**
+   * A suspended tenant must not be able to sign in — otherwise deactivating an
+   * institute would change nothing for the people inside it.
+   */
+  private async assertInstituteActive(instituteId: string | null) {
+    if (!instituteId) return;
+    const institute = await this.prisma.institute.findUnique({
+      where: { id: instituteId },
+      select: { isActive: true, name: true },
+    });
+    if (!institute?.isActive) {
+      throw new ForbiddenException(
+        `${institute?.name ?? 'This institute'} has been suspended. ` +
+          'Contact your administrator.',
+      );
+    }
   }
 
   /** Creates a fresh session, revoking any prior ones (single active session). */

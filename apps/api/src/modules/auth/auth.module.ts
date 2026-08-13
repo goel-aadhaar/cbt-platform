@@ -13,6 +13,7 @@ import { InvitationService } from './invitation/invitation.service';
 import { RolesGuard } from './guards/roles.guard';
 import { ConsoleMailService } from './mail/console-mail.service';
 import { MailService } from './mail/mail.service';
+import { GoogleTokenService } from './google-token.service';
 import { PasswordService } from './password.service';
 import { TenantContextInterceptor } from './tenant/tenant-context.interceptor';
 import { TenantContextService } from './tenant/tenant-context.service';
@@ -53,6 +54,7 @@ import { TenantContextService } from './tenant/tenant-context.service';
     AuthService,
     InvitationService,
     PasswordService,
+    GoogleTokenService,
     TenantContextService,
     // Mail port → console adapter (dev). Swap to SES via env later.
     { provide: MailService, useClass: ConsoleMailService },
