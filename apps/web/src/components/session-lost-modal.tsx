@@ -48,6 +48,11 @@ const COPY: Record<
   },
 };
 
+/** Screens that already explain why you are looking at them. */
+function isAuthScreen(pathname: string): boolean {
+  return pathname === "/login" || pathname.startsWith("/platform/login");
+}
+
 const FALLBACK = {
   title: "Session ended",
   advice: "Sign in again to continue.",
@@ -70,6 +75,10 @@ export function SessionLostModal() {
 
   const goToLogin = useCallback(() => {
     clearSession();
+    // Dismiss as we leave. Without this the dialog sits on the login screen at
+    // "Redirecting in 0s" with nothing left to redirect to.
+    setLoss(null);
+    shownRef.current = false;
     router.replace("/login");
   }, [router]);
 
@@ -77,6 +86,13 @@ export function SessionLostModal() {
     () =>
       onSessionLost((detail) => {
         if (shownRef.current) return;
+        // A sign-in screen explains itself; a modal over it is noise. Read the
+        // path at event time rather than reacting to it afterwards, so the
+        // dialog is never raised there in the first place.
+        if (isAuthScreen(window.location.pathname)) {
+          clearSession();
+          return;
+        }
         shownRef.current = true;
         setLoss(detail);
         setSeconds(REDIRECT_SECONDS);
@@ -86,17 +102,18 @@ export function SessionLostModal() {
 
   useEffect(() => {
     if (!loss) return;
-    const id = setInterval(() => {
-      setSeconds((s) => {
-        if (s <= 1) {
-          clearInterval(id);
-          goToLogin();
-          return 0;
-        }
-        return s - 1;
-      });
+    // The updater stays PURE — React may run it during render, and a side
+    // effect in there re-renders other components mid-render (it did: it
+    // reached AdminSidebar through the session store). The redirect is driven
+    // by the timeout below, not from inside the updater.
+    const tick = setInterval(() => {
+      setSeconds((s) => Math.max(0, s - 1));
     }, 1000);
-    return () => clearInterval(id);
+    const done = setTimeout(goToLogin, REDIRECT_SECONDS * 1000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(done);
+    };
   }, [loss, goToLogin]);
 
   if (!loss) return null;
