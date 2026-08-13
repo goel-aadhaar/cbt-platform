@@ -44,6 +44,7 @@ export function StaffShell({
   workspace,
   quickActions = [],
   searchPlaceholder = "Search…",
+  profileHref,
   children,
 }: {
   title: string;
@@ -52,16 +53,19 @@ export function StaffShell({
   workspace: string;
   quickActions?: StaffQuickAction[];
   searchPlaceholder?: string;
+  /** Where this console's profile lives. */
+  profileHref: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
-      <StaffSidebar nav={nav} workspace={workspace} />
+      <StaffSidebar nav={nav} workspace={workspace} profileHref={profileHref} />
       <div className="flex min-w-0 flex-1 flex-col">
         <StaffTopbar
           title={title}
           quickActions={quickActions}
           searchPlaceholder={searchPlaceholder}
+          profileHref={profileHref}
         />
         <main className="flex-1 overflow-auto px-8 py-6">{children}</main>
       </div>
@@ -72,9 +76,11 @@ export function StaffShell({
 function StaffSidebar({
   nav,
   workspace,
+  profileHref,
 }: {
   nav: StaffNavItem[];
   workspace: string;
+  profileHref: string;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -106,8 +112,13 @@ function StaffSidebar({
       </div>
 
       {/* Who is signed in. Real identity, not a placeholder — on a console that
-          spans tenants and roles, "which account am I?" is a safety question. */}
-      <div className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 text-left">
+          spans tenants and roles, "which account am I?" is a safety question.
+          Clicking it opens the profile, which is where that question is
+          answered in full. */}
+      <Link
+        href={profileHref}
+        className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 text-left hover:bg-admin-bg"
+      >
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
           {initials(user?.name)}
         </span>
@@ -119,7 +130,7 @@ function StaffSidebar({
             {workspace}
           </span>
         </span>
-      </div>
+      </Link>
 
       <nav className="mt-4 flex flex-col gap-1 overflow-y-auto">
         {nav.map(({ label, href, icon: Icon }) => {
@@ -158,10 +169,12 @@ function StaffTopbar({
   title,
   quickActions,
   searchPlaceholder,
+  profileHref,
 }: {
   title: string;
   quickActions: StaffQuickAction[];
   searchPlaceholder: string;
+  profileHref: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -241,9 +254,13 @@ function StaffTopbar({
           </IconButton>
         </div>
 
-        <span className="flex size-9 items-center justify-center rounded-full border border-admin-line bg-white text-sm font-bold text-admin-ink">
+        <Link
+          href={profileHref}
+          title="Your profile"
+          className="flex size-9 items-center justify-center rounded-full border border-admin-line bg-white text-sm font-bold text-admin-ink hover:bg-admin-bg"
+        >
           {initials(user?.name)}
-        </span>
+        </Link>
       </div>
     </header>
   );

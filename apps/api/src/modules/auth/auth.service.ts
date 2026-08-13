@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -101,6 +102,127 @@ export class AuthService {
         instituteId: true,
       },
     });
+  }
+
+  /**
+   * The signed-in user's own profile.
+   *
+   * One call fills the profile screen: identity, plus the candidate details a
+   * student needs (roll number, batch, institute) which live on other tables.
+   */
+  async myProfile(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      // Never leak passwordHash or the invitation token hash.
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        instituteId: true,
+        createdAt: true,
+        institute: { select: { name: true, slug: true } },
+      },
+    });
+
+    const student =
+      user.role === Role.STUDENT
+        ? await this.prisma.student.findUnique({
+            where: { userId },
+            select: {
+              rollNumber: true,
+              createdAt: true,
+              batch: {
+                select: {
+                  name: true,
+                  class: {
+                    select: { name: true, program: { select: { name: true } } },
+                  },
+                },
+              },
+            },
+          })
+        : null;
+
+    return {
+      ...user,
+      student: student
+        ? {
+            rollNumber: student.rollNumber,
+            batch: student.batch.name,
+            class: student.batch.class.name,
+            program: student.batch.class.program.name,
+            enrolledAt: student.createdAt,
+          }
+        : null,
+    };
+  }
+
+  /** Update the fields a user owns. See UpdateMyProfileDto for what is excluded. */
+  async updateMyProfile(
+    userId: string,
+    dto: { name?: string; phone?: string },
+  ) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.name === undefined ? {} : { name: dto.name.trim() }),
+        ...(dto.phone === undefined ? {} : { phone: dto.phone.trim() || null }),
+      },
+    });
+    return this.myProfile(userId);
+  }
+
+  /**
+   * Change your own password.
+   *
+   * Requires the current one, so a walk-up on an unlocked machine cannot lock
+   * the owner out. Other sessions are revoked afterwards — if the reason for
+   * changing it is that someone else has your password, leaving their session
+   * alive would defeat the point — but the caller's own session survives, so
+   * they are not signed out of the screen they just used.
+   */
+  async changePassword(
+    userId: string,
+    sessionId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { passwordHash: true },
+    });
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'This account has no password yet. Use your invitation link to set one.',
+      );
+    }
+
+    const ok = await this.passwords.verify(user.passwordHash, currentPassword);
+    if (!ok) {
+      throw new BadRequestException('Your current password is not correct.');
+    }
+    if (await this.passwords.verify(user.passwordHash, newPassword)) {
+      throw new BadRequestException(
+        'The new password must be different from the current one.',
+      );
+    }
+
+    const passwordHash = await this.passwords.hash(newPassword);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash },
+      }),
+      this.prisma.session.updateMany({
+        where: { userId, revokedAt: null, id: { not: sessionId } },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+
+    return { changed: true };
   }
 
   private async completeLogin(

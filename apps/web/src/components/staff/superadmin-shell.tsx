@@ -5,6 +5,7 @@ import {
   BarChartIcon,
   GridIcon,
   HistoryIcon,
+  UserIcon,
   UsersIcon,
 } from "@/components/admin/icons";
 import { useRequireRole } from "@/hooks/use-auth";
@@ -15,6 +16,7 @@ const NAV: StaffNavItem[] = [
   { label: "Institutes", href: "/superadmin/tenants", icon: UsersIcon },
   { label: "Usage", href: "/superadmin/usage", icon: BarChartIcon },
   { label: "Audit Log", href: "/superadmin/audit", icon: HistoryIcon },
+  { label: "My Profile", href: "/superadmin/profile", icon: UserIcon },
 ];
 
 /**
@@ -38,6 +40,7 @@ export function SuperadminShell({
     <StaffShell
       title={title}
       nav={NAV}
+      profileHref="/superadmin/profile"
       workspace="Platform owner"
       searchPlaceholder="Search institutes…"
       quickActions={[

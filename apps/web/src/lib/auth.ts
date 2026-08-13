@@ -153,3 +153,69 @@ export function subscribeSession(listener: Listener): () => void {
     window.removeEventListener("storage", listener);
   };
 }
+
+/* ------------------------------------------------------------------ *
+ * PROFILE — the signed-in user's own record                           *
+ * ------------------------------------------------------------------ */
+
+export interface MyProfile extends AuthUser {
+  phone: string | null;
+  status: "PENDING" | "ACTIVE" | "DISABLED";
+  createdAt: string;
+  institute: { name: string; slug: string } | null;
+  /** Candidate details; null for staff. */
+  student: {
+    rollNumber: string;
+    batch: string;
+    class: string;
+    program: string;
+    enrolledAt: string;
+  } | null;
+}
+
+/** GET /auth/me/profile — identity plus, for a candidate, their enrolment. */
+export function fetchMyProfile(): Promise<MyProfile> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<MyProfile>("/auth/me/profile", { token });
+}
+
+/**
+ * PATCH /auth/me/profile — the fields a user owns.
+ *
+ * Email and roll number are not editable here: one is a login identifier
+ * needing verification, the other identifies a candidate in an examination
+ * record and belongs to the administrator.
+ */
+export async function updateMyProfile(body: {
+  name?: string;
+  phone?: string;
+}): Promise<MyProfile> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const updated = await apiFetch<MyProfile>("/auth/me/profile", {
+    method: "PATCH",
+    body,
+    token,
+  });
+  // Keep the cached session in step so the sidebar name updates immediately.
+  const current = getUserSnapshot();
+  if (current) {
+    window.localStorage.setItem(
+      USER_KEY,
+      JSON.stringify({ ...current, name: updated.name }),
+    );
+    notify();
+  }
+  return updated;
+}
+
+/** POST /auth/me/password — requires the current password. */
+export function changeMyPassword(body: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<{ changed: boolean }> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch("/auth/me/password", { method: "POST", body, token });
+}

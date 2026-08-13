@@ -4,13 +4,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { useAuthUser } from "@/hooks/use-auth";
 import { logout } from "@/lib/auth";
 
 import {
   ActivityIcon,
   BarChartIcon,
   BellIcon,
-  ChevronDownIcon,
   ClipboardIcon,
   DatabaseIcon,
   FileTextIcon,
@@ -20,6 +20,7 @@ import {
   SettingsIcon,
   TemplateIcon,
   UploadIcon,
+  UserIcon,
   UsersIcon,
 } from "./icons";
 import type { ComponentType, SVGProps } from "react";
@@ -46,12 +47,14 @@ const NAV: NavItem[] = [
   { label: "Announcements", href: "/admin/announcements", icon: BellIcon },
   { label: "Imports", href: "/admin/imports", icon: UploadIcon },
   { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
+  { label: "My Profile", href: "/admin/profile", icon: UserIcon },
   { label: "Settings", href: "/admin/settings", icon: SettingsIcon },
 ];
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const user = useAuthUser();
 
   async function handleLogout() {
     await logout();
@@ -80,23 +83,28 @@ export function AdminSidebar() {
       </div>
 
       {/* Workspace switcher */}
-      <button
-        type="button"
+      {/* Was a dead button captioned "Dr. John Doe" regardless of who was
+          signed in. Now it names the real user and opens their profile. */}
+      <Link
+        href="/admin/profile"
         className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 text-left hover:bg-admin-bg"
       >
-        <span className="flex size-9 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
-          SK
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
+          {(user?.name ?? "")
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((p) => p[0]?.toUpperCase() ?? "")
+            .join("") || "—"}
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-bold text-admin-ink">
-            Dr. John Doe
+            {user?.name ?? "…"}
           </span>
           <span className="block text-xs text-admin-muted">
             Institute workspace
           </span>
         </span>
-        <ChevronDownIcon className="size-4 shrink-0 text-admin-muted" />
-      </button>
+      </Link>
 
       {/* Nav */}
       <nav className="mt-4 flex flex-col gap-1">

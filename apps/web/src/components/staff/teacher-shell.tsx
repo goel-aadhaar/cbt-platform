@@ -5,6 +5,7 @@ import {
   ClipboardIcon,
   DatabaseIcon,
   GridIcon,
+  UserIcon,
   UsersIcon,
 } from "@/components/admin/icons";
 import { useRequireRole } from "@/hooks/use-auth";
@@ -21,6 +22,7 @@ const NAV: StaffNavItem[] = [
   { label: "My Exams", href: "/teacher/exams", icon: ClipboardIcon },
   { label: "Student Reports", href: "/teacher/reports", icon: BarChartIcon },
   { label: "Students", href: "/teacher/students", icon: UsersIcon },
+  { label: "My Profile", href: "/teacher/profile", icon: UserIcon },
 ];
 
 export function TeacherShell({
@@ -46,6 +48,7 @@ export function TeacherShell({
     <StaffShell
       title={title}
       nav={NAV}
+      profileHref="/teacher/profile"
       workspace="Teacher workspace"
       searchPlaceholder="Search questions, exams…"
       quickActions={[

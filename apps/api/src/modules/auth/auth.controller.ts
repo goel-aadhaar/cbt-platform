@@ -4,10 +4,11 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
   Req,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
 import type { LoginResult } from './auth.service';
@@ -16,6 +17,7 @@ import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import { LoginDto, StudentLoginDto } from './dto/login.dto';
+import { ChangePasswordDto, UpdateMyProfileDto } from './dto/profile.dto';
 
 @ApiTags('auth')
 @Controller({ path: 'auth', version: '1' })
@@ -61,6 +63,43 @@ export class AuthController {
   @ApiBearerAuth()
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.userId);
+  }
+
+  /**
+   * Full profile for the signed-in user — identity plus, for a candidate, the
+   * roll number, batch and programme that live on other tables.
+   */
+  @Get('me/profile')
+  @ApiOkResponse({ description: "The caller's own profile." })
+  myProfile(@CurrentUser() user: AuthUser) {
+    return this.auth.myProfile(user.userId);
+  }
+
+  /** Self-service edits. Email and roll number are not changeable here. */
+  @Patch('me/profile')
+  updateMyProfile(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateMyProfileDto,
+  ) {
+    return this.auth.updateMyProfile(user.userId, dto);
+  }
+
+  /**
+   * Change your own password. Requires the current one; revokes every OTHER
+   * session so a stolen password cannot keep an intruder signed in.
+   */
+  @Post('me/password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.auth.changePassword(
+      user.userId,
+      user.sessionId,
+      dto.currentPassword,
+      dto.newPassword,
+    );
   }
 
   private meta(req: Request): { userAgent?: string; ip?: string } {
