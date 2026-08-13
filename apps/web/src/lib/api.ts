@@ -69,6 +69,11 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly details?: unknown;
+  /**
+   * Machine-readable code from the server's `error` field. On a 401 this is the
+   * session reason (SESSION_REVOKED, SESSION_EXPIRED, ACCOUNT_INACTIVE, …).
+   */
+  readonly reason?: string;
   /** API path that failed — included so support can act on the message. */
   readonly path?: string;
 
@@ -87,6 +92,7 @@ export class ApiError extends Error {
     this.status = status;
     this.code = body?.code;
     this.details = body?.details;
+    this.reason = body?.error;
     this.path = path;
   }
 }
@@ -144,8 +150,59 @@ export async function apiFetch<T>(
         path,
       );
     }
-    throw new ApiError(res.status, payload as ApiErrorBody | null, path);
+    const error = new ApiError(
+      res.status,
+      payload as ApiErrorBody | null,
+      path,
+    );
+    // A 401 on an authenticated call means the session died under the user —
+    // announce it once, centrally, so every screen reacts the same way instead
+    // of each one inventing its own handling.
+    if (res.status === 401 && token) announceSessionLoss(error);
+    throw error;
   }
 
   return payload as T;
+}
+
+/* ------------------------------------------------------------------ *
+ * SESSION LOSS BROADCAST                                              *
+ * ------------------------------------------------------------------ */
+
+/** What the session-expired modal needs to explain itself. */
+export interface SessionLoss {
+  reason: string;
+  message: string;
+}
+
+const SESSION_LOST_EVENT = "drsk:session-lost";
+
+/**
+ * Fired when an authenticated request comes back 401.
+ *
+ * A custom event rather than a callback registry: the API client must not
+ * import React, and any number of listeners can subscribe without this file
+ * knowing about them.
+ */
+function announceSessionLoss(error: ApiError): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent<SessionLoss>(SESSION_LOST_EVENT, {
+      detail: {
+        reason: error.reason ?? "SESSION_UNKNOWN",
+        message: error.message,
+      },
+    }),
+  );
+}
+
+/** Subscribe to session loss. Returns an unsubscribe function. */
+export function onSessionLost(
+  handler: (loss: SessionLoss) => void,
+): () => void {
+  if (typeof window === "undefined") return () => {};
+  const listener = (e: Event) =>
+    handler((e as CustomEvent<SessionLoss>).detail);
+  window.addEventListener(SESSION_LOST_EVENT, listener);
+  return () => window.removeEventListener(SESSION_LOST_EVENT, listener);
 }

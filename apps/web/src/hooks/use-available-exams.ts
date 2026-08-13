@@ -36,12 +36,15 @@ export function useAvailableExams(): {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        // 401 is handled by SessionLostModal, which names the actual reason;
+        // "Not authenticated." underneath it would only add noise.
+        if (err instanceof ApiError && err.status === 401) {
+          setItems([]);
+          setLoading(false);
+          return;
+        }
         const msg =
-          err instanceof ApiError
-            ? err.status === 401
-              ? "Not authenticated."
-              : err.message
-            : "Couldn't load available exams.";
+          err instanceof Error ? err.message : "Couldn't load available exams.";
         setError(msg);
         setItems([]);
         setLoading(false);

@@ -43,10 +43,11 @@ export function useAdminData<T>(
       })
       .catch((err) => {
         if (!active) return;
-        if (err instanceof ApiError && err.status === 401) {
-          router.replace("/login?as=staff");
-          return;
-        }
+        // A dead session is announced centrally by apiFetch and explained by
+        // SessionLostModal, which does the sign-out and the redirect. Racing
+        // it with a silent bounce would replace that explanation with an
+        // unexplained trip to the login screen.
+        if (err instanceof ApiError && err.status === 401) return;
         setState({
           data: null,
           loading: false,

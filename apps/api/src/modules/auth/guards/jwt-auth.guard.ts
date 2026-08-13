@@ -18,6 +18,39 @@ interface JwtPayload {
 }
 
 /**
+ * Why a session stopped being usable.
+ *
+ * Sent as a machine-readable code so the client can name the actual cause
+ * instead of showing one vague "please sign in again" for four different
+ * situations — "someone signed in as you" and "your day ran out" call for
+ * different reactions from the person reading it.
+ */
+export const SESSION_REASON = {
+  /** No Authorization header at all. */
+  MISSING: 'NO_TOKEN',
+  /** Signature failed, or the JWT's own exp has passed. */
+  BAD_TOKEN: 'INVALID_TOKEN',
+  /** Superseded by a newer login, or logged out. Single active session (§2.2). */
+  REVOKED: 'SESSION_REVOKED',
+  /** The session row outlived its expiresAt. */
+  EXPIRED: 'SESSION_EXPIRED',
+  /** Session id is unknown, or does not belong to the token's subject. */
+  UNKNOWN: 'SESSION_UNKNOWN',
+  /** The account was disabled or is still pending. */
+  INACTIVE: 'ACCOUNT_INACTIVE',
+} as const;
+
+/**
+ * 401 body. The code goes in `error` — the envelope field this codebase already
+ * uses for machine-readable codes (see InstituteNotEmpty, CategoryInUse) — so
+ * it survives AllExceptionsFilter as a top-level field instead of being nested
+ * under `details`.
+ */
+function sessionError(reason: string, message: string) {
+  return new UnauthorizedException({ statusCode: 401, error: reason, message });
+}
+
+/**
  * Stateful RS256 auth guard. Verifies the token signature, then re-validates the
  * referenced session against the DB every request (existence, ownership, not
  * revoked, not expired) and that the user is ACTIVE — so revocation, logout, and
@@ -43,13 +76,21 @@ export class JwtAuthGuard implements CanActivate {
       .getRequest<Request & { user?: AuthUser }>();
 
     const token = this.extractToken(request);
-    if (!token) throw new UnauthorizedException('Missing bearer token');
+    if (!token) {
+      throw sessionError(
+        SESSION_REASON.MISSING,
+        'You are not signed in. Please sign in to continue.',
+      );
+    }
 
     let payload: JwtPayload;
     try {
       payload = await this.jwt.verifyAsync<JwtPayload>(token);
     } catch {
-      throw new UnauthorizedException('Invalid or expired token');
+      throw sessionError(
+        SESSION_REASON.BAD_TOKEN,
+        'Your sign-in token is no longer valid. Please sign in again.',
+      );
     }
 
     // This runs on EVERY authenticated request (stateful sessions are required
@@ -76,16 +117,35 @@ export class JwtAuthGuard implements CanActivate {
     });
 
     const now = new Date();
-    if (
-      !session ||
-      session.userId !== payload.sub ||
-      session.revokedAt !== null ||
-      session.expiresAt <= now
-    ) {
-      throw new UnauthorizedException('Session is no longer valid');
+    // Distinguish the causes: they are genuinely different events, and the one
+    // people hit most (a second login stealing the session) is the one a vague
+    // message explains worst.
+    if (!session || session.userId !== payload.sub) {
+      throw sessionError(
+        SESSION_REASON.UNKNOWN,
+        'This session no longer exists. Please sign in again.',
+      );
+    }
+    if (session.revokedAt !== null) {
+      throw sessionError(
+        SESSION_REASON.REVOKED,
+        'Your account was signed in on another device or browser. Only one ' +
+          'active session is allowed, so this one was ended.',
+      );
+    }
+    if (session.expiresAt <= now) {
+      throw sessionError(
+        SESSION_REASON.EXPIRED,
+        'Your session expired. For security, sign-ins last 24 hours.',
+      );
     }
     if (session.user.status !== UserStatus.ACTIVE) {
-      throw new UnauthorizedException('Account is not active');
+      throw sessionError(
+        SESSION_REASON.INACTIVE,
+        session.user.status === UserStatus.PENDING
+          ? 'Your account has not been activated yet. Check your invitation email.'
+          : 'Your account has been disabled. Contact your administrator.',
+      );
     }
 
     request.user = {

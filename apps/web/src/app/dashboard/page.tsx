@@ -33,10 +33,9 @@ export default function DashboardPage() {
       })
       .catch((err) => {
         if (!active) return;
-        if (err instanceof ApiError && err.status === 401) {
-          void logout();
-          router.replace("/login");
-        } else {
+        // SessionLostModal explains the 401 and handles the sign-out; a
+        // silent redirect here would pre-empt it.
+        if (!(err instanceof ApiError && err.status === 401)) {
           setVerify("error");
         }
       });
