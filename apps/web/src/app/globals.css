@@ -34,6 +34,8 @@
      (distinct from the navy candidate-facing screens). Used by /admin/*. */
   --color-admin: #006049; /* primary — buttons, active nav, headings accent */
   --color-admin-2: #007b5e; /* lighter accent — chart bars, links */
+  --color-admin-3: #328675; /* spinner/loader — mid teal */
+  --color-admin-4: #83b0ab; /* spinner/loader — soft teal */
   --color-admin-mint: #95f5d1; /* soft-green pill fill / progress */
   --color-admin-ink: #191c1d; /* primary text */
   --color-admin-muted: #3e4944; /* secondary text */
@@ -98,4 +100,57 @@ body {
   textarea:disabled {
     cursor: not-allowed;
   }
+}
+
+/**
+ * Platform loading spinner.
+ *
+ * Eight dots in a ring, each step a shade paler from the deeper admin teal.
+ * The ring rotates; in reduced-motion mode it stops spinning and the dots
+ * pulse instead, so a vestibular-sensitive user still sees clear motion.
+ */
+.loading-spinner {
+  display: inline-flex;
+  width: var(--spinner-size);
+  height: var(--spinner-size);
+  animation: spinner-rotate 1.4s linear infinite;
+}
+.loading-spinner .dot {
+  fill: var(--color-admin);
+}
+.loading-spinner .d2 {
+  fill: var(--color-admin-2);
+  animation: spinner-pulse 1.4s ease-in-out infinite;
+  animation-delay: -0.175s;
+}
+.loading-spinner .d3 {
+  fill: var(--color-admin-3);
+  animation: spinner-pulse 1.4s ease-in-out infinite;
+  animation-delay: -0.35s;
+}
+.loading-spinner .d4 {
+  fill: var(--color-admin-4);
+  animation: spinner-pulse 1.4s ease-in-out infinite;
+  animation-delay: -0.525s;
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes spinner-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner {
+    animation: none;
+  }
+  .loading-spinner .dot {
+    animation: spinner-pulse 2s ease-in-out infinite;
+  }
+  .loading-spinner .d2 { animation-delay: 0s; }
+  .loading-spinner .d3 { animation-delay: -0.5s; }
+  .loading-spinner .d4 { animation-delay: -1s; }
 }

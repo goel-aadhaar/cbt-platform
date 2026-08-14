@@ -69,8 +69,8 @@ anything.
 > `db:seed:dev` at all.
 
 Everyone signs in from **http://localhost:3000/login** except the platform
-owner, who has a separate door. Staff are never asked to pick a role — the
-backend determines role and tenant from the account.
+owner, who has a separate door. Staff never declare a role — the backend
+determines role and tenant from the account.
 
 | Role              | Sign-in route      | Credentials                                               |
 | ----------------- | ------------------ | --------------------------------------------------------- |
@@ -93,6 +93,31 @@ Where each role lands after signing in:
 | Teacher       | `/teacher/dashboard` — question bank, exam authoring, student reports |
 | Administrator | `/admin/dashboard` — students, exams, approvals, results, monitoring  |
 | Super Admin   | `/superadmin/dashboard` — institutes, platform usage, audit log       |
+
+### Accounts with more than one role
+
+An account holds a **set** of roles (`users.roles`), while a session acts as
+exactly **one** of them (`sessions.active_role`). A senior teacher who also
+administers is one account, not two.
+
+When an account holds several roles for the door being used, sign-in returns
+`selectableRoles` and issues a session that **can do nothing at all** — every
+route answers `401 ROLE_NOT_SELECTED` — until `POST /auth/session/role` commits
+it to one. The pick is validated against the account's own roles, so naming a
+role it does not hold is refused.
+
+Only the chosen role is in force: a teacher-administrator working as a teacher
+is refused administrator routes, and vice versa. Switching means signing in
+again, deliberately.
+
+```bash
+# grant or revoke a role on an existing account
+node --env-file=.env scripts/grant-role.js anil@demo.local add ADMIN
+node --env-file=.env scripts/grant-role.js anil@demo.local remove ADMIN
+```
+
+`anil@demo.local` is seeded as TEACHER; grant it ADMIN with the command above
+to see the role-choice screen.
 
 ### Staff sign-in with Google (optional)
 

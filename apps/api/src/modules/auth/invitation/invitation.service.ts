@@ -18,14 +18,15 @@ export interface InvitedUser {
   id: string;
   name: string;
   email: string;
-  role: Role;
+  roles: Role[];
   status: UserStatus;
 }
 
 interface CreateInvitationParams {
   name: string;
   email: string;
-  role: Role;
+  /** An invitation grants exactly one role; extra roles are granted later. */
+  roles: Role[];
   instituteId: string;
   instituteName: string;
   invitedById: string;
@@ -53,7 +54,7 @@ export class InvitationService {
     return this.createInvitation({
       name: params.name,
       email: params.email,
-      role: Role.ADMIN,
+      roles: [Role.ADMIN],
       instituteId: institute.id,
       instituteName: institute.name,
       invitedById,
@@ -69,7 +70,7 @@ export class InvitationService {
     return this.createInvitation({
       name: params.name,
       email: params.email,
-      role: Role.TEACHER,
+      roles: [Role.TEACHER],
       instituteId: institute.id,
       instituteName: institute.name,
       invitedById,
@@ -112,7 +113,7 @@ export class InvitationService {
     return this.createInvitation({
       name: params.name,
       email: params.email,
-      role: Role.STUDENT,
+      roles: [Role.STUDENT],
       instituteId: institute.id,
       instituteName: institute.name,
       invitedById,
@@ -177,7 +178,7 @@ export class InvitationService {
         data: {
           name: params.name,
           email: params.email,
-          role: params.role,
+          roles: params.roles,
           status: UserStatus.PENDING,
           instituteId: params.instituteId,
           invitedById: params.invitedById,
@@ -201,7 +202,7 @@ export class InvitationService {
     await this.mail.sendInvitation({
       to: user.email,
       name: user.name,
-      role: user.role,
+      role: user.roles[0],
       inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
       institute: params.instituteName,
     });
@@ -210,7 +211,7 @@ export class InvitationService {
       id: user.id,
       name: user.name,
       email: user.email,
-      role: user.role,
+      roles: user.roles,
       status: user.status,
     };
   }

@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthUser } from "@/hooks/use-auth";
 import { logout } from "@/lib/auth";
+import { RoleSwitcher } from "@/components/staff/role-switcher";
 
 import {
   ActivityIcon,
@@ -85,26 +86,31 @@ export function AdminSidebar() {
       {/* Workspace switcher */}
       {/* Was a dead button captioned "Dr. John Doe" regardless of who was
           signed in. Now it names the real user and opens their profile. */}
-      <Link
-        href="/admin/profile"
-        className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 text-left hover:bg-admin-bg"
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
-          {(user?.name ?? "")
-            .split(/\s+/)
-            .slice(0, 2)
-            .map((p) => p[0]?.toUpperCase() ?? "")
-            .join("") || "—"}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-admin-ink">
-            {user?.name ?? "…"}
+      <div className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 hover:bg-admin-bg">
+        <Link
+          href="/admin/profile"
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
+            {(user?.name ?? "")
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((p) => p[0]?.toUpperCase() ?? "")
+              .join("") || "—"}
           </span>
-          <span className="block text-xs text-admin-muted">
-            Institute workspace
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold text-admin-ink">
+              {user?.name ?? "…"}
+            </span>
+            <span className="block text-xs text-admin-muted">
+              Institute workspace
+            </span>
           </span>
-        </span>
-      </Link>
+        </Link>
+        {user?.role && (
+          <RoleSwitcher activeRole={user.role} roles={user.roles} />
+        )}
+      </div>
 
       {/* Nav */}
       <nav className="mt-4 flex flex-col gap-1">

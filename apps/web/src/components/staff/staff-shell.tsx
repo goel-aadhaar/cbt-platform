@@ -73,6 +73,8 @@ export function StaffShell({
   );
 }
 
+import { RoleSwitcher } from "./role-switcher";
+
 function StaffSidebar({
   nav,
   workspace,
@@ -115,22 +117,31 @@ function StaffSidebar({
           spans tenants and roles, "which account am I?" is a safety question.
           Clicking it opens the profile, which is where that question is
           answered in full. */}
-      <Link
-        href={profileHref}
-        className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 text-left hover:bg-admin-bg"
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
-          {initials(user?.name)}
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-bold text-admin-ink">
-            {user?.name ?? "…"}
+      {/* The identity card is two clickable regions, not one. The avatar
+          block is a link to the profile; the role chip is a real button that
+          opens its own menu. Wrapping them together makes clicking the chip
+          navigate to the profile first, defeating the switcher. */}
+      <div className="mt-5 flex items-center gap-3 rounded-xl border border-admin-line bg-white px-3 py-2.5 hover:bg-admin-bg">
+        <Link
+          href={profileHref}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
+            {initials(user?.name)}
           </span>
-          <span className="block truncate text-xs text-admin-muted">
-            {workspace}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold text-admin-ink">
+              {user?.name ?? "…"}
+            </span>
+            <span className="block truncate text-xs text-admin-muted">
+              {workspace}
+            </span>
           </span>
-        </span>
-      </Link>
+        </Link>
+        {user?.role && (
+          <RoleSwitcher activeRole={user.role} roles={user.roles} />
+        )}
+      </div>
 
       <nav className="mt-4 flex flex-col gap-1 overflow-y-auto">
         {nav.map(({ label, href, icon: Icon }) => {

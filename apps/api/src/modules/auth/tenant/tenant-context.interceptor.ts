@@ -28,6 +28,7 @@ export class TenantContextInterceptor implements NestInterceptor {
     if (user) {
       this.tenantContext.enterWith({
         userId: user.userId,
+        // The ACTIVE role — see AuthUser.
         role: user.role,
         instituteId: user.instituteId,
         isSuperadmin: user.role === Role.SUPERADMIN,

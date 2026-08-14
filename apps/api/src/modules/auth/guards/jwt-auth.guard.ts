@@ -38,6 +38,8 @@ export const SESSION_REASON = {
   UNKNOWN: 'SESSION_UNKNOWN',
   /** The account was disabled or is still pending. */
   INACTIVE: 'ACCOUNT_INACTIVE',
+  /** Signed in, but holds several roles and has not chosen one yet. */
+  NO_ROLE: 'ROLE_NOT_SELECTED',
 } as const;
 
 /**
@@ -105,10 +107,11 @@ export class JwtAuthGuard implements CanActivate {
         userId: true,
         revokedAt: true,
         expiresAt: true,
+        activeRole: true,
         user: {
           select: {
             id: true,
-            role: true,
+            roles: true,
             status: true,
             instituteId: true,
           },
@@ -148,9 +151,33 @@ export class JwtAuthGuard implements CanActivate {
       );
     }
 
+    /**
+     * A session with several roles available must pick one before it can do
+     * anything. Refusing here rather than defaulting to the strongest role is
+     * the whole point: an unchosen session has no authority at all.
+     *
+     * The route that makes the choice is @Public and validates the pick against
+     * the user's own roles, so this cannot lock anyone out.
+     */
+    if (session.activeRole === null) {
+      throw sessionError(
+        SESSION_REASON.NO_ROLE,
+        'Choose which role to continue as.',
+      );
+    }
+    // Defence in depth: a role removed from the account after the session was
+    // created must stop working immediately, not at expiry.
+    if (!session.user.roles.includes(session.activeRole)) {
+      throw sessionError(
+        SESSION_REASON.NO_ROLE,
+        'That role is no longer available on your account. Sign in again.',
+      );
+    }
+
     request.user = {
       userId: session.user.id,
-      role: session.user.role,
+      role: session.activeRole,
+      roles: session.user.roles,
       instituteId: session.user.instituteId,
       sessionId: session.id,
     };

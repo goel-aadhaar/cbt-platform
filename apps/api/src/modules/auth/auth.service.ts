@@ -13,6 +13,9 @@ import { Role, UserStatus } from './auth.types';
 import { GoogleTokenService } from './google-token.service';
 import { PasswordService } from './password.service';
 
+/** Roles an institute-facing login may act as. SUPERADMIN is not among them. */
+const STAFF_ROLES: Role[] = [Role.ADMIN, Role.TEACHER];
+
 interface SessionMeta {
   userAgent?: string;
   ip?: string;
@@ -24,9 +27,17 @@ export interface LoginResult {
     id: string;
     name: string;
     email: string;
-    role: Role;
+    /** The role this session is acting as; null until one is chosen. */
+    role: Role | null;
+    /** What the account may act as — one entry means it was chosen for them. */
+    roles: Role[];
     instituteId: string | null;
   };
+  /**
+   * Roles the user may pick for THIS door. More than one means the client must
+   * ask, then call selectRole; the session can do nothing until it does.
+   */
+  selectableRoles: Role[];
 }
 
 /** Minimal shape needed to complete a login (a full User row satisfies it). */
@@ -34,7 +45,7 @@ interface AuthenticatableUser {
   id: string;
   name: string;
   email: string;
-  role: Role;
+  roles: Role[];
   status: UserStatus;
   instituteId: string | null;
   passwordHash: string | null;
@@ -65,18 +76,10 @@ export class AuthService {
   ): Promise<LoginResult> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Students authenticate via the student endpoint, not by email.
-    if (!user || user.role === Role.STUDENT) {
+    if (!user || user.roles.includes(Role.STUDENT)) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    if (user.role === Role.SUPERADMIN) {
-      // Said plainly: the credentials are right, the door is wrong. Revealing
-      // this costs nothing — they already proved nothing at this point, and a
-      // superadmin left guessing would be worse.
-      throw new ForbiddenException(
-        'Platform accounts sign in through the platform console, not an institute login.',
-      );
-    }
-    return this.completeLogin(user, password, meta);
+    return this.completeLogin(user, password, meta, STAFF_ROLES);
   }
 
   /** Platform owner. Deliberately its own door; nobody else may use it. */
@@ -86,10 +89,13 @@ export class AuthService {
     meta: SessionMeta,
   ): Promise<LoginResult> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || user.role !== Role.SUPERADMIN) {
+    if (!user || !user.roles.includes(Role.SUPERADMIN)) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return this.completeLogin(user, password, meta);
+    // Only ever a platform session, even if the account also administers an
+    // institute — the cross-tenant role is not something you arrive at by
+    // accident from another door.
+    return this.completeLogin(user, password, meta, [Role.SUPERADMIN]);
   }
 
   /**
@@ -111,14 +117,9 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email: identity.email },
     });
-    if (!user || user.role === Role.STUDENT) {
+    if (!user || user.roles.includes(Role.STUDENT)) {
       throw new UnauthorizedException(
         `No staff account exists for ${identity.email}. Ask your administrator to invite you first.`,
-      );
-    }
-    if (user.role === Role.SUPERADMIN) {
-      throw new ForbiddenException(
-        'Platform accounts sign in through the platform console, not an institute login.',
       );
     }
     if (user.status !== UserStatus.ACTIVE) {
@@ -129,18 +130,7 @@ export class AuthService {
       );
     }
     await this.assertInstituteActive(user.instituteId);
-
-    const accessToken = await this.issueSession(user.id, meta);
-    return {
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        instituteId: user.instituteId,
-      },
-    };
+    return this.issueFor(user, meta, STAFF_ROLES);
   }
 
   async loginStudent(
@@ -162,7 +152,7 @@ export class AuthService {
     });
     if (!student) throw new UnauthorizedException('Invalid credentials');
 
-    return this.completeLogin(student.user, password, meta);
+    return this.completeLogin(student.user, password, meta, [Role.STUDENT]);
   }
 
   async logout(sessionId: string): Promise<void> {
@@ -180,7 +170,7 @@ export class AuthService {
         id: true,
         name: true,
         email: true,
-        role: true,
+        roles: true,
         status: true,
         instituteId: true,
       },
@@ -202,7 +192,7 @@ export class AuthService {
         name: true,
         email: true,
         phone: true,
-        role: true,
+        roles: true,
         status: true,
         instituteId: true,
         createdAt: true,
@@ -210,24 +200,23 @@ export class AuthService {
       },
     });
 
-    const student =
-      user.role === Role.STUDENT
-        ? await this.prisma.student.findUnique({
-            where: { userId },
-            select: {
-              rollNumber: true,
-              createdAt: true,
-              batch: {
-                select: {
-                  name: true,
-                  class: {
-                    select: { name: true, program: { select: { name: true } } },
-                  },
+    const student = user.roles.includes(Role.STUDENT)
+      ? await this.prisma.student.findUnique({
+          where: { userId },
+          select: {
+            rollNumber: true,
+            createdAt: true,
+            batch: {
+              select: {
+                name: true,
+                class: {
+                  select: { name: true, program: { select: { name: true } } },
                 },
               },
             },
-          })
-        : null;
+          },
+        })
+      : null;
 
     return {
       ...user,
@@ -312,6 +301,7 @@ export class AuthService {
     user: AuthenticatableUser,
     password: string,
     meta: SessionMeta,
+    allowedHere: Role[],
   ): Promise<LoginResult> {
     if (user.status !== UserStatus.ACTIVE || user.passwordHash === null) {
       throw new UnauthorizedException('Invalid credentials');
@@ -323,17 +313,129 @@ export class AuthService {
     // the account; it is a state they can act on, not a credential hint.
     await this.assertInstituteActive(user.instituteId);
 
-    const accessToken = await this.issueSession(user.id, meta);
+    return this.issueFor(user, meta, allowedHere);
+  }
+
+  /**
+   * Issue a session for the roles this door allows.
+   *
+   * One match: chosen for them, and they carry on. Several: the session is
+   * created but acts as NOTHING until `selectRole` is called — the guard
+   * refuses every other route meanwhile. No match: this is the wrong door, and
+   * saying so is more use than a generic refusal to someone who just proved
+   * they own the account.
+   */
+  private async issueFor(
+    user: AuthenticatableUser,
+    meta: SessionMeta,
+    allowedHere: Role[],
+  ): Promise<LoginResult> {
+    const selectable = user.roles.filter((r) => allowedHere.includes(r));
+
+    if (selectable.length === 0) {
+      throw new ForbiddenException(
+        user.roles.includes(Role.SUPERADMIN)
+          ? 'Platform accounts sign in through the platform console, not an institute login.'
+          : 'This account cannot sign in here.',
+      );
+    }
+
+    const activeRole = selectable.length === 1 ? selectable[0] : null;
+    const accessToken = await this.issueSession(user.id, meta, activeRole);
+
     return {
       accessToken,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
-        role: user.role,
+        role: activeRole,
+        roles: user.roles,
         instituteId: user.instituteId,
       },
+      selectableRoles: selectable,
     };
+  }
+
+  /**
+   * Switch the role this session is acting as, without re-authenticating.
+   *
+   * Differs from `selectRole` (the login-time choice) in that it never
+   * refuses on the grounds of "already signed in" — that is exactly the
+   * point of switching. Both still validate against the account's own roles,
+   * so neither can be used to escape least privilege.
+   *
+   * Ending the current session would have been simpler, but it would also
+   * discard unsaved exam progress in places like the teacher builder. Live
+   * switching keeps the session alive and changes only who it acts as.
+   */
+  /**
+   * Choose which role this session acts as. The pick is validated against the
+   * account's OWN roles, so the client naming a role it does not hold changes
+   * nothing — this is the point at which "which console do you want" stops
+   * being a UI question and becomes an authorization fact.
+   *
+   * Refuses to switch an already-committed session: that is what
+   * `switchRole` is for.
+   */
+  async switchRoleBody(sessionId: string, role: Role): Promise<{ role: Role }> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        revokedAt: true,
+        expiresAt: true,
+        user: { select: { roles: true } },
+      },
+    });
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+      throw new UnauthorizedException('Session is no longer valid');
+    }
+    if (!session.user.roles.includes(role)) {
+      throw new ForbiddenException('Your account does not have that role.');
+    }
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { activeRole: role },
+    });
+    return { role };
+  }
+
+  async selectRole(sessionId: string, role: Role): Promise<{ role: Role }> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        revokedAt: true,
+        expiresAt: true,
+        activeRole: true,
+        user: { select: { roles: true } },
+      },
+    });
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+      throw new UnauthorizedException('Session is no longer valid');
+    }
+    if (!session.user.roles.includes(role)) {
+      throw new ForbiddenException('Your account does not have that role.');
+    }
+    // A session already acting as a role does not silently become another;
+    // switching is a deliberate act, not a side effect of replaying a request.
+    if (session.activeRole !== null && session.activeRole !== role) {
+      throw new ForbiddenException(
+        'This session is already signed in as ' +
+          `${session.activeRole}. Sign out to switch roles.`,
+      );
+    }
+
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { activeRole: role },
+    });
+    return { role };
+  }
+
+  async switchRole(sessionId: string, role: Role): Promise<{ role: Role }> {
+    return this.switchRoleBody(sessionId, role);
   }
 
   /**
@@ -358,6 +460,7 @@ export class AuthService {
   private async issueSession(
     userId: string,
     meta: SessionMeta,
+    activeRole: Role | null,
   ): Promise<string> {
     const sessionId = randomUUID();
     const token = await this.jwt.signAsync({ sub: userId, sid: sessionId });
@@ -376,6 +479,7 @@ export class AuthService {
           expiresAt,
           userAgent: meta.userAgent,
           ip: meta.ip,
+          activeRole,
         },
       }),
       this.prisma.user.update({

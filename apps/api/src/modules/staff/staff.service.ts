@@ -33,7 +33,7 @@ export class StaffService {
 
     const where = {
       instituteId,
-      role: query.role ?? ('TEACHER' as const),
+      roles: { has: query.role ?? ('TEACHER' as const) },
       ...(query.status ? { status: query.status } : {}),
       ...(term
         ? {

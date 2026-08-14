@@ -21,12 +21,30 @@ import { GoogleSignIn } from "@/components/auth/google-sign-in";
 import { ApiError } from "@/lib/api";
 import {
   googleLogin,
+  logout,
+  selectRole,
   staffLogin,
   studentLogin,
   type LoginResult,
+  type Role,
 } from "@/lib/auth";
 
 const DEFAULT_INSTITUTE = process.env.NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG ?? "";
+
+const ROLE_LABEL: Record<Role, string> = {
+  STUDENT: "Student",
+  TEACHER: "Teacher",
+  ADMIN: "Administrator",
+  SUPERADMIN: "Super Admin",
+};
+
+/** What each role actually gets to do, so the choice is an informed one. */
+const ROLE_BLURB: Record<Role, string> = {
+  STUDENT: "Sit examinations and review your results.",
+  TEACHER: "Author questions and papers, and read student reports.",
+  ADMIN: "Run the institute: students, exams, approvals and publishing.",
+  SUPERADMIN: "Platform owner. Access across every institute.",
+};
 
 export function LoginScreen() {
   const router = useRouter();
@@ -47,6 +65,8 @@ export function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Non-null once a signed-in account turns out to hold several roles. */
+  const [choices, setChoices] = useState<Role[] | null>(null);
 
   /**
    * Two steps only. Staff no longer pick a role before signing in: the account
@@ -54,8 +74,8 @@ export function LoginScreen() {
    * choice carried weight. It never did — the API authorises every request
    * from the token, not from anything chosen here.
    */
-  const step: "audience" | "credentials" =
-    audience === null ? "audience" : "credentials";
+  const step: "audience" | "credentials" | "role" =
+    choices !== null ? "role" : audience === null ? "audience" : "credentials";
 
   /**
    * 401 is the one failure worth softening: the server says "Invalid
@@ -107,11 +127,35 @@ export function LoginScreen() {
     setSubmitting(true);
     try {
       const result = await attempt();
-      router.push(homeForRole(result.user.role));
+
+      // One role: the server already committed the session to it.
+      if (result.user.role) {
+        router.push(homeForRole(result.user.role));
+        return;
+      }
+
+      // Several: the session exists but can do nothing until a role is
+      // chosen, so ask. The list comes from the server — this screen offers
+      // what the account actually holds, it does not decide it.
+      setChoices(result.selectableRoles);
+      setSubmitting(false);
     } catch (err) {
       setError(
         describe(err, "Invalid credentials. Check your email and password."),
       );
+      setSubmitting(false);
+    }
+  }
+
+  /** Commit the session to a role, then go where that role belongs. */
+  async function chooseRole(role: Role) {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const committed = await selectRole(role);
+      router.push(homeForRole(committed));
+    } catch (err) {
+      setError(describe(err, "Could not continue as that role."));
       setSubmitting(false);
     }
   }
@@ -121,10 +165,17 @@ export function LoginScreen() {
     await signInAsStaff(() => staffLogin({ email: email.trim(), password }));
   }
 
-  /** Back to the audience choice, dropping anything typed on the way. */
+  /** Back one screen, dropping anything typed on the way. */
   function back() {
     setError(null);
     setPassword("");
+    if (choices !== null) {
+      // Abandoning the choice leaves a session that can do nothing; drop it so
+      // the next sign-in starts clean rather than resuming a limbo session.
+      void logout();
+      setChoices(null);
+      return;
+    }
     setAudience(null);
   }
 
@@ -187,6 +238,36 @@ export function LoginScreen() {
                     }}
                   />
                 </div>
+              </>
+            )}
+
+            {step === "role" && choices && (
+              <>
+                <Heading
+                  title="Choose how to continue"
+                  subtitle="Your account holds more than one role. Pick the one you want to work in — you can sign out and pick the other later."
+                />
+                <div className="flex flex-col gap-3">
+                  {choices.map((role) => (
+                    <ChoiceCard
+                      key={role}
+                      title={ROLE_LABEL[role]}
+                      blurb={ROLE_BLURB[role]}
+                      onClick={() => void chooseRole(role)}
+                    />
+                  ))}
+                </div>
+                {error && (
+                  <div className="mt-4">
+                    <ErrorNote>{error}</ErrorNote>
+                  </div>
+                )}
+                {/* Only one role is in force at a time — say so, because the
+                    other one being unavailable would otherwise look broken. */}
+                <p className="mt-5 text-xs text-subtle">
+                  You will be signed in as that role only. Anything the other
+                  role can do stays out of reach until you sign in again.
+                </p>
               </>
             )}
 

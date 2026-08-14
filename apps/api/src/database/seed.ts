@@ -32,7 +32,7 @@ async function seed(): Promise<void> {
       data: {
         name: 'Super Admin',
         email,
-        role: 'SUPERADMIN',
+        roles: ['SUPERADMIN'],
         status: 'ACTIVE',
         passwordHash,
       },

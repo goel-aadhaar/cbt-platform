@@ -23,7 +23,17 @@ model User {
   /// Contact number, maintained by the user themselves. Optional: it is not
   /// needed to sit an exam, and the invite flow never collects one.
   phone  String?
-  role   Role
+  /**
+   * Every role this account may act as (§2.2). An array because one person can
+   * genuinely be both — a senior teacher who also administers the institute —
+   * and forcing them into two accounts means two email addresses and no way to
+   * be both at once under the single-session rule.
+   *
+   * Holding a role is not the same as using it: a session acts as exactly ONE
+   * of these at a time (Session.activeRole), so authorization stays least-
+   * privilege rather than "whatever this person could be".
+   */
+  roles  Role[]
   status UserStatus @default(PENDING)
 
   /// Null until the invitation is accepted and a password is set (argon2 hash).
@@ -65,6 +75,7 @@ model User {
   mediaUploaded     Media[]
 
   @@index([instituteId])
-  @@index([role])
+  /// GIN, because staff listings ask "has this role" against an array.
+  @@index([roles], type: Gin)
   @@map("users")
 }

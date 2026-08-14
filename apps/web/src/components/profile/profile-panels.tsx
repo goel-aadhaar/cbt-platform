@@ -101,7 +101,7 @@ function IdentityCard({ profile }: { profile: MyProfile }) {
             {profile.name}
           </h2>
           <p className="text-sm text-admin-muted">
-            {ROLE_LABEL[profile.role] ?? profile.role}
+            {profile.roles.map((r) => ROLE_LABEL[r] ?? r).join(" · ")}
             {profile.institute ? ` · ${profile.institute.name}` : ""}
           </p>
         </div>

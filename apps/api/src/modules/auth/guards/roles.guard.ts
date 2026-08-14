@@ -38,6 +38,12 @@ export class RolesGuard implements CanActivate {
       .getRequest<Request & { user?: AuthUser }>();
     const user = request.user;
 
+    /**
+     * `user.role` is the role this SESSION is acting as, not everything the
+     * account could be. Do not widen this to `user.roles`: a teacher-
+     * administrator working in the teacher console would then reach
+     * administrator routes, and choosing a role would mean nothing.
+     */
     if (!user || !requiredRoles.includes(user.role)) {
       throw new ForbiddenException('Insufficient role');
     }

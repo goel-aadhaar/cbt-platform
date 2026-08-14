@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadingSpinner } from "@/components/loading-spinner";
 import { useRequireRole } from "@/hooks/use-auth";
 import { AdminSidebar } from "./admin-sidebar";
 import { AdminTopbar } from "./admin-topbar";
@@ -24,7 +25,9 @@ export function AdminShell({
         aria-hidden
         className="flex h-screen items-center justify-center bg-admin-bg"
       >
-        <span className="size-8 animate-pulse rounded-full bg-admin/20" />
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <LoadingSpinner size={32} />
+        </div>
       </div>
     );
   }

@@ -10,6 +10,13 @@ model Session {
   revokedAt DateTime? @map("revoked_at")
   userAgent String?   @map("user_agent")
   ip        String?
+  /**
+   * Which of the user's roles this session is acting as. NULL means the user
+   * has more than one and has not chosen yet — the guard refuses everything
+   * until they do, so an unchosen session can do nothing rather than
+   * defaulting to the most powerful option.
+   */
+  activeRole Role?    @map("active_role")
   createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

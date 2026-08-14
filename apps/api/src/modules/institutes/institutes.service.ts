@@ -94,12 +94,12 @@ export class InstitutesService {
     const [stats, staff, lastAttempt] = await Promise.all([
       this.statsByInstitute(id),
       this.prisma.user.findMany({
-        where: { instituteId: id, role: { in: ['ADMIN', 'TEACHER'] } },
+        where: { instituteId: id, roles: { hasSome: ['ADMIN', 'TEACHER'] } },
         select: {
           id: true,
           name: true,
           email: true,
-          role: true,
+          roles: true,
           status: true,
           createdAt: true,
         },
@@ -198,7 +198,7 @@ export class InstitutesService {
       }),
       this.prisma.user.groupBy({
         by: ['instituteId'],
-        where: { ...where, role: { in: ['ADMIN', 'TEACHER'] } },
+        where: { ...where, roles: { hasSome: ['ADMIN', 'TEACHER'] } },
         _count: { _all: true },
       }),
     ]);

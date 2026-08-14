@@ -15,13 +15,21 @@ export interface AuthUser {
   id: string;
   name: string;
   email: string;
-  role: Role;
+  /** The role this session is acting as; null until one has been chosen. */
+  role: Role | null;
+  /** Every role the account holds — what a switcher could offer. */
+  roles: Role[];
   instituteId: string | null;
 }
 
 export interface LoginResult {
   accessToken: string;
   user: AuthUser;
+  /**
+   * Roles valid for the door just used. More than one means the user must be
+   * asked; the session can do nothing until `selectRole` is called.
+   */
+  selectableRoles: Role[];
 }
 
 export interface StudentLoginInput {
@@ -252,4 +260,57 @@ export function changeMyPassword(body: {
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
   return apiFetch("/auth/me/password", { method: "POST", body, token });
+}
+
+/**
+ * POST /auth/session/role — commit this session to one of the user's roles.
+ *
+ * The server validates the pick against the account's own roles, so this is a
+ * request, not an assertion: naming a role the account does not hold is
+ * refused. Authorization for every later call is decided from the stored
+ * choice, never from anything the browser remembers.
+ */
+export async function selectRole(role: Role): Promise<Role> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const result = await apiFetch<{ role: Role }>("/auth/session/role", {
+    method: "POST",
+    body: { role },
+    token,
+  });
+  // Reflect the committed role locally so the shells route correctly.
+  const current = getUserSnapshot();
+  if (current) {
+    window.localStorage.setItem(
+      USER_KEY,
+      JSON.stringify({ ...current, role: result.role }),
+    );
+    notify();
+  }
+  return result.role;
+}
+
+/**
+ * POST /auth/session/switch — change the role this session is acting as
+ * without re-authenticating. Same validation as selectRole (the pick is
+ * checked against the account's own roles), so the browser cannot grant
+ * itself a role it does not hold.
+ */
+export async function switchRole(role: Role): Promise<Role> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const result = await apiFetch<{ role: Role }>("/auth/session/switch", {
+    method: "POST",
+    body: { role },
+    token,
+  });
+  const current = getUserSnapshot();
+  if (current) {
+    window.localStorage.setItem(
+      USER_KEY,
+      JSON.stringify({ ...current, role: result.role }),
+    );
+    notify();
+  }
+  return result.role;
 }

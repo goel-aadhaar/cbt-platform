@@ -1,4 +1,6 @@
-import { IsEmail, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
+
+import { Role } from '../auth.types';
 
 /** Staff login (superadmin/admin/teacher) — by email. */
 export class LoginDto {
@@ -30,4 +32,10 @@ export class GoogleLoginDto {
   @IsString()
   @MinLength(20)
   credential: string;
+}
+
+/** Which of the caller's own roles this session should act as. */
+export class SelectRoleDto {
+  @IsEnum(Role)
+  role: Role;
 }

@@ -8,6 +8,7 @@ import {
   UserIcon,
   UsersIcon,
 } from "@/components/admin/icons";
+import { LoadingSpinner } from "@/components/loading-spinner";
 import { useRequireRole } from "@/hooks/use-auth";
 import { StaffShell, type StaffNavItem } from "./staff-shell";
 
@@ -63,7 +64,9 @@ function ShellSkeleton() {
       aria-hidden
       className="flex h-screen items-center justify-center bg-admin-bg"
     >
-      <span className="size-8 animate-pulse rounded-full bg-admin/20" />
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <LoadingSpinner size={32} />
+      </div>
     </div>
   );
 }

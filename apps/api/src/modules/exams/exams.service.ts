@@ -412,7 +412,7 @@ export class ExamsService {
         },
       }),
       this.prisma.user.findFirst({
-        where: { id: reviewerId, instituteId, role: 'ADMIN' },
+        where: { id: reviewerId, instituteId, roles: { has: 'ADMIN' } },
         select: { id: true },
       }),
     ]);
@@ -455,6 +455,18 @@ export class ExamsService {
     if (exam.status !== ExamStatus.REVIEW) {
       throw new BadRequestException('Only exams under review can be approved');
     }
+    /**
+     * Separation of duties: the same person who authored a paper cannot
+     * approve it, regardless of which role they reached the approval screen
+     * in. A teacher-administrator who authorized their own paper just by
+     * switching roles is the single most common way an "approval" loses
+     * meaning, and the rule is cheap — the author id is already on the row.
+     */
+    if (exam.createdById === userId) {
+      throw new ForbiddenException(
+        'You authored this exam and cannot also approve it. Ask another administrator.',
+      );
+    }
 
     /**
      * Approval is where a paper gets its candidate-facing name: the category
@@ -489,9 +501,17 @@ export class ExamsService {
 
   /** Admin sends a submitted exam back to its author with optional feedback. */
   async reject(examId: string, reason?: string) {
+    const { userId } = this.ctx();
     const exam = await this.getOwned(examId);
     if (exam.status !== ExamStatus.REVIEW) {
       throw new BadRequestException('Only exams under review can be rejected');
+    }
+    // Same person cannot author and reject their own paper either — that
+    // would be approval by another name.
+    if (exam.createdById === userId) {
+      throw new ForbiddenException(
+        'You authored this exam and cannot also reject it. Ask another administrator.',
+      );
     }
     return this.prisma.exam.update({
       where: { id: examId },

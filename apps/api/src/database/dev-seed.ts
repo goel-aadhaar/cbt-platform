@@ -90,7 +90,7 @@ async function devSeed(): Promise<void> {
     data: {
       name: 'Demo Admin',
       email: 'admin@demo.local',
-      role: 'ADMIN',
+      roles: ['ADMIN'],
       status: 'ACTIVE',
       passwordHash: adminHash,
       instituteId: iid,
@@ -108,7 +108,7 @@ async function devSeed(): Promise<void> {
         data: {
           name: t.name,
           email: t.email,
-          role: 'TEACHER',
+          roles: ['TEACHER'],
           status: 'ACTIVE',
           passwordHash: teacherHash,
           instituteId: iid,
@@ -187,7 +187,7 @@ async function devSeed(): Promise<void> {
         data: {
           name: `${first} ${last}`,
           email,
-          role: 'STUDENT',
+          roles: ['STUDENT'],
           status: 'ACTIVE',
           passwordHash: studentHash,
           instituteId: iid,
@@ -528,7 +528,7 @@ async function devSeed(): Promise<void> {
       data: {
         instituteId: iid,
         actorId: a.actor.id,
-        actorRole: a.actor.role,
+        actorRole: a.actor.roles[0],
         action: a.action,
         entityType: a.entityType,
         entityId: a.entityId,
@@ -545,7 +545,7 @@ async function devSeed(): Promise<void> {
     classes: await prisma.class.count({ where: { instituteId: iid } }),
     batches: await prisma.batch.count({ where: { instituteId: iid } }),
     teachers: await prisma.user.count({
-      where: { instituteId: iid, role: 'TEACHER' },
+      where: { instituteId: iid, roles: { has: 'TEACHER' } },
     }),
     students: await prisma.student.count({ where: { instituteId: iid } }),
     questions: await prisma.question.count({ where: { instituteId: iid } }),

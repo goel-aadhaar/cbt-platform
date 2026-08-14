@@ -36,7 +36,9 @@ export class PlatformService {
       this.prisma.institute.count(),
       this.prisma.institute.count({ where: { isActive: true } }),
       this.prisma.student.count(),
-      this.prisma.user.count({ where: { role: { in: ['ADMIN', 'TEACHER'] } } }),
+      this.prisma.user.count({
+        where: { roles: { hasSome: ['ADMIN', 'TEACHER'] } },
+      }),
       this.prisma.exam.count(),
       this.prisma.question.count(),
       this.prisma.attempt.count(),

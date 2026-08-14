@@ -65,6 +65,12 @@ export function useRequireRole(allowed: Role[]): AuthUser | null {
       router.replace("/login?as=staff");
       return;
     }
+    // No role committed yet: the account holds several and the choice is
+    // still pending, so send them back to make it rather than guessing.
+    if (user.role === null) {
+      router.replace("/login?as=staff");
+      return;
+    }
     if (!allowed.includes(user.role)) {
       router.replace(homeForRole(user.role));
     }
@@ -73,7 +79,14 @@ export function useRequireRole(allowed: Role[]): AuthUser | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, user, router]);
 
-  if (!hydrated || !user || !allowed.includes(user.role)) return null;
+  if (
+    !hydrated ||
+    !user ||
+    user.role === null ||
+    !allowed.includes(user.role)
+  ) {
+    return null;
+  }
   return user;
 }
 
