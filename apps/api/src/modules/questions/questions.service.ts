@@ -416,8 +416,31 @@ export class QuestionsService {
     });
   }
 
-  async archive(id: string) {
-    await this.getOwned(id);
+  async archive(id: string, confirm?: boolean) {
+    const existing = await this.getOwned(id);
+    if (existing.status === QuestionStatus.ARCHIVED) return this.findOne(id);
+
+    // Same in-use safeguard as update() (§2.5): archiving is a silent
+    // content change too — a teacher scanning "my exam's questions" would
+    // find one quietly archived with no warning otherwise.
+    if (!confirm) {
+      const usedIn = await this.prisma.examQuestion.findMany({
+        where: { questionId: id },
+        select: {
+          exam: { select: { id: true, title: true, status: true } },
+        },
+      });
+      if (usedIn.length > 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'QuestionUsedInExams',
+          message:
+            'This question has already been used in exams. Continue? Re-send with confirm=true.',
+          affectedExams: usedIn.map((u) => u.exam),
+        });
+      }
+    }
+
     return this.prisma.question.update({
       where: { id },
       data: { status: QuestionStatus.ARCHIVED, isActive: false },

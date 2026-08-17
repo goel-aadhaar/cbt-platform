@@ -24,6 +24,8 @@ import {
   LockClosedIcon,
   MaximizeIcon,
 } from "@/components/icons";
+import { CalculatorModal } from "@/components/exam/calculator-modal";
+import { InstructionsModal } from "@/components/exam/instructions-modal";
 import { LeaveConfirmModal } from "@/components/exam/leave-confirm-modal";
 import { SubmitConfirmModal } from "@/components/exam/submit-confirm-modal";
 import { useCountdown } from "@/hooks/use-countdown";
@@ -343,6 +345,9 @@ function ExamRunner({
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Logout — abandons the attempt rather than submitting it. */
   const [leaveOpen, setLeaveOpen] = useState(false);
+  /** Toolbar overlays — read-only, so they don't touch attempt state. */
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   /**
    * A save-and-advance is in flight. The ref is the actual guard (checked
    * synchronously, so a double-click in one tick can't slip through); the
@@ -583,13 +588,17 @@ function ExamRunner({
           )}
 
           <nav className="flex items-center gap-2 border-l border-line pl-4 text-muted">
-            <ToolLink
-              icon={<CalculatorIcon className="size-4" />}
-              label="Calculator"
-            />
+            {attempt.exam.calculatorEnabled && (
+              <ToolLink
+                icon={<CalculatorIcon className="size-4" />}
+                label="Calculator"
+                onClick={() => setCalculatorOpen(true)}
+              />
+            )}
             <ToolLink
               icon={<InfoIcon className="size-4" />}
               label="Instructions"
+              onClick={() => setInstructionsOpen(true)}
             />
             <ToolLink
               icon={<DocumentIcon className="size-4" />}
@@ -647,7 +656,9 @@ function ExamRunner({
                 <button
                   type="button"
                   aria-label="Flag question"
-                  className="text-subtle hover:text-warn"
+                  disabled
+                  title="Use “Save and Mark for Review” or “Mark for Review & Next” below"
+                  className="text-subtle hover:text-warn disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-subtle"
                 >
                   <FlagIcon className="h-[17px] w-[15px]" />
                 </button>
@@ -898,6 +909,17 @@ function ExamRunner({
           onConfirm={onLeave}
         />
       )}
+
+      {instructionsOpen && (
+        <InstructionsModal
+          instructions={attempt.exam.instructions}
+          onClose={() => setInstructionsOpen(false)}
+        />
+      )}
+
+      {calculatorOpen && (
+        <CalculatorModal onClose={() => setCalculatorOpen(false)} />
+      )}
     </div>
   );
 }
@@ -969,11 +991,22 @@ function mapStatus(r: AttemptResponse | undefined): QuestionStatus {
   }
 }
 
-function ToolLink({ icon, label }: { icon: React.ReactNode; label: string }) {
+function ToolLink({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
-      className="flex items-center gap-1.5 rounded-[2px] px-2 py-1 text-base text-muted hover:bg-fill"
+      onClick={onClick}
+      disabled={!onClick}
+      title={onClick ? undefined : "Not available for this exam"}
+      className="flex items-center gap-1.5 rounded-[2px] px-2 py-1 text-base text-muted hover:bg-fill disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {icon}
       {label}

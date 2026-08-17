@@ -1,21 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   evaluateExam,
   fetchExam,
+  listExamResults,
+  listQuestionScoring,
   publishResults,
+  setQuestionScoring,
   type ExamDetail,
+  type ExamQuestionScoringRow,
+  type QuestionScoring,
 } from "@/lib/admin";
 
-import {
-  ChevronDownIcon,
-  InfoIcon,
-  MinusCircleIcon,
-  PlusCircleIcon,
-  XIcon,
-} from "./icons";
+import { InfoIcon, MinusCircleIcon, PlusCircleIcon, XIcon } from "./icons";
 
 function Backdrop({ onClose }: { onClose: () => void }) {
   return (
@@ -76,8 +75,11 @@ export function PublishResultsModal({
   const [batches, setBatches] = useState<Batch[]>(INITIAL_BATCHES);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Total evaluated results for this exam — real count, shown in the footer. */
+  const [resultCount, setResultCount] = useState<number | null>(null);
 
-  // Replace the placeholder rows with the exam's real batch assignments.
+  // Replace the placeholder rows with the exam's real batch assignments, and
+  // the real number of students results would actually go to.
   useEffect(() => {
     if (!open || !examId) return;
     let cancelled = false;
@@ -88,7 +90,7 @@ export function PublishResultsModal({
           e.batches.map((b) => ({
             id: b.batch.id,
             name: b.batch.name,
-            meta: "Assigned to this exam",
+            meta: "Assigned batch",
             on: true,
           })),
         );
@@ -98,6 +100,14 @@ export function PublishResultsModal({
           err instanceof Error ? err.message : "Could not load batches.",
         ),
       );
+    listExamResults(examId)
+      .then((rows) => {
+        if (!cancelled) setResultCount(rows.length);
+      })
+      .catch(() => {
+        // The footer count is informational — a failed fetch here shouldn't
+        // block publishing, just falls back to not showing a number.
+      });
     return () => {
       cancelled = true;
     };
@@ -196,10 +206,7 @@ export function PublishResultsModal({
               New Results Available
             </span>
             <p className="mt-2 text-lg font-bold text-admin-ink">
-              Mid-Term Examination
-            </p>
-            <p className="text-sm text-admin-muted">
-              Biology 101 • Dr. John Doe
+              {examTitle ?? "Mid-Term Examination"}
             </p>
             <div className="mt-3 flex items-center gap-4 rounded-lg border border-admin-line/60 bg-white p-4">
               <Ring pct={85} />
@@ -224,13 +231,18 @@ export function PublishResultsModal({
 
         <div className="flex items-center justify-between border-t border-admin-line/60 px-7 py-4">
           <p className="text-sm text-admin-muted">
-            Releasing results to{" "}
-            <span className="font-semibold text-admin-ink">
-              {batches
-                .filter((b) => b.on)
-                .reduce((n, b) => n + parseInt(b.meta), 0)}{" "}
-              students
-            </span>
+            {resultCount === null ? (
+              "Loading evaluated results…"
+            ) : (
+              <>
+                Releasing{" "}
+                <span className="font-semibold text-admin-ink">
+                  {resultCount} evaluated result{resultCount === 1 ? "" : "s"}
+                </span>{" "}
+                across {batches.filter((b) => b.on).length} of {batches.length}{" "}
+                batch{batches.length === 1 ? "" : "es"}
+              </>
+            )}
           </p>
           <div className="flex items-center gap-3">
             {error && (
@@ -303,37 +315,48 @@ function Ring({ pct }: { pct: number }) {
 
 /* ---------------------------- Recalculate ---------------------------- */
 
-const HISTORY = [
-  {
-    when: "Oct 24, 14:30",
-    action: "Dropped Q92",
-    reason: "Translation error in Hindi paper",
-    by: "Dr. SK",
-    initials: "SK",
-  },
-  {
-    when: "Oct 24, 10:15",
-    action: "Bonus +4 to Q12",
-    reason: "Multiple correct options found",
-    by: "Admin",
-    initials: "AD",
-  },
-];
-
 export function RecalculateResultsModal({
   open,
   onClose,
   examId,
+  examTitle,
   onRecalculated,
 }: {
   open: boolean;
   onClose: () => void;
   /** Without an exam there is nothing to recalculate. */
   examId?: string;
+  examTitle?: string;
   onRecalculated?: (evaluated: number) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [items, setItems] = useState<ExamQuestionScoringRow[]>([]);
+  const [itemsError, setItemsError] = useState<string | null>(null);
+  const [selectedQuestion, setSelectedQuestion] = useState("");
+  const [overrideBusy, setOverrideBusy] = useState<string | null>(null);
+
+  const loadScoring = useCallback(() => {
+    if (!examId) return;
+    listQuestionScoring(examId)
+      .then((res) => {
+        setItems(res.items);
+        setItemsError(null);
+      })
+      .catch((e: unknown) =>
+        setItemsError(
+          e instanceof Error ? e.message : "Could not load questions.",
+        ),
+      );
+  }, [examId]);
+
+  useEffect(() => {
+    if (!open || !examId) return;
+    loadScoring();
+    // Clears the picked question when this closes or targets a different
+    // exam, without setting state synchronously in the effect body itself.
+    return () => setSelectedQuestion("");
+  }, [open, examId, loadScoring]);
 
   async function recalc() {
     if (!examId) return;
@@ -341,8 +364,9 @@ export function RecalculateResultsModal({
     setError(null);
     try {
       // Re-running evaluate re-scores every submitted attempt, which is what
-      // "recalculate" means here. Per-question bonus/drop rules are a separate
-      // endpoint (PATCH .../questions/:qid/scoring) not yet surfaced in this UI.
+      // "recalculate" means here. Per-question bonus/drop rules are set below,
+      // via PATCH .../questions/:qid/scoring, which itself already
+      // recalculates — this button is for a plain re-score with no changes.
       const res = await evaluateExam(examId);
       onRecalculated?.(res.evaluated);
       onClose();
@@ -350,6 +374,23 @@ export function RecalculateResultsModal({
       setError(e instanceof Error ? e.message : "Recalculation failed.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function override(questionId: string, scoring: QuestionScoring) {
+    if (!examId) return;
+    setOverrideBusy(questionId);
+    setItemsError(null);
+    try {
+      const res = await setQuestionScoring(examId, questionId, scoring);
+      loadScoring();
+      if (res.recalculated) onRecalculated?.(res.recalculated.evaluated);
+    } catch (e) {
+      setItemsError(
+        e instanceof Error ? e.message : "Could not update this question.",
+      );
+    } finally {
+      setOverrideBusy(null);
     }
   }
 
@@ -364,7 +405,9 @@ export function RecalculateResultsModal({
               Recalculate Results
             </h2>
             <p className="mt-1 text-sm text-admin-muted">
-              Adjust scoring parameters for Exam: NEET Mock Test 04
+              {examTitle
+                ? `Adjust scoring parameters for ${examTitle}.`
+                : "Select an exam from the results table to recalculate."}
             </p>
           </div>
           <button
@@ -377,86 +420,126 @@ export function RecalculateResultsModal({
         </div>
 
         <div className="flex-1 overflow-auto px-7 py-6">
-          {/* Bonus Marks */}
+          {itemsError && (
+            <p role="alert" className="mb-4 text-sm text-danger">
+              {itemsError}
+            </p>
+          )}
+
+          {/* Apply a bonus or drop to a question */}
           <section className="rounded-xl border border-admin-line/60 p-5">
             <h3 className="flex items-center gap-2 font-bold text-admin-ink">
-              <PlusCircleIcon className="size-5 text-admin" /> Bonus Marks
+              <PlusCircleIcon className="size-5 text-admin" /> Bonus or Drop a
+              Question
             </h3>
-            <div className="mt-4 grid grid-cols-[1.2fr_0.8fr_1.4fr] gap-3">
-              <Field label="Question ID">
-                <Select>Select Question</Select>
-              </Field>
-              <Field label="Marks to Add">
-                <input defaultValue="4" className={inputCls} />
-              </Field>
-              <Field label="Reason">
-                <input
-                  placeholder="e.g., Ambiguous wording"
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-            <div className="mt-3 flex justify-end">
-              <button className="rounded-lg bg-admin-mint/40 px-4 py-2 text-sm font-semibold text-admin">
-                + Add Rule
-              </button>
-            </div>
-          </section>
-
-          {/* Drop Questions */}
-          <section className="mt-4 rounded-xl border border-admin-line/60 p-5">
-            <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 font-bold text-admin-ink">
-                <MinusCircleIcon className="size-5 text-danger" /> Drop
-                Questions
-              </h3>
-              <span className="flex items-center gap-1 rounded bg-admin-surface px-2 py-1 font-mono text-[11px] text-admin-muted">
-                <InfoIcon className="size-3.5" /> Auto-recalculates total score
-              </span>
-            </div>
-            <p className="mt-4 text-xs font-bold uppercase tracking-wide text-admin-muted">
-              Select Question to Drop
+            <p className="mt-1 text-xs text-admin-muted">
+              Bonus awards every candidate full marks for the question; Drop
+              removes it from scoring and from the maximum. Both recalculate
+              every result immediately.
             </p>
-            <div className="mt-2 flex gap-3">
+            <div className="mt-4 flex gap-3">
               <div className="flex-1">
-                <Select>Select Question</Select>
+                <select
+                  value={selectedQuestion}
+                  onChange={(e) => setSelectedQuestion(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Select a question…</option>
+                  {items.map((q) => (
+                    <option key={q.questionId} value={q.questionId}>
+                      Q{q.order}
+                      {q.section ? ` (${q.section})` : ""} —{" "}
+                      {q.statement.slice(0, 60)}
+                      {q.statement.length > 60 ? "…" : ""}
+                      {q.scoring !== "NORMAL" ? ` [${q.scoring}]` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
-                Mark to Drop
+              <button
+                disabled={!selectedQuestion || overrideBusy !== null}
+                onClick={() => void override(selectedQuestion, "BONUS")}
+                className="flex items-center gap-2 rounded-lg bg-admin-mint/40 px-4 py-2 text-sm font-semibold text-admin disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <PlusCircleIcon className="size-4" />
+                {overrideBusy === selectedQuestion ? "Applying…" : "Bonus"}
+              </button>
+              <button
+                disabled={!selectedQuestion || overrideBusy !== null}
+                onClick={() => void override(selectedQuestion, "DROPPED")}
+                className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2 text-sm font-semibold text-danger hover:bg-danger-soft/30 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <MinusCircleIcon className="size-4" />
+                {overrideBusy === selectedQuestion ? "Applying…" : "Drop"}
               </button>
             </div>
           </section>
 
-          {/* History */}
-          <h3 className="mt-6 font-bold text-admin-ink">
-            Recent Recalculations
+          {/* Current overrides */}
+          <h3 className="mt-6 flex items-center gap-2 font-bold text-admin-ink">
+            Per-Question Scoring
+            <span className="flex items-center gap-1 rounded bg-admin-surface px-2 py-1 font-mono text-[11px] font-normal text-admin-muted">
+              <InfoIcon className="size-3.5" /> {items.length} question
+              {items.length === 1 ? "" : "s"}
+            </span>
           </h3>
           <div className="mt-3 overflow-hidden rounded-xl border border-admin-line/60">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="bg-admin-bg/50 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-                  <th className="px-4 py-2.5">Date &amp; Time</th>
-                  <th className="px-4 py-2.5">Action &amp; Reason</th>
-                  <th className="px-4 py-2.5">Performed By</th>
+                  <th className="px-4 py-2.5">Question</th>
+                  <th className="px-4 py-2.5">Hit Rate</th>
+                  <th className="px-4 py-2.5">Scoring</th>
+                  <th className="px-4 py-2.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-admin-line/50">
-                {HISTORY.map((h, i) => (
-                  <tr key={i}>
+                {items.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-4 py-6 text-center text-admin-muted"
+                    >
+                      No approved questions on this exam yet.
+                    </td>
+                  </tr>
+                )}
+                {items.map((q) => (
+                  <tr key={q.questionId}>
                     <td className="px-4 py-3 font-mono text-xs text-admin-muted">
-                      {h.when}
+                      Q{q.order}
+                      {q.section ? ` · ${q.section}` : ""}
+                    </td>
+                    <td className="px-4 py-3 text-admin-muted">
+                      {q.hitRate === null
+                        ? "—"
+                        : `${Math.round(q.hitRate)}% (${q.correct}/${q.attempted})`}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="font-semibold text-admin-ink">{h.action}</p>
-                      <p className="text-xs text-admin-subtle">{h.reason}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="flex items-center gap-2">
-                        <span className="flex size-6 items-center justify-center rounded-full bg-admin text-[10px] font-bold text-white">
-                          {h.initials}
-                        </span>
-                        {h.by}
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          q.scoring === "NORMAL"
+                            ? "bg-admin-surface text-admin-muted"
+                            : q.scoring === "BONUS"
+                              ? "bg-admin-mint/50 text-admin"
+                              : q.scoring === "DROPPED"
+                                ? "bg-danger-soft text-danger"
+                                : "bg-warn/15 text-warn"
+                        }`}
+                      >
+                        {q.scoring}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {q.scoring !== "NORMAL" && (
+                        <button
+                          disabled={overrideBusy !== null}
+                          onClick={() => void override(q.questionId, "NORMAL")}
+                          className="text-xs font-semibold text-admin-2 hover:underline disabled:opacity-40"
+                        >
+                          Reset to normal
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -502,29 +585,3 @@ export function RecalculateResultsModal({
 
 const inputCls =
   "w-full rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm text-admin-ink outline-none placeholder:text-admin-subtle focus:border-admin";
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function Select({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex w-full items-center justify-between rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm text-admin-ink hover:bg-admin-bg">
-      {children}
-      <ChevronDownIcon className="size-4 text-admin-muted" />
-    </button>
-  );
-}

@@ -3,13 +3,14 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { PlusIcon, SearchIcon } from "@/components/admin/icons";
+import { PlusIcon, SearchIcon, UserPlusIcon } from "@/components/admin/icons";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
 import { ApiError } from "@/lib/api";
 import {
   createTenant,
   deleteTenant,
+  inviteAdmin,
   listTenants,
   updateTenant,
   type Tenant,
@@ -32,6 +33,7 @@ function TenantsScreen() {
   const [creating, setCreating] = useState(params.get("new") === "1");
   /** id of the tenant currently being mutated, so only its row shows a spinner */
   const [busy, setBusy] = useState<string | null>(null);
+  const [invitingFor, setInvitingFor] = useState<Tenant | null>(null);
 
   const load = useCallback(async (term: string) => {
     try {
@@ -197,6 +199,15 @@ function TenantsScreen() {
                         <button
                           type="button"
                           disabled={busy === t.id}
+                          onClick={() => setInvitingFor(t)}
+                          className="flex items-center gap-1.5 rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                        >
+                          <UserPlusIcon className="size-3.5" />
+                          Invite admin
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === t.id}
                           onClick={() => void toggleActive(t)}
                           className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                         >
@@ -205,7 +216,15 @@ function TenantsScreen() {
                         <button
                           type="button"
                           disabled={busy === t.id}
-                          onClick={() => void remove(t, false)}
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                `Delete ${t.name}? This cannot be undone — the institute must already be empty (no students, staff, or exams) for this to succeed.`,
+                              )
+                            ) {
+                              void remove(t, false);
+                            }
+                          }}
                           className="rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
                         >
                           Delete
@@ -225,8 +244,24 @@ function TenantsScreen() {
           onClose={() => setCreating(false)}
           onCreated={(t) => {
             setTenants((prev) => [t, ...(prev ?? [])]);
-            setNotice(`${t.name} created. Invite its administrator next.`);
             setCreating(false);
+            // Chain straight into the invite step — an institute with nobody
+            // who can sign in to it isn't actually usable yet.
+            setInvitingFor(t);
+          }}
+        />
+      )}
+
+      {invitingFor && (
+        <InviteAdminModal
+          tenant={invitingFor}
+          onClose={() => setInvitingFor(null)}
+          onInvited={(name) => {
+            setNotice(
+              `${name} invited as administrator of ${invitingFor.name}. ` +
+                "Email sending isn't configured, so the accept-invite link is printed to the API's server console instead — copy it from there.",
+            );
+            setInvitingFor(null);
           }}
         />
       )}
@@ -332,6 +367,114 @@ function CreateTenantModal({
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
               {saving ? "Creating…" : "Create institute"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Invite an institute's first administrator. The one invite door a
+ * superadmin uses directly — every other invite (teacher, student) is issued
+ * by the institute's own admin instead.
+ */
+function InviteAdminModal({
+  tenant,
+  onClose,
+  onInvited,
+}: {
+  tenant: Tenant;
+  onClose: () => void;
+  onInvited: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await inviteAdmin({
+        name: name.trim(),
+        email: email.trim(),
+        instituteId: tenant.id,
+      });
+      onInvited(name.trim());
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not send the invite.",
+      );
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-admin-ink">
+          Invite administrator
+        </h2>
+        <p className="mt-1 text-sm text-admin-muted">
+          For{" "}
+          <span className="font-semibold text-admin-ink">{tenant.name}</span>.
+          They receive a link to set their own password and sign in.
+        </p>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Name
+            </span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+              placeholder="Priya Sharma"
+              className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Email
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              placeholder="priya@institute.edu"
+              className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+          </label>
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-ink hover:bg-admin-bg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !name.trim() || !email.trim()}
+              className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {saving ? "Sending…" : "Send invite"}
             </button>
           </div>
         </form>

@@ -1,6 +1,19 @@
-import { IsEmail, IsString, IsUUID, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+} from 'class-validator';
 
-/** Superadmin invites an admin to a specific institute. */
+/**
+ * Invite an administrator. Two callers, two scopes:
+ *   - SUPERADMIN must name the institute (`instituteId`) — a platform owner
+ *     has no institute of their own to default to.
+ *   - ADMIN invites into their own institute, taken from their session, so
+ *     `instituteId` is not read from the body for them even if present — an
+ *     admin cannot use this to reach into another tenant.
+ */
 export class InviteAdminDto {
   @IsString()
   @MinLength(2)
@@ -9,8 +22,9 @@ export class InviteAdminDto {
   @IsEmail()
   email: string;
 
+  @IsOptional()
   @IsUUID()
-  instituteId: string;
+  instituteId?: string;
 }
 
 /** Admin invites a teacher (into the admin's own institute). */

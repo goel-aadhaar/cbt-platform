@@ -186,7 +186,11 @@ export function QuestionExportModal({
           >
             Cancel
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95">
+          <button
+            disabled
+            title="Question bank export has no backend endpoint yet — exam results can already be exported from the Results page"
+            className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+          >
             <DownloadIcon className="size-4" /> Export
           </button>
         </>

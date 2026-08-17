@@ -1,238 +1,320 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { CreateReportDrawer } from "@/components/admin/create-report-drawer";
+import { PlusIcon } from "@/components/admin/icons";
+import { BarList, Panel, StatCard } from "@/components/staff/charts";
 import {
-  AlertTriangleIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  FileTextIcon,
-  FilterIcon,
-  PlusIcon,
-  SearchIcon,
-  SortIcon,
-} from "@/components/admin/icons";
+  fetchExamAnalytics,
+  listExamResults,
+  type ExamAnalytics,
+  type ExamResultRow,
+} from "@/lib/admin";
+import { examDisplayStatus, listExams, type ExamListItem } from "@/lib/exams";
 
-interface Report {
-  name: string;
-  type: string;
-  date: string;
-  format: "PDF" | "CSV";
-}
-
-const REPORTS: Report[] = [
-  {
-    name: "Q3 Final Batch Performance",
-    type: "Batch Performance",
-    date: "Oct 24, 2023",
-    format: "PDF",
-  },
-  {
-    name: "Midterm Summary - Advanced Data Structures",
-    type: "Exam Summary",
-    date: "Oct 20, 2023",
-    format: "CSV",
-  },
-  {
-    name: "Annual Student Engagement Audit",
-    type: "Custom Analysis",
-    date: "Oct 15, 2023",
-    format: "PDF",
-  },
-];
-
-const EXPORTS = [
-  { file: "batch_perf_q3_final.pdf", when: "Today, 09:41 AM", ok: true },
-  { file: "midterm_summary_CS101.csv", when: "Yesterday, 14:20 PM", ok: true },
-  {
-    file: "large_dataset_export_2023.zip",
-    when: "Oct 22, 11:05 AM",
-    ok: false,
-  },
-];
-
+/**
+ * Institute-wide reporting for admins — every exam in the institute
+ * (`GET /exams` is not author-scoped, unlike the teacher console's framing of
+ * "my papers"), with the same live analytics engine the teacher console reads.
+ *
+ * "Create Report" (scheduled/custom PDF or CSV generation) has no backend
+ * yet — the drawer says so and stays disabled rather than pretending to work.
+ */
 export default function ReportsPage() {
-  const [tab, setTab] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+
+  const [exams, setExams] = useState<ExamListItem[] | null>(null);
+  const [examId, setExamId] = useState<string>("");
+  const [results, setResults] = useState<ExamResultRow[] | null>(null);
+  const [analytics, setAnalytics] = useState<ExamAnalytics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    listExams()
+      .then((all) => {
+        if (cancelled) return;
+        // Only exams that have actually run can have results worth reading.
+        const sat = all.filter((e) =>
+          ["LIVE", "COMPLETED", "PUBLISHED"].includes(examDisplayStatus(e)),
+        );
+        setExams(sat);
+        if (sat.length > 0) setExamId(sat[0].id);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Could not load exams");
+        setExams([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!examId) return;
+    let cancelled = false;
+    const run = async () => {
+      setLoading(true);
+      setResults(null);
+      setAnalytics(null);
+      const [r, a] = await Promise.allSettled([
+        listExamResults(examId),
+        fetchExamAnalytics(examId),
+      ]);
+      if (cancelled) return;
+      setResults(r.status === "fulfilled" ? r.value : []);
+      if (a.status === "fulfilled") setAnalytics(a.value);
+      // A result set that has not been evaluated yet is a normal state, not an
+      // error — the panels below say so rather than showing a red banner.
+      setError(
+        r.status === "rejected" && a.status === "rejected"
+          ? "Could not load this exam's results."
+          : null,
+      );
+      setLoading(false);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [examId]);
+
+  const ranked = (results ?? [])
+    .slice()
+    .sort((a, b) => b.totalScore - a.totalScore);
 
   return (
     <AdminShell title="Reports">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
-        {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-admin-ink">Reports</h2>
             <p className="mt-1 text-sm text-admin-muted">
-              Generate and manage reports across exams, students, and results.
+              Institute-wide results and score analysis, exam by exam.
             </p>
           </div>
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-          >
-            <PlusIcon className="size-4" /> Create Report
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-admin-muted">
+              Exam
+              <select
+                value={examId}
+                onChange={(e) => setExamId(e.target.value)}
+                disabled={!exams || exams.length === 0}
+                className="rounded-lg border border-admin-line bg-white px-3 py-2 text-sm text-admin-ink outline-none focus:border-admin disabled:opacity-50"
+              >
+                {(exams ?? []).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.title}
+                  </option>
+                ))}
+                {exams?.length === 0 && <option>No exams have run yet</option>}
+              </select>
+            </label>
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+            >
+              <PlusIcon className="size-4" /> Create Report
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.9fr_1fr]">
-          {/* Left */}
-          <div>
-            <div className="flex gap-6 border-b border-admin-line/60">
-              {["My Reports", "Scheduled Reports"].map((t, i) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(i)}
-                  className={`border-b-2 pb-3 text-sm font-semibold ${
-                    i === tab
-                      ? "border-admin text-admin"
-                      : "border-transparent text-admin-muted hover:text-admin-ink"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger"
+          >
+            {error}
+          </p>
+        )}
+
+        {exams?.length === 0 ? (
+          <Panel title="No results yet" subtitle="">
+            <p className="rounded-xl border border-dashed border-admin-line p-10 text-center text-sm text-admin-muted">
+              Reports appear once an exam has been sat by at least one
+              candidate.
+            </p>
+          </Panel>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard
+                label="Candidates"
+                value={loading ? undefined : (results?.length ?? 0)}
+              />
+              <StatCard
+                label="Average score"
+                value={
+                  loading
+                    ? undefined
+                    : analytics
+                      ? analytics.score.average.toFixed(1)
+                      : ranked.length
+                        ? (
+                            ranked.reduce((s, r) => s + r.totalScore, 0) /
+                            ranked.length
+                          ).toFixed(1)
+                        : "—"
+                }
+              />
+              <StatCard
+                label="Highest"
+                value={
+                  loading
+                    ? undefined
+                    : ranked.length
+                      ? ranked[0].totalScore
+                      : "—"
+                }
+              />
+              <StatCard
+                label="Lowest"
+                value={
+                  loading
+                    ? undefined
+                    : ranked.length
+                      ? ranked[ranked.length - 1].totalScore
+                      : "—"
+                }
+              />
             </div>
 
-            <section className="mt-4 overflow-hidden rounded-2xl border border-admin-line/60 bg-white">
-              <div className="flex items-center justify-between p-3">
-                <div className="flex items-center gap-2 text-admin-muted">
-                  <button className="rounded-lg p-2 hover:bg-admin-bg">
-                    <FilterIcon className="size-4" />
-                  </button>
-                  <button className="rounded-lg p-2 hover:bg-admin-bg">
-                    <SortIcon className="size-4" />
-                  </button>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <Panel title="Top performers" subtitle="By total score">
+                <BarList
+                  items={ranked.slice(0, 8).map((r) => ({
+                    label: r.student.user.name,
+                    value: r.totalScore,
+                  }))}
+                  empty={
+                    loading
+                      ? "Loading…"
+                      : "No results yet — this exam has not been evaluated."
+                  }
+                />
+              </Panel>
+
+              <Panel
+                title="Score distribution"
+                subtitle="How many candidates landed in each band"
+              >
+                <BarList
+                  items={(analytics?.distribution ?? []).map((d) => ({
+                    label: d.range,
+                    value: d.count,
+                  }))}
+                  format={(v) => `${v} candidate${v === 1 ? "" : "s"}`}
+                  empty={loading ? "Loading…" : "Not evaluated yet"}
+                />
+              </Panel>
+            </div>
+
+            <Panel
+              title="Full result sheet"
+              subtitle="Evaluate, award bonus marks and publish from the Results page"
+            >
+              {loading ? (
+                <div className="flex flex-col gap-2">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div
+                      key={i}
+                      className="h-12 animate-pulse rounded-lg bg-admin-line/15"
+                    />
+                  ))}
                 </div>
-                <div className="relative flex items-center">
-                  <SearchIcon className="pointer-events-none absolute left-3 size-4 text-admin-subtle" />
-                  <input
-                    placeholder="Filter reports…"
-                    className="h-9 w-52 rounded-lg border border-admin-line bg-white pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
-                  />
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[620px] text-left text-sm">
-                  <thead>
-                    <tr className="border-y border-admin-line/60 bg-admin-bg/50 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-                      <th className="w-10 px-4 py-3">
-                        <input
-                          type="checkbox"
-                          className="size-4 accent-admin"
-                        />
-                      </th>
-                      <th className="px-4 py-3">Report Name</th>
-                      <th className="px-4 py-3">Type</th>
-                      <th className="px-4 py-3">Created Date</th>
-                      <th className="px-4 py-3">Format</th>
-                      <th className="px-4 py-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-admin-line/50">
-                    {REPORTS.map((r) => (
-                      <tr key={r.name} className="hover:bg-admin-bg/40">
-                        <td className="px-4 py-4 align-top">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5 size-4 accent-admin"
-                          />
-                        </td>
-                        <td className="px-4 py-4 font-bold text-admin-ink">
-                          {r.name}
-                        </td>
-                        <td className="px-4 py-4 text-admin-muted">{r.type}</td>
-                        <td className="px-4 py-4 text-admin-muted">{r.date}</td>
-                        <td className="px-4 py-4">
-                          <FormatBadge fmt={r.format} />
-                        </td>
-                        <td className="px-4 py-4 text-admin-muted">
-                          <FileTextIcon className="size-4" />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex items-center justify-between border-t border-admin-line/60 px-4 py-3">
-                <p className="text-sm text-admin-muted">
-                  Showing 1 to 3 of 12 entries
+              ) : ranked.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-admin-line p-8 text-center text-sm text-admin-muted">
+                  Nothing to show. Evaluate this exam from the Results page to
+                  see scores here.
                 </p>
-                <div className="flex items-center gap-1">
-                  <PageBtn>
-                    <ChevronLeftIcon className="size-4" />
-                  </PageBtn>
-                  <PageNum active>1</PageNum>
-                  <PageNum>2</PageNum>
-                  <PageNum>3</PageNum>
-                  <PageBtn>
-                    <ChevronRightIcon className="size-4" />
-                  </PageBtn>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-admin-line text-xs font-bold uppercase tracking-wide text-admin-muted">
+                        <th className="px-3 py-3">#</th>
+                        <th className="px-3 py-3">Candidate</th>
+                        <th className="px-3 py-3">Score</th>
+                        <th className="px-3 py-3">Correct</th>
+                        <th className="px-3 py-3">Wrong</th>
+                        <th className="px-3 py-3">Unattempted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ranked.map((r, i) => (
+                        <tr
+                          key={r.id}
+                          className="border-b border-admin-line/50"
+                        >
+                          <td className="px-3 py-3 font-semibold text-admin-muted">
+                            {i + 1}
+                          </td>
+                          <td className="px-3 py-3">
+                            <p className="font-semibold text-admin-ink">
+                              {r.student.user.name}
+                            </p>
+                            <p className="text-xs text-admin-muted">
+                              {r.student.rollNumber}
+                            </p>
+                          </td>
+                          <td className="px-3 py-3 font-bold text-admin">
+                            {r.totalScore}
+                            <span className="text-xs font-normal text-admin-muted">
+                              /{r.maxScore}
+                            </span>
+                          </td>
+                          <td className="px-3 py-3">{r.correctCount}</td>
+                          <td className="px-3 py-3">{r.incorrectCount}</td>
+                          <td className="px-3 py-3">{r.unattemptedCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-            </section>
-          </div>
+              )}
+            </Panel>
 
-          {/* Right rail */}
-          <div className="flex flex-col gap-6">
-            <section className="rounded-2xl border border-admin-line/60 bg-white p-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-admin-ink">
-                  Recent Exports
-                </h3>
-                <button className="text-sm font-semibold text-admin-2">
-                  View All
-                </button>
-              </div>
-              <div className="mt-4 flex flex-col gap-3">
-                {EXPORTS.map((e) => (
-                  <div
-                    key={e.file}
-                    className={`flex items-center gap-3 rounded-xl border p-3 ${e.ok ? "border-admin-line/60" : "border-danger/20 bg-danger-soft/20"}`}
-                  >
-                    <span
-                      className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${e.ok ? "bg-admin/10 text-admin" : "bg-danger/10 text-danger"}`}
-                    >
-                      {e.ok ? (
-                        <FileTextIcon className="size-4" />
-                      ) : (
-                        <AlertTriangleIcon className="size-4" />
-                      )}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-admin-ink">
-                        {e.file}
-                      </p>
-                      <p className="text-xs text-admin-subtle">{e.when}</p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${e.ok ? "bg-admin-mint/50 text-admin" : "bg-danger/10 text-danger"}`}
-                    >
-                      {e.ok ? "Success" : "Failed"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="relative overflow-hidden rounded-2xl bg-admin p-5 text-white shadow-lg">
-              <div className="absolute -right-6 -top-6 size-24 rounded-full bg-white/10 blur-2xl" />
-              <p className="text-sm font-semibold text-admin-mint">
-                Storage Usage
-              </p>
-              <p className="mt-2 text-4xl font-bold">
-                45<span className="text-lg">%</span>
-              </p>
-              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/20">
-                <div className="h-full w-[45%] rounded-full bg-admin-mint" />
-              </div>
-              <p className="mt-2 text-xs text-admin-mint">
-                4.5 GB of 10 GB used
-              </p>
-            </section>
-          </div>
-        </div>
+            {analytics && analytics.questions.length > 0 && (
+              <Panel
+                title="Hardest questions"
+                subtitle="Lowest success rate first — where the cohort struggled"
+              >
+                <ul className="flex flex-col gap-3">
+                  {analytics.questions
+                    .slice()
+                    .sort((a, b) => a.correctPct - b.correctPct)
+                    .slice(0, 8)
+                    .map((q) => (
+                      <li key={q.questionId}>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="line-clamp-1 text-sm text-admin-ink">
+                            {q.statement}
+                          </span>
+                          <span className="shrink-0 text-sm font-bold text-admin">
+                            {Math.round(q.correctPct)}% correct
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-admin-surface">
+                          <div
+                            className="h-full rounded-full bg-admin"
+                            style={{ width: `${Math.max(2, q.correctPct)}%` }}
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-admin-muted">
+                          {q.correct} correct · {q.incorrect} wrong ·{" "}
+                          {q.unattempted} skipped
+                        </p>
+                      </li>
+                    ))}
+                </ul>
+              </Panel>
+            )}
+          </>
+        )}
       </div>
 
       <CreateReportDrawer
@@ -240,43 +322,5 @@ export default function ReportsPage() {
         onClose={() => setCreateOpen(false)}
       />
     </AdminShell>
-  );
-}
-
-function FormatBadge({ fmt }: { fmt: "PDF" | "CSV" }) {
-  return (
-    <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-        fmt === "PDF"
-          ? "bg-danger/10 text-danger"
-          : "bg-admin-mint/50 text-admin"
-      }`}
-    >
-      {fmt}
-    </span>
-  );
-}
-
-function PageBtn({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex size-8 items-center justify-center rounded-lg border border-admin-line text-admin-muted hover:bg-admin-bg">
-      {children}
-    </button>
-  );
-}
-
-function PageNum({
-  children,
-  active,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-}) {
-  return (
-    <button
-      className={`flex size-8 items-center justify-center rounded-lg text-xs font-bold ${active ? "bg-admin text-white" : "text-admin-muted hover:bg-admin-bg"}`}
-    >
-      {children}
-    </button>
   );
 }

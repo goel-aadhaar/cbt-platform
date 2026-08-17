@@ -6,17 +6,15 @@ import { useState } from "react";
 import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
-  AtomIcon,
   BarChartIcon,
+  BookOpenIcon,
+  CheckCircleIcon,
   ClockIcon,
   FileTextIcon,
-  FlaskIcon,
-  LeafIcon,
   TrophyIcon,
 } from "@/components/student/icons";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
 import { usePracticeFacets } from "@/hooks/use-practice";
-import type { SVGProps } from "react";
 
 type Tab = "overall" | "subject" | "mock";
 
@@ -55,72 +53,89 @@ export default function StudentReportsPage() {
   );
 }
 
-/* ---------------- Overall (static design) ---------------- */
+/* ---------------- Overall ---------------- */
 
 function OverallTab() {
+  const {
+    items: attempts,
+    loading: attemptsLoading,
+    error: attemptsError,
+  } = useMyAttempts();
+  const { data: facets, loading: facetsLoading } = usePracticeFacets();
+
+  const loading = attemptsLoading || facetsLoading;
+
+  if (attemptsError) {
+    return (
+      <p
+        role="alert"
+        className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      >
+        {attemptsError}
+      </p>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-28 animate-pulse rounded-xl border border-admin-line/40 bg-admin-line/10"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const scored = sat.filter((a) => a.result !== null).map((a) => a.result!);
+
+  const totalCorrect = scored.reduce((n, r) => n + r.correctCount, 0);
+  const totalAnswered = scored.reduce(
+    (n, r) => n + r.correctCount + r.incorrectCount,
+    0,
+  );
+  const accuracy =
+    totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
+
+  const percentiles = scored
+    .map((r) => r.percentile)
+    .filter((p): p is number => p !== null);
+  const avgPercentile =
+    percentiles.length > 0
+      ? Math.round(percentiles.reduce((n, p) => n + p, 0) / percentiles.length)
+      : null;
+
   const stats = [
     {
       label: "Overall Accuracy",
-      value: "78%",
-      delta: "+3%",
-      icon: CheckCircle,
+      value: accuracy === null ? "—" : `${accuracy}%`,
+      icon: CheckCircleIcon,
     },
     {
       label: "Avg Percentile",
-      value: "92nd",
-      delta: "+1.5",
+      value: avgPercentile === null ? "—" : `${avgPercentile}%`,
       icon: BarChartIcon,
     },
     {
-      label: "Total Tests Taken",
-      value: "42",
-      note: "This Month",
+      label: "Tests Taken",
+      value: String(sat.length),
       icon: FileTextIcon,
     },
     {
-      label: "Total Study Hours",
-      value: "128h",
-      note: "This Month",
-      icon: ClockIcon,
+      label: "Questions Practised",
+      value: facets ? String(facets.practised) : "—",
+      icon: BookOpenIcon,
     },
   ];
-  const sessions = [
-    {
-      subject: "Biology",
-      chapter: "Genetics",
-      date: "Oct 24",
-      qs: 45,
-      acc: 82,
-      time: "45m",
-      icon: LeafIcon,
-      tint: "#ccfbf1",
-      color: "#14b8a6",
-    },
-    {
-      subject: "Physics",
-      chapter: "Kinematics",
-      date: "Oct 23",
-      qs: 30,
-      acc: 65,
-      time: "60m",
-      icon: AtomIcon,
-      tint: "#dbeafe",
-      color: "#3b82f6",
-    },
-    {
-      subject: "Chemistry",
-      chapter: "Organic Bonds",
-      date: "Oct 21",
-      qs: 50,
-      acc: 90,
-      time: "35m",
-      icon: FlaskIcon,
-      tint: "#fef3c7",
-      color: "#f59e0b",
-    },
-  ];
-  const streak = [40, 55, 70, 80, 90, 100, 100];
-  const days = ["M", "T", "W", "T", "F", "S", "S"];
+
+  const topSubjects = [...(facets?.subjects ?? [])]
+    .sort((a, b) => b.mastery - a.mastery)
+    .slice(0, 4);
+
+  const recent = sat.slice(0, 4);
 
   return (
     <div className="space-y-5">
@@ -138,16 +153,6 @@ function OverallTab() {
               <p className="mt-4 text-sm text-admin-muted">{s.label}</p>
               <p className="mt-1 text-3xl font-bold text-admin-ink">
                 {s.value}
-                {s.delta && (
-                  <span className="ml-2 align-middle text-xs font-semibold text-admin">
-                    ↗ {s.delta}
-                  </span>
-                )}
-                {s.note && (
-                  <span className="ml-2 align-middle text-xs font-normal text-admin-muted">
-                    {s.note}
-                  </span>
-                )}
               </p>
             </div>
           );
@@ -156,46 +161,36 @@ function OverallTab() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.6fr]">
         <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
-          <div className="flex items-start justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-admin-ink">
-                Practice Streak
-              </h3>
-              <p className="text-sm text-admin-muted">Consistency is key.</p>
-            </div>
-            <span className="flex size-9 items-center justify-center rounded-full bg-[#fef3c7] text-[#f59e0b]">
-              🔥
-            </span>
-          </div>
-          <p className="mt-4 text-3xl font-bold text-admin-ink">
-            7{" "}
-            <span className="text-base font-medium text-admin-muted">Days</span>
+          <h3 className="text-lg font-semibold text-admin-ink">
+            Subject Mastery
+          </h3>
+          <p className="text-sm text-admin-muted">
+            From your practice sessions.
           </p>
-          <div className="mt-6 flex items-end justify-between gap-2">
-            {days.map((d, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-2">
-                <div
-                  className="flex h-16 w-full items-end justify-center rounded-md bg-admin-bg"
-                  title={`${streak[i]}%`}
-                >
-                  {i === days.length - 1 ? (
-                    <span className="flex size-full items-center justify-center rounded-md bg-admin text-white">
-                      ✓
+          {topSubjects.length === 0 ? (
+            <p className="mt-6 text-sm text-admin-muted">
+              Practise a few sets to see your strongest subjects here.
+            </p>
+          ) : (
+            <div className="mt-5 flex flex-col gap-4">
+              {topSubjects.map((s) => (
+                <div key={s.subject}>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold text-admin-ink">
+                      {s.subject}
                     </span>
-                  ) : (
+                    <span className="text-admin-muted">{s.mastery}%</span>
+                  </div>
+                  <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-admin-line/30">
                     <div
-                      className="w-full rounded-md bg-admin"
-                      style={{
-                        height: `${streak[i]}%`,
-                        opacity: 0.25 + (streak[i] / 100) * 0.75,
-                      }}
+                      className="h-full rounded-full bg-admin"
+                      style={{ width: `${s.mastery}%` }}
                     />
-                  )}
+                  </div>
                 </div>
-                <span className="text-xs text-admin-muted">{d}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section className="flex flex-col items-center gap-6 rounded-xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)] md:flex-row">
@@ -234,63 +229,67 @@ function OverallTab() {
           </button>
         </section>
 
-        <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
+        <section className="rounded-xl border border-admin-line/40 bg-white p-5 shadow-[0_4px_10px_rgba(0,0,0,0.04)] lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="text-lg font-semibold text-admin-ink">
-              Recent Practice Sessions
+              Recent Results
             </h3>
             <Link
-              href="/student/practice"
+              href="/student/exams"
               className="flex items-center gap-1 text-sm font-semibold text-admin hover:underline"
             >
-              Practice Library <ArrowRightIcon className="size-4" />
+              All Exams <ArrowRightIcon className="size-4" />
             </Link>
           </div>
-          <div className="grid grid-cols-[1.6fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 border-b border-admin-line/40 pb-2 text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
-            <span>Subject / Chapter</span>
-            <span>Date</span>
-            <span>Qs</span>
-            <span>Accuracy %</span>
-            <span>Time</span>
-          </div>
-          {sessions.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div
-                key={s.subject}
-                className="grid grid-cols-[1.6fr_0.7fr_0.7fr_1fr_0.7fr] items-center gap-3 border-b border-admin-line/20 py-3 text-sm last:border-b-0"
-              >
-                <span className="flex items-center gap-2">
-                  <span
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full"
-                    style={{ backgroundColor: s.tint, color: s.color }}
-                  >
-                    <Icon className="size-4" />
-                  </span>
-                  <span>
-                    <span className="block font-semibold text-admin-ink">
-                      {s.subject}
-                    </span>
-                    <span className="block text-xs text-admin-muted">
-                      {s.chapter}
-                    </span>
-                  </span>
-                </span>
-                <span className="text-admin-muted">{s.date}</span>
-                <span className="text-admin-ink">{s.qs}</span>
-                <span className="flex items-center gap-2">
-                  <span className="font-semibold text-admin-ink">{s.acc}%</span>
-                  <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-[#e1e3e4] xl:block">
-                    <span
-                      className="block h-full rounded-full bg-admin"
-                      style={{ width: `${s.acc}%` }}
-                    />
-                  </span>
-                </span>
-                <span className="text-admin-muted">{s.time}</span>
+          {recent.length === 0 ? (
+            <p className="text-sm text-admin-muted">
+              You haven&apos;t completed any exams yet.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[1.8fr_0.8fr_0.8fr_1fr] gap-3 border-b border-admin-line/40 pb-2 text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
+                <span>Exam</span>
+                <span>Score</span>
+                <span>Percentile</span>
+                <span>Date</span>
               </div>
-            );
-          })}
+              {recent.map((a) => (
+                <Link
+                  key={a.id}
+                  href={`/student/results/${a.id}`}
+                  className="grid grid-cols-[1.8fr_0.8fr_0.8fr_1fr] items-center gap-3 border-b border-admin-line/20 py-3 text-sm last:border-b-0 hover:bg-admin/5"
+                >
+                  <span className="font-semibold text-admin-ink">
+                    {a.exam.title}
+                  </span>
+                  {a.result ? (
+                    <>
+                      <span className="text-admin-ink">
+                        {a.result.totalScore}/{a.result.maxScore}
+                      </span>
+                      <span className="text-admin-muted">
+                        {a.result.percentile == null
+                          ? "—"
+                          : `${a.result.percentile}%`}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+                        Pending
+                      </span>
+                      <span className="text-admin-muted">—</span>
+                    </>
+                  )}
+                  <span className="text-admin-muted">
+                    {new Date(
+                      a.submittedAt ?? a.startedAt,
+                    ).toLocaleDateString()}
+                  </span>
+                </Link>
+              ))}
+            </>
+          )}
         </section>
       </div>
     </div>
@@ -588,23 +587,6 @@ function MockTab() {
 }
 
 /* ---------------- shared bits ---------------- */
-
-function CheckCircle(p: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...p}
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
-  );
-}
 
 function BigRing({ value }: { value: number }) {
   const r = 42;

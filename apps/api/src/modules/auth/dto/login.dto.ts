@@ -1,4 +1,12 @@
-import { IsEmail, IsEnum, IsString, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsEnum,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+  MinLength,
+} from 'class-validator';
 
 import { Role } from '../auth.types';
 
@@ -27,11 +35,16 @@ export class StudentLoginDto {
   password: string;
 }
 
-/** Google Identity Services returns a signed ID token it calls `credential`. */
-export class GoogleLoginDto {
+/** Step 2 of a non-student login: the emailed one-time code. */
+export class VerifyOtpDto {
+  @IsUUID()
+  challengeId: string;
+
+  /** Exactly six digits — anything else cannot be a code we issued. */
   @IsString()
-  @MinLength(20)
-  credential: string;
+  @Length(6, 6)
+  @Matches(/^\d{6}$/, { message: 'code must be 6 digits' })
+  code: string;
 }
 
 /** Which of the caller's own roles this session should act as. */

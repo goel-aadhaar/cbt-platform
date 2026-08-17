@@ -65,44 +65,54 @@ export interface StaffLoginInput {
 }
 
 /**
- * POST /auth/login — institute staff (administrator or teacher) by email.
- *
- * The caller does not say which role they are: the server decides from the
- * account and returns it. Platform accounts are refused here and must use
- * `platformLogin`.
+ * What a non-student login returns instead of a session: the password was
+ * accepted, but a mailed code is still required. No token exists yet.
  */
-export async function staffLogin(input: StaffLoginInput): Promise<LoginResult> {
-  const result = await apiFetch<LoginResult>("/auth/login", {
-    method: "POST",
-    body: input,
-  });
-  saveSession(result);
-  return result;
+export interface OtpChallenge {
+  otpRequired: true;
+  challengeId: string;
+  expiresAt: string;
+  /** Masked address, e.g. `pr•••@school.edu`. */
+  sentTo: string;
 }
 
 /**
- * POST /auth/google — staff sign-in with a Google credential.
+ * POST /auth/login — institute staff (administrator or teacher) by email.
  *
- * The credential is only an assertion of identity; the server verifies it and
- * looks up the role and institute from the existing account. Nothing is
- * provisioned by signing in.
+ * Step 1 of 2. A correct password does not sign you in: it emails a one-time
+ * code and returns a challenge to redeem with `verifyLoginOtp`. The caller
+ * never says which role they are — the server decides from the account.
+ * Platform accounts are refused here and must use `platformLogin`.
  */
-export async function googleLogin(credential: string): Promise<LoginResult> {
-  const result = await apiFetch<LoginResult>("/auth/google", {
-    method: "POST",
-    body: { credential },
-  });
-  saveSession(result);
-  return result;
-}
-
-/** POST /auth/platform/login — platform owner only, on its own endpoint. */
-export async function platformLogin(
-  input: StaffLoginInput,
-): Promise<LoginResult> {
-  const result = await apiFetch<LoginResult>("/auth/platform/login", {
+export function staffLogin(input: StaffLoginInput): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/auth/login", {
     method: "POST",
     body: input,
+  });
+}
+
+/** POST /auth/platform/login — platform owner only. Also step 1 of 2. */
+export function platformLogin(input: StaffLoginInput): Promise<OtpChallenge> {
+  return apiFetch<OtpChallenge>("/auth/platform/login", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * POST /auth/login/verify — step 2 for staff and platform alike.
+ *
+ * Redeems the emailed code for a real session. Which roles the session may
+ * act as is decided by the challenge (i.e. the door used in step 1), not by
+ * anything sent here.
+ */
+export async function verifyLoginOtp(
+  challengeId: string,
+  code: string,
+): Promise<LoginResult> {
+  const result = await apiFetch<LoginResult>("/auth/login/verify", {
+    method: "POST",
+    body: { challengeId, code },
   });
   saveSession(result);
   return result;
@@ -166,8 +176,14 @@ export function clearSession(): void {
 let cachedRaw: string | null = null;
 let cachedUser: AuthUser | null = null;
 
-/** Cached snapshot of the stored user. Safe to call every render. */
+/**
+ * Cached snapshot of the stored user. Safe to call every render — including
+ * during a "use client" page's server-side prerender pass, where `window`
+ * does not exist yet. That pass always sees `null` (there is no session to
+ * read on the server); the real value appears after hydration.
+ */
 export function getUserSnapshot(): AuthUser | null {
+  if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(USER_KEY);
   if (raw === cachedRaw) return cachedUser;
   cachedRaw = raw;

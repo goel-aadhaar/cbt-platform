@@ -38,10 +38,16 @@ export class InstitutesService {
         `Institute slug '${dto.slug}' is already taken`,
       );
     }
-    return this.prisma.institute.create({
+    const institute = await this.prisma.institute.create({
       data: { name: dto.name, slug: dto.slug },
       select: summarySelect,
     });
+    // Every other method on this service attaches `stats` — a freshly
+    // created tenant has nothing yet, but the frontend's Tenant type treats
+    // `stats` as required and reads `t.stats.students` straight off the row
+    // the create call returns. Omitting it here crashed the tenants list the
+    // moment a new institute was added.
+    return { ...institute, stats: emptyStats() };
   }
 
   /**

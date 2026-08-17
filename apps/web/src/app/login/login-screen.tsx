@@ -17,15 +17,14 @@ import {
 import { homeForRole } from "@/hooks/use-auth";
 import Link from "next/link";
 
-import { GoogleSignIn } from "@/components/auth/google-sign-in";
 import { ApiError } from "@/lib/api";
 import {
-  googleLogin,
   logout,
   selectRole,
   staffLogin,
   studentLogin,
-  type LoginResult,
+  verifyLoginOtp,
+  type OtpChallenge,
   type Role,
 } from "@/lib/auth";
 
@@ -67,6 +66,9 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
   /** Non-null once a signed-in account turns out to hold several roles. */
   const [choices, setChoices] = useState<Role[] | null>(null);
+  /** Non-null once a password is accepted and a code has been emailed. */
+  const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
+  const [code, setCode] = useState("");
 
   /**
    * Two steps only. Staff no longer pick a role before signing in: the account
@@ -74,8 +76,14 @@ export function LoginScreen() {
    * choice carried weight. It never did — the API authorises every request
    * from the token, not from anything chosen here.
    */
-  const step: "audience" | "credentials" | "role" =
-    choices !== null ? "role" : audience === null ? "audience" : "credentials";
+  const step: "audience" | "credentials" | "otp" | "role" =
+    choices !== null
+      ? "role"
+      : challenge !== null
+        ? "otp"
+        : audience === null
+          ? "audience"
+          : "credentials";
 
   /**
    * 401 is the one failure worth softening: the server says "Invalid
@@ -116,17 +124,41 @@ export function LoginScreen() {
   }
 
   /**
-   * Sign in as staff, by password or with a verified Google credential.
+   * Step 1 for staff: the password buys a mailed code, not a session. Nothing
+   * is stored locally yet, so an accepted password on its own leaves the
+   * browser with no credentials at all.
+   */
+  async function requestStaffCode() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const issued = await staffLogin({ email: email.trim(), password });
+      setChallenge(issued);
+      setCode("");
+      setPassword("");
+      setSubmitting(false);
+    } catch (err) {
+      setError(
+        describe(err, "Invalid credentials. Check your email and password."),
+      );
+      setSubmitting(false);
+    }
+  }
+
+  /**
+   * Step 2: redeem the code for the real session.
    *
    * Where the user lands comes from the role the SERVER reports. Nothing here
    * asked them who they are, so nothing here can be wrong about it — and even
    * if the browser lied, every API call is authorised from the token.
    */
-  async function signInAsStaff(attempt: () => Promise<LoginResult>) {
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!challenge) return;
     setError(null);
     setSubmitting(true);
     try {
-      const result = await attempt();
+      const result = await verifyLoginOtp(challenge.challengeId, code.trim());
 
       // One role: the server already committed the session to it.
       if (result.user.role) {
@@ -137,12 +169,11 @@ export function LoginScreen() {
       // Several: the session exists but can do nothing until a role is
       // chosen, so ask. The list comes from the server — this screen offers
       // what the account actually holds, it does not decide it.
+      setChallenge(null);
       setChoices(result.selectableRoles);
       setSubmitting(false);
     } catch (err) {
-      setError(
-        describe(err, "Invalid credentials. Check your email and password."),
-      );
+      setError(describe(err, "That code is not valid. Request a new one."));
       setSubmitting(false);
     }
   }
@@ -162,7 +193,7 @@ export function LoginScreen() {
 
   async function handleStaffSubmit(e: React.FormEvent) {
     e.preventDefault();
-    await signInAsStaff(() => staffLogin({ email: email.trim(), password }));
+    await requestStaffCode();
   }
 
   /** Back one screen, dropping anything typed on the way. */
@@ -174,6 +205,13 @@ export function LoginScreen() {
       // the next sign-in starts clean rather than resuming a limbo session.
       void logout();
       setChoices(null);
+      return;
+    }
+    if (challenge !== null) {
+      // No session exists yet at this point — the code simply goes unused and
+      // expires on its own. Nothing to revoke.
+      setChallenge(null);
+      setCode("");
       return;
     }
     setAudience(null);
@@ -312,6 +350,50 @@ export function LoginScreen() {
               </>
             )}
 
+            {step === "otp" && challenge && (
+              <>
+                <Heading
+                  title="Check your email"
+                  subtitle={`We sent a 6-digit code to ${challenge.sentTo}. It expires in 10 minutes.`}
+                />
+                <form
+                  onSubmit={submitCode}
+                  className="flex flex-col gap-4"
+                  noValidate
+                >
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-sm font-semibold text-ink">
+                      Verification code
+                    </span>
+                    <input
+                      id="code"
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="000000"
+                      autoFocus
+                      className="rounded-[2px] border border-subtle px-4 py-3 text-center font-mono text-2xl tracking-[0.4em] text-ink outline-none focus:border-brand"
+                    />
+                  </label>
+                  {error && <ErrorNote>{error}</ErrorNote>}
+                  <button
+                    type="submit"
+                    disabled={submitting || code.length !== 6}
+                    className="flex items-center justify-center gap-2 rounded-[2px] bg-brand px-5 py-3 text-base font-bold uppercase text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {submitting ? "Verifying…" : "Verify and sign in"}
+                  </button>
+                </form>
+                <p className="mt-5 text-xs text-subtle">
+                  Didn&apos;t get it? Check spam, or go back and sign in again
+                  to send a new code. Each code works once.
+                </p>
+              </>
+            )}
+
             {step === "credentials" && audience === "staff" && (
               <>
                 <Heading
@@ -319,16 +401,9 @@ export function LoginScreen() {
                   subtitle="Use your institute email. Your role and institute are determined by your account."
                 />
 
-                <GoogleSignIn
-                  disabled={submitting}
-                  onCredential={(credential) =>
-                    void signInAsStaff(() => googleLogin(credential))
-                  }
-                />
-
                 <form
                   onSubmit={handleStaffSubmit}
-                  className="mt-4 flex flex-col gap-4"
+                  className="flex flex-col gap-4"
                   noValidate
                 >
                   <Field

@@ -816,7 +816,7 @@ export class ResultsService {
     if (!result) throw new NotFoundException('Result not available yet');
 
     const exam = await this.prisma.exam.findFirst({
-      where: { id: attempt.examId },
+      where: { id: attempt.examId, instituteId: ctx.instituteId },
       select: {
         title: true,
         sections: {

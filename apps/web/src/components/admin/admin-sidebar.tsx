@@ -18,7 +18,6 @@ import {
   GraduationCapIcon,
   GridIcon,
   LogOutIcon,
-  SettingsIcon,
   TemplateIcon,
   UploadIcon,
   UserIcon,
@@ -49,7 +48,6 @@ const NAV: NavItem[] = [
   { label: "Imports", href: "/admin/imports", icon: UploadIcon },
   { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
   { label: "My Profile", href: "/admin/profile", icon: UserIcon },
-  { label: "Settings", href: "/admin/settings", icon: SettingsIcon },
 ];
 
 export function AdminSidebar() {

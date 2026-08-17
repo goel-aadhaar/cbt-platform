@@ -7,7 +7,7 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import {
   ActivityIcon,
   ArrowUpRightIcon,
-  PlusIcon,
+  ClipboardIcon,
 } from "@/components/admin/icons";
 import { useDashboard, type DashboardSummary } from "@/hooks/use-dashboard";
 import { getUserSnapshot, subscribeSession } from "@/lib/auth";
@@ -98,12 +98,15 @@ function WelcomeCard({
           place.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
+          {/* Admins review and approve papers; they don't author them —
+              that's a teacher's job, enforced on the backend too. This links
+              straight to the approval queue rather than a create flow. */}
           <Link
-            href="/admin/exams?new=1"
+            href="/admin/exams"
             className="flex items-center gap-2 rounded-full bg-admin px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
           >
-            <PlusIcon className="size-4" />
-            Create Exam
+            <ClipboardIcon className="size-4" />
+            Review Exams
           </Link>
           <Link
             href="/admin/students?import=1"

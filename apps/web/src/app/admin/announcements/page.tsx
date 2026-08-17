@@ -201,9 +201,15 @@ export default function AdminAnnouncementsPage() {
                   <button
                     type="button"
                     disabled={busy === a.id}
-                    onClick={() =>
-                      void act(a.id, () => deleteAnnouncement(a.id))
-                    }
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Delete "${a.title}"? This cannot be undone.`,
+                        )
+                      ) {
+                        void act(a.id, () => deleteAnnouncement(a.id));
+                      }
+                    }}
                     className="rounded-lg border border-red-200 px-4 py-1.5 text-xs font-bold uppercase text-red-700 hover:bg-red-50 disabled:opacity-50"
                   >
                     Delete

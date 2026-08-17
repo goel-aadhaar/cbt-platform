@@ -169,6 +169,34 @@ function Wait-ForHttp {
     return $false
 }
 
+<#
+Confirm the server that answered is actually THIS project.
+
+"Port is free" is not the same as "port is ours". Another project on this
+machine binds the same ports, and when it wins the race you get a fully
+healthy-looking stack serving somebody else's app — every request 404s or,
+worse, silently succeeds against the wrong backend. Checking identity rather
+than mere reachability turns a confusing debugging session into one clear
+line.
+#>
+function Assert-IsThisApp {
+    param([string]$Url, [string]$Label, [string]$MustContain)
+
+    try {
+        $body = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5).Content
+    } catch {
+        # Identity is a best-effort check; reachability was already proven.
+        return $true
+    }
+    if ($body -notmatch [regex]::Escape($MustContain)) {
+        Write-Fail "$Label on this port is NOT this project (expected to find '$MustContain')."
+        Write-Host "    Something else is already bound there. Find and stop it:" -ForegroundColor Yellow
+        Write-Host "      Get-Process -Id (Get-NetTCPConnection -LocalPort <port> -State Listen).OwningProcess" -ForegroundColor Yellow
+        return $false
+    }
+    return $true
+}
+
 # --------------------------------------------------------------------------- #
 # Configuration                                                               #
 # --------------------------------------------------------------------------- #
@@ -274,6 +302,11 @@ if (-not (Wait-ForHttp -Url "http://127.0.0.1:$apiPort/api/health" -Label 'API')
     Write-Fail 'The API window is still open - read it for the reason (DATABASE_URL is the usual one).'
     exit 1
 }
+# /api/health is this app's own route; a foreign server answering here would
+# not produce Terminus's status envelope.
+if (-not (Assert-IsThisApp -Url "http://127.0.0.1:$apiPort/api/health" -Label 'API' -MustContain '"status"')) {
+    exit 1
+}
 Write-Ok "healthy on $apiPort"
 
 # --------------------------------------------------------------------------- #
@@ -290,6 +323,11 @@ Start-Process -FilePath 'powershell' -WorkingDirectory $WebDir -ArgumentList @(
 
 if (-not (Wait-ForHttp -Url "http://127.0.0.1:$WebPort" -Label 'Web' -TimeoutSeconds 180)) {
     Write-Fail 'The web window is still open - read it for the reason.'
+    exit 1
+}
+# The <title> from apps/web/src/app/layout.tsx — present on every page of this
+# app and on nobody else's.
+if (-not (Assert-IsThisApp -Url "http://127.0.0.1:$WebPort/login" -Label 'Web' -MustContain 'DRSK Assessment Portal')) {
     exit 1
 }
 Write-Ok "serving on $WebPort"

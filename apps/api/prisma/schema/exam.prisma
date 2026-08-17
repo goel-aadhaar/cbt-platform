@@ -106,6 +106,7 @@ model Exam {
   attempts  Attempt[]
   results   Result[]
 
+  @@unique([categoryId, categorySequence])
   @@index([instituteId])
   @@index([instituteId, status])
   @@index([instituteId, categoryId])

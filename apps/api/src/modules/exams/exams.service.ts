@@ -344,6 +344,19 @@ export class ExamsService {
     if (endAt <= startAt) {
       throw new BadRequestException('endAt must be after startAt');
     }
+    // A schedule that's already in the past can never actually be sat, and
+    // silently accepting one just means the exam quietly locks every
+    // candidate out — this is what the "not yet scheduled" state should look
+    // like instead. Only enforced for exams nobody has attempted yet: a
+    // PUBLISHED exam with live/finished attempts is deliberately allowed to
+    // keep its recorded window even after it lapses, since that's just
+    // historical record at that point, not a new commitment.
+    const attemptCount = await this.prisma.attempt.count({
+      where: { examId },
+    });
+    if (attemptCount === 0 && endAt <= new Date()) {
+      throw new BadRequestException('endAt must be in the future');
+    }
     return this.prisma.exam.update({
       where: { id: examId },
       data: { startAt, endAt },
@@ -363,15 +376,14 @@ export class ExamsService {
       },
     });
     if (!exam) throw new NotFoundException('Exam not found');
-    // An exam must clear review before it can go live. DRAFT is still accepted
-    // so an admin authoring their own paper isn't forced to review themselves.
-    if (
-      exam.status !== ExamStatus.DRAFT &&
-      exam.status !== ExamStatus.APPROVED
-    ) {
-      throw new BadRequestException(
-        'Only draft or approved exams can be published',
-      );
+    // An exam must clear review before it can go live. Only TEACHER can create
+    // an exam (§ create() above) — an admin publishing straight from DRAFT
+    // would let them skip submitForReview()/approve() entirely, which is
+    // exactly the separation of duties creation.ts already promises ("an
+    // approver who wrote the paper is not reviewing it" only holds if
+    // approval actually happened).
+    if (exam.status !== ExamStatus.APPROVED) {
+      throw new BadRequestException('Only approved exams can be published');
     }
     if (!exam.startAt || !exam.endAt) {
       throw new BadRequestException('Schedule the exam before publishing');
@@ -476,14 +488,42 @@ export class ExamsService {
      * a number burned on an abandoned draft would leave a gap candidates could
      * see. Re-approval keeps the number it already has, so a paper never
      * changes name under a candidate who has already seen it.
+     *
+     * claimNextSequence() reads the current MAX and proposes MAX+1 — a
+     * read-then-write race if two exams in the same category are approved at
+     * the same instant. The DB's @@unique([categoryId, categorySequence])
+     * is the actual guarantee against two exams silently getting the same
+     * name; if this update loses that race, retry with a freshly-read number
+     * rather than surfacing a raw constraint-violation 500.
      */
-    let numbering: { categorySequence?: number; title?: string } = {};
     if (exam.categoryId && exam.categorySequence === null) {
-      const next = await this.categories.claimNextSequence(
-        exam.categoryId,
-        instituteId,
-      );
-      numbering = { categorySequence: next.sequence, title: next.title };
+      const categoryId = exam.categoryId;
+      const MAX_ATTEMPTS = 5;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        const next = await this.categories.claimNextSequence(
+          categoryId,
+          instituteId,
+        );
+        try {
+          return await this.prisma.exam.update({
+            where: { id: examId },
+            data: {
+              status: 'APPROVED',
+              approvedById: userId,
+              approvedAt: new Date(),
+              rejectionReason: null,
+              categorySequence: next.sequence,
+              title: next.title,
+            },
+            select: examSelect,
+          });
+        } catch (err) {
+          const lostRace =
+            err instanceof Prisma.PrismaClientKnownRequestError &&
+            err.code === 'P2002';
+          if (!lostRace || attempt === MAX_ATTEMPTS) throw err;
+        }
+      }
     }
 
     return this.prisma.exam.update({
@@ -493,7 +533,6 @@ export class ExamsService {
         approvedById: userId,
         approvedAt: new Date(),
         rejectionReason: null,
-        ...numbering,
       },
       select: examSelect,
     });
@@ -571,6 +610,21 @@ export class ExamsService {
     const exam = await this.getOwned(examId);
     if (exam.status !== ExamStatus.PUBLISHED) {
       throw new BadRequestException('Only published exams can be unpublished');
+    }
+    // Unpublishing drops the exam back to DRAFT, and DRAFT is editable
+    // (getDraft() above gates addSection/addQuestion/update on exactly that
+    // status). If any student has already started — or finished — an
+    // attempt against this exam's current sections/questions, reopening
+    // editing would let those get rewritten out from under already-recorded
+    // Responses, corrupting evaluation. Once real attempts exist, the only
+    // way back is scheduling a fresh paper.
+    const attemptCount = await this.prisma.attempt.count({
+      where: { examId },
+    });
+    if (attemptCount > 0) {
+      throw new ConflictException(
+        'Cannot unpublish — students have already attempted this exam',
+      );
     }
     return this.prisma.exam.update({
       where: { id: examId },

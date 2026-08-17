@@ -55,6 +55,7 @@ export class StaffService {
           id: true,
           name: true,
           email: true,
+          roles: true,
           status: true,
           createdAt: true,
           _count: {
@@ -96,6 +97,7 @@ export class StaffService {
         id: u.id,
         name: u.name,
         email: u.email,
+        roles: u.roles,
         status: u.status,
         joinedAt: u.createdAt,
         subjects: (subjectsByUser.get(u.id) ?? []).sort(),

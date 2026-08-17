@@ -187,7 +187,15 @@ export default function ExamCategoriesPage() {
                   <button
                     type="button"
                     disabled={busy === c.id}
-                    onClick={() => void remove(c)}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Delete "${c.name}"? This cannot be undone.`,
+                        )
+                      ) {
+                        void remove(c);
+                      }
+                    }}
                     className="rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
                   >
                     Delete

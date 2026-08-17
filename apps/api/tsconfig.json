@@ -21,5 +21,6 @@
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true
-  }
+  },
+  "exclude": ["scripts/**", "dist/**", "node_modules/**", "test/.tmp/**"]
 }

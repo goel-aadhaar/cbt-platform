@@ -72,12 +72,18 @@ Everyone signs in from **http://localhost:3000/login** except the platform
 owner, who has a separate door. Staff never declare a role — the backend
 determines role and tenant from the account.
 
-| Role              | Sign-in route      | Credentials                                               |
-| ----------------- | ------------------ | --------------------------------------------------------- |
-| **Student**       | `/login` → Student | Institute `demo` · Candidate `2400183920` · `Student@123` |
-| **Teacher**       | `/login` → Staff   | `anil@demo.local` · `Teacher@123`                         |
-| **Administrator** | `/login` → Staff   | `admin@demo.local` · `Admin@123`                          |
-| **Super Admin**   | `/platform/login`  | `superadmin@drsk.local` · `ChangeMe123!`                  |
+Every door except Student is **two steps**: a correct password only earns a
+mailed one-time code, which is what actually redeems for a session (see
+[Email OTP](#email-otp-second-factor-non-student-logins) below). Students are
+exempt — an exam hall cannot depend on inbox access, and a student session
+has no administrative reach.
+
+| Role              | Sign-in route      | Credentials                                                   |
+| ----------------- | ------------------ | ------------------------------------------------------------- |
+| **Student**       | `/login` → Student | Institute `demo` · Candidate `2400183920` · `Student@123`     |
+| **Teacher**       | `/login` → Staff   | `anil@demo.local` · `Teacher@123` · then a mailed code        |
+| **Administrator** | `/login` → Staff   | `admin@demo.local` · `Admin@123` · then a mailed code         |
+| **Super Admin**   | `/platform/login`  | `superadmin@drsk.local` · `ChangeMe123!` · then a mailed code |
 
 Additional seeded accounts:
 
@@ -119,19 +125,28 @@ node --env-file=.env scripts/grant-role.js anil@demo.local remove ADMIN
 `anil@demo.local` is seeded as TEACHER; grant it ADMIN with the command above
 to see the role-choice screen.
 
-### Staff sign-in with Google (optional)
+### Email OTP, second factor (non-student logins)
 
-Off by default. To enable, set the **same** OAuth 2.0 Web client ID in both
-places and register your origin in the Google Cloud Console:
+`POST /auth/login` and `POST /auth/platform/login` no longer return a session
+on a correct password — they email a 6-digit code and return a `challengeId`.
+The session itself is issued by `POST /auth/login/verify`, which redeems the
+code. The roles a redeemed code may act as come from the _challenge_ (i.e.
+which door issued it), not from anything the client sends — a code minted at
+the institute login cannot be spent for a platform session.
 
-```bash
-apps/api/.env       GOOGLE_OAUTH_CLIENT_ID=<client-id>
-apps/web/.env.local NEXT_PUBLIC_GOOGLE_CLIENT_ID=<client-id>
+No mail provider is configured in development, so the dev adapter
+(`ConsoleMailService`) **prints the code to the API's terminal window**
+instead of sending it:
+
+```
+🔐 Login code → Anil Kumar <anil@demo.local> | code: 482913 (expires in 10 min)
 ```
 
-Signing in with Google never creates an account: the verified email must
-already belong to an invited, active teacher or administrator. Left blank, the
-button is hidden and the endpoint refuses every credential.
+Copy that into the "Verification code" field on the login screen. In
+production, a real `MailService` adapter (SES) sends it and logs nothing —
+the code never touches a log file. The code is single-use, expires in 10
+minutes, is capped at 5 wrong guesses, and issuance itself is rate-limited
+(5 codes per 15 minutes per account) to bound inbox spam.
 
 ## Testing
 

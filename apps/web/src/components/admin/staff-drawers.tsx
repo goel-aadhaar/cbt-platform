@@ -2,19 +2,21 @@
 
 import { useState } from "react";
 
-import { inviteTeacher } from "@/lib/admin";
+import { inviteAdmin, inviteTeacher, type StaffRow } from "@/lib/admin";
 
 import { CheckIcon, ImageIcon, UserPlusIcon, XIcon } from "./icons";
 
 /* ------------------------------ Add Staff ------------------------------ */
 
 /**
- * Add-staff drawer, wired to POST /invitations/teacher.
+ * Add-staff drawer, wired to POST /invitations/teacher and, when
+ * "Administrator" is picked, POST /invitations/admin.
  *
- * The invite endpoint accepts only `{name, email}` — role is implicitly TEACHER
- * (admin invites are SUPERADMIN-only) and subject/batch assignments have no
- * backing field yet, so those inputs are marked as post-activation steps rather
- * than pretending to save.
+ * Both invite endpoints accept only `{name, email}` from an admin caller —
+ * the institute is always the caller's own — and subject/batch assignments
+ * have no backing field yet, so those inputs are marked as post-activation
+ * steps rather than pretending to save. They only apply to a Teacher invite,
+ * so they're hidden once Administrator is selected.
  */
 export function AddStaffDrawer({
   open,
@@ -23,9 +25,10 @@ export function AddStaffDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  onInvited?: (name: string) => void;
+  onInvited?: (name: string, role: "TEACHER" | "ADMIN") => void;
 }) {
   const [invite, setInvite] = useState(true);
+  const [role, setRole] = useState<"TEACHER" | "ADMIN">("TEACHER");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -37,10 +40,16 @@ export function AddStaffDrawer({
     setSubmitting(true);
     setError(null);
     try {
-      await inviteTeacher({ name: name.trim(), email: email.trim() });
-      onInvited?.(name.trim());
+      const body = { name: name.trim(), email: email.trim() };
+      if (role === "ADMIN") {
+        await inviteAdmin(body);
+      } else {
+        await inviteTeacher(body);
+      }
+      onInvited?.(name.trim(), role);
       setName("");
       setEmail("");
+      setRole("TEACHER");
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send the invite.");
@@ -108,31 +117,47 @@ export function AddStaffDrawer({
 
       <SectionLabel>Role &amp; Assignments</SectionLabel>
       <Field label="Role">
-        <input
-          value="Teacher"
-          readOnly
-          className={`${inputCls} bg-admin-bg text-admin-muted`}
-        />
+        <div className="flex gap-2">
+          {(["TEACHER", "ADMIN"] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRole(r)}
+              className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors ${
+                role === r
+                  ? "border-admin bg-admin/10 text-admin"
+                  : "border-admin-line text-admin-muted hover:bg-admin-bg"
+              }`}
+            >
+              {r === "TEACHER" ? "Teacher" : "Administrator"}
+            </button>
+          ))}
+        </div>
         <span className="mt-1 text-xs text-admin-subtle">
-          Staff invites create a Teacher. Admin invites are issued by a
-          superadmin.
+          {role === "ADMIN"
+            ? "Invited into your own institute, with the same administrator access you have."
+            : "Can author questions and exams, and read student reports."}
         </span>
       </Field>
-      <Field label="Subject(s)">
-        <ChipInput
-          chips={["Biology", "Chemistry"]}
-          placeholder="Type to search…"
-        />
-        <span className="mt-1 text-xs text-admin-subtle">
-          Assigned after the teacher activates their account.
-        </span>
-      </Field>
-      <Field label="Batch(es)">
-        <ChipInput chips={["2024-A"]} placeholder="Type to search…" />
-        <span className="mt-1 text-xs text-admin-subtle">
-          Assigned after activation.
-        </span>
-      </Field>
+      {role === "TEACHER" && (
+        <>
+          <Field label="Subject(s)">
+            <ChipInput
+              chips={["Biology", "Chemistry"]}
+              placeholder="Type to search…"
+            />
+            <span className="mt-1 text-xs text-admin-subtle">
+              Assigned after the teacher activates their account.
+            </span>
+          </Field>
+          <Field label="Batch(es)">
+            <ChipInput chips={["2024-A"]} placeholder="Type to search…" />
+            <span className="mt-1 text-xs text-admin-subtle">
+              Assigned after activation.
+            </span>
+          </Field>
+        </>
+      )}
 
       {error && (
         <p
@@ -168,12 +193,28 @@ export function AddStaffDrawer({
 export function StaffDetailsDrawer({
   open,
   onClose,
+  staff,
 }: {
   open: boolean;
   onClose: () => void;
+  /** The roster row that was clicked — already-loaded data, no extra fetch. */
+  staff: StaffRow | null;
 }) {
   const [tab, setTab] = useState(0);
-  if (!open) return null;
+  if (!open || !staff) return null;
+
+  const isAdmin = staff.roles.includes("ADMIN");
+  const roleLabel = isAdmin
+    ? staff.roles.includes("TEACHER")
+      ? "Teacher & Administrator"
+      : "Administrator"
+    : "Teacher";
+  const statusLabel =
+    staff.status === "ACTIVE"
+      ? "Active"
+      : staff.status === "PENDING"
+        ? "Invited"
+        : "Deactivated";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end [font-family:var(--font-hanken)]">
@@ -187,16 +228,24 @@ export function StaffDetailsDrawer({
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-4">
               <span className="flex size-12 items-center justify-center rounded-full bg-admin text-sm font-bold text-white">
-                RJ
+                {initials(staff.name)}
               </span>
               <div>
                 <h2 className="text-xl font-bold text-admin-ink">
-                  Rahul Joshi
+                  {staff.name}
                 </h2>
                 <p className="flex items-center gap-2 text-sm text-admin-muted">
-                  Senior Faculty - Biology
-                  <span className="rounded-full bg-admin-mint/50 px-2 py-0.5 text-xs font-semibold text-admin">
-                    Active
+                  {roleLabel}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      staff.status === "ACTIVE"
+                        ? "bg-admin-mint/50 text-admin"
+                        : staff.status === "PENDING"
+                          ? "bg-warn/15 text-warn"
+                          : "bg-admin-surface text-admin-muted"
+                    }`}
+                  >
+                    {statusLabel}
                   </span>
                 </p>
               </div>
@@ -225,48 +274,84 @@ export function StaffDetailsDrawer({
         <div className="flex-1 overflow-auto bg-admin-bg px-8 py-6">
           {tab === 0 ? (
             <div className="flex flex-col gap-6">
-              <Card title="Personal Information">
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="First Name">
-                    <input defaultValue="Rahul" className={inputCls} />
-                  </Field>
-                  <Field label="Last Name">
-                    <input defaultValue="Joshi" className={inputCls} />
-                  </Field>
-                </div>
-                <Field label="Email Address">
+              <Card title="Contact">
+                <Field label="Full Name">
                   <input
-                    defaultValue="rahul.joshi@drskbiology.com"
-                    className={inputCls}
+                    defaultValue={staff.name}
+                    disabled
+                    className={`${inputCls} bg-admin-surface text-admin-muted`}
                   />
                 </Field>
-                <Field label="Phone Number">
-                  <input defaultValue="+91 98765 43210" className={inputCls} />
+                <Field label="Email Address">
+                  <input
+                    defaultValue={staff.email}
+                    disabled
+                    className={`${inputCls} bg-admin-surface text-admin-muted`}
+                  />
                 </Field>
               </Card>
-              <Card title="Employment Details">
+              <Card title="Activity">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Employee ID">
+                  <Field label="Role">
                     <input
-                      defaultValue="EMP-2023-042"
+                      defaultValue={roleLabel}
                       disabled
                       className={`${inputCls} bg-admin-surface text-admin-muted`}
                     />
                   </Field>
-                  <Field label="Department">
-                    <input defaultValue="Biology" className={inputCls} />
+                  <Field label="Joined">
+                    <input
+                      defaultValue={new Date(staff.joinedAt).toLocaleDateString(
+                        "en-IN",
+                        { day: "numeric", month: "short", year: "numeric" },
+                      )}
+                      disabled
+                      className={`${inputCls} bg-admin-surface text-admin-muted`}
+                    />
                   </Field>
                 </div>
-                <Field label="System Role">
-                  <input defaultValue="Faculty" className={inputCls} />
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Questions Authored">
+                    <input
+                      defaultValue={String(staff.questionsAuthored)}
+                      disabled
+                      className={`${inputCls} bg-admin-surface text-admin-muted`}
+                    />
+                  </Field>
+                  <Field label="Exams Authored">
+                    <input
+                      defaultValue={String(staff.examsAuthored)}
+                      disabled
+                      className={`${inputCls} bg-admin-surface text-admin-muted`}
+                    />
+                  </Field>
+                </div>
+                {staff.subjects.length > 0 && (
+                  <Field label="Subjects">
+                    <div className="flex flex-wrap gap-2">
+                      {staff.subjects.map((s) => (
+                        <span
+                          key={s}
+                          className="rounded-full bg-admin-mint/40 px-2.5 py-1 text-xs font-medium text-admin"
+                        >
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  </Field>
+                )}
               </Card>
             </div>
+          ) : tab === 1 ? (
+            <p className="py-10 text-center text-admin-muted">
+              Batch and program assignments are not tracked per staff member
+              yet.
+            </p>
           ) : (
             <p className="py-10 text-center text-admin-muted">
-              {tab === 1
-                ? "Assignment details will appear here."
-                : "Login history will appear here."}
+              {staff.lastLoginAt
+                ? `Last signed in ${new Date(staff.lastLoginAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}.`
+                : "Has not signed in yet."}
             </p>
           )}
         </div>
@@ -371,6 +456,15 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
       {children}
     </p>
   );
+}
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 function Field({

@@ -19,10 +19,10 @@ import type { AuthUser } from './auth.types';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import {
-  GoogleLoginDto,
   LoginDto,
   SelectRoleDto,
   StudentLoginDto,
+  VerifyOtpDto,
 } from './dto/login.dto';
 import { ChangePasswordDto, UpdateMyProfileDto } from './dto/profile.dto';
 
@@ -34,13 +34,30 @@ export class AuthController {
     private readonly jwt: JwtService,
   ) {}
 
+  /**
+   * Institute staff, step 1 of 2. A correct password does NOT return a
+   * session — it emails a one-time code and returns a challenge id (§2.2).
+   * The session is minted by POST /auth/login/verify.
+   */
   @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async loginStaff(@Body() dto: LoginDto, @Req() req: Request) {
-    const result = await this.auth.loginStaff(
-      dto.email,
-      dto.password,
+    return this.auth.loginStaff(dto.email, dto.password, this.meta(req));
+  }
+
+  /**
+   * Step 2 of 2 for every non-student door (institute staff and platform
+   * alike): redeem the mailed code for a session. Which roles the session may
+   * act as comes from the challenge, so the door used in step 1 still decides.
+   */
+  @Public()
+  @Post('login/verify')
+  @HttpCode(HttpStatus.OK)
+  async verifyLoginOtp(@Body() dto: VerifyOtpDto, @Req() req: Request) {
+    const result = await this.auth.verifyLoginOtp(
+      dto.challengeId,
+      dto.code,
       this.meta(req),
     );
     this.attachActor(req, result);
@@ -62,9 +79,10 @@ export class AuthController {
   }
 
   /**
-   * Platform owner sign-in. Separate from the institute login on purpose: the
-   * account that can cross tenants does not share a door with the accounts that
-   * cannot, and /auth/login refuses SUPERADMIN even with valid credentials.
+   * Platform owner sign-in, step 1 of 2. Separate from the institute login on
+   * purpose: the account that can cross tenants does not share a door with the
+   * accounts that cannot, and /auth/login refuses SUPERADMIN even with valid
+   * credentials. Step 2 is the shared POST /auth/login/verify.
    */
   @Public()
   @Post('platform/login')
@@ -73,26 +91,6 @@ export class AuthController {
     return this.auth.loginPlatform(dto.email, dto.password, this.meta(req));
   }
 
-  /**
-   * Staff sign-in with Google. The role and institute come from the existing
-   * account matched by verified email — never from the request.
-   */
-  @Public()
-  @Post('google')
-  @HttpCode(HttpStatus.OK)
-  async loginWithGoogle(@Body() dto: GoogleLoginDto, @Req() req: Request) {
-    return this.auth.loginStaffWithGoogle(dto.credential, this.meta(req));
-  }
-
-  /**
-   * Choose which role this session acts as, when the account holds more than
-   * one. Until this is called the session can do nothing else — the guard
-   * refuses every other route with ROLE_NOT_SELECTED.
-   *
-   * @Public because the session has no usable role yet, which is exactly what
-   * this fixes. The session id comes from the bearer token and the pick is
-   * validated against the account's own roles, so being public grants nothing.
-   */
   /**
    * Choose which role this session acts as, when the account holds more than
    * one. Until this is called the session can do nothing else — the guard

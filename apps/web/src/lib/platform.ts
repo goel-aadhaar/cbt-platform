@@ -87,6 +87,32 @@ export function deleteTenant(
   });
 }
 
+export interface InvitedUser {
+  id: string;
+  name: string;
+  email: string;
+  roles: string[];
+  status: "PENDING" | "ACTIVE" | "DISABLED";
+}
+
+/**
+ * Invite an institute's first administrator. SUPERADMIN-only — mirrors
+ * POST /invitations/admin. Every other invite (teacher, student) is issued by
+ * an institute's own admin instead; this is the one door a superadmin has to
+ * seed a tenant that otherwise has nobody who can sign in to it.
+ */
+export function inviteAdmin(body: {
+  name: string;
+  email: string;
+  instituteId: string;
+}): Promise<InvitedUser> {
+  return apiFetch("/invitations/admin", {
+    method: "POST",
+    body,
+    token: token(),
+  });
+}
+
 export interface PlatformOverview {
   totals: {
     institutes: number;

@@ -1,0 +1,44 @@
+/// Why a one-time code was issued. Login is the only consumer today, but the
+/// same table is the right home for any future step-up challenge.
+enum OtpPurpose {
+  LOGIN
+}
+
+/// A single-use email verification code (§2.2 second factor).
+///
+/// Issued AFTER the password has already been verified, so possessing a code
+/// alone is worth nothing — it is a second factor, not a login. Only the hash
+/// is stored: a leaked database must not hand anyone a working code.
+///
+/// Not tenant-scoped: it is auth infrastructure, queried before any tenant
+/// context exists, exactly like User and Session.
+model OtpChallenge {
+  id     String     @id @default(uuid()) @db.Uuid
+  userId String     @map("user_id") @db.Uuid
+  purpose OtpPurpose @default(LOGIN)
+
+  /// sha256 of the 6-digit code. Never the code itself.
+  codeHash String @map("code_hash")
+
+  /// Which roles this login door allowed, captured at issue time so the
+  /// verified session cannot be widened later by replaying the challenge
+  /// against a different endpoint (staff code redeemed at /platform/login).
+  allowedRoles Role[] @map("allowed_roles")
+
+  expiresAt DateTime  @map("expires_at")
+  /// Set the moment it is redeemed — a code works exactly once.
+  consumedAt DateTime? @map("consumed_at")
+  /// Wrong guesses so far; the challenge dies at the cap rather than allowing
+  /// unlimited attempts against a 6-digit space.
+  attempts Int @default(0)
+
+  userAgent String? @map("user_agent")
+  ip        String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("otp_challenges")
+}

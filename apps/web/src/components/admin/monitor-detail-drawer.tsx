@@ -104,14 +104,24 @@ export function MonitorDetailDrawer({
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-bold text-admin">
-                  NEET Full Mock 04
+                  {monitor?.title ?? "NEET Full Mock 04"}
                 </h2>
                 <span className="flex items-center gap-1.5 rounded-full bg-admin-mint/50 px-2.5 py-1 text-xs font-bold text-admin">
-                  <span className="size-1.5 rounded-full bg-admin" /> LIVE
+                  <span className="size-1.5 rounded-full bg-admin" />{" "}
+                  {monitor ? monitor.examStatus : "LIVE"}
                 </span>
               </div>
               <p className="mt-1 text-sm text-admin-muted">
-                Batch 2024-A • Duration: 120 mins • Started: 10:00 AM
+                {monitor
+                  ? [
+                      `${monitor.totalStudents} candidates`,
+                      monitor.window.startAt
+                        ? `Started: ${new Date(monitor.window.startAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ")
+                  : "Batch 2024-A • Duration: 120 mins • Started: 10:00 AM"}
               </p>
             </div>
             <button

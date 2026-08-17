@@ -3,44 +3,44 @@
 import { useEffect, useState } from "react";
 
 import { actOnQuestion, type QuestionAction } from "@/lib/admin";
+import { ApiError } from "@/lib/api";
+import {
+  getQuestion,
+  setQuestionMedia,
+  type QuestionDetail,
+} from "@/lib/questions";
 
-import { AlertTriangleIcon, CheckCircleIcon, PlusIcon, XIcon } from "./icons";
+import { CheckCircleIcon, PlusIcon, XIcon } from "./icons";
+import { MediaPicker } from "./media-picker";
 
-interface Option {
-  label: string;
-  text: string;
-  correct?: boolean;
-  rationale?: string;
+const STATUS_LABEL: Record<QuestionDetail["status"], string> = {
+  DRAFT: "Draft",
+  REVIEW: "Pending Review",
+  APPROVED: "Approved",
+  ARCHIVED: "Archived",
+};
+
+const STATUS_TONE: Record<QuestionDetail["status"], string> = {
+  DRAFT: "bg-admin-surface text-admin-muted",
+  REVIEW: "bg-danger-soft text-danger",
+  APPROVED: "bg-admin-mint/50 text-admin",
+  ARCHIVED: "bg-admin-surface text-admin-muted",
+};
+
+/** Which of an INTEGER/MCQ/MSQ answerKey a given option key matches. */
+function isCorrectOption(
+  answerKey: QuestionDetail["answerKey"],
+  optionKey: string,
+): boolean {
+  if (Array.isArray(answerKey)) return answerKey.includes(optionKey);
+  return String(answerKey) === optionKey;
 }
 
-const OPTIONS: Option[] = [
-  {
-    label: "A",
-    text: "Anaphase",
-    correct: true,
-    rationale:
-      "Correct Rationale: This is the specific phase where cohesin proteins are cleaved, allowing kinetochore microtubules to pull sister chromatids apart.",
-  },
-  { label: "B", text: "Metaphase" },
-  { label: "C", text: "Prophase" },
-  { label: "D", text: "Telophase" },
-];
-
-const META = [
-  "Sub: Cell Biology",
-  "Ch: Mitosis",
-  "Type: Multiple Choice",
-  "Diff: Hard",
-];
-
 /**
- * Question review drawer (Figma 114:13872) — opened from the Question Bank list.
- * Presentational; Approve/Reject are stubs.
+ * Question review drawer (Figma 114:13872) — opened from the Question Bank
+ * list, by both the teacher and admin consoles. Shows the actual question
+ * fetched by id; Approve/Reject/Archive act on that same question.
  */
-import { MediaPicker } from "./media-picker";
-import { getQuestion, setQuestionMedia } from "@/lib/questions";
-import { ApiError } from "@/lib/api";
-
 export function QuestionDetailDrawer({
   open,
   onClose,
@@ -57,8 +57,17 @@ export function QuestionDetailDrawer({
   const [tab, setTab] = useState(0);
   const [pending, setPending] = useState<QuestionAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Set when archiving 409s because the question is already used in exams. */
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
 
-  /* Attached images (§2.7). Loaded lazily — only this drawer needs them. */
+  const [question, setQuestion] = useState<QuestionDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Derived, not its own state — every setter below only ever runs inside a
+  // promise callback or the effect's cleanup, never synchronously in the
+  // effect body itself.
+  const loading = Boolean(open && questionId && !loadError && !question);
+
+  /* Attached images (§2.7). */
   const [mediaKeys, setMediaKeys] = useState<string[]>([]);
   const [mediaSaving, setMediaSaving] = useState(false);
   const [mediaNote, setMediaNote] = useState<string | null>(null);
@@ -70,13 +79,27 @@ export function QuestionDetailDrawer({
     let cancelled = false;
     getQuestion(questionId)
       .then((q) => {
-        if (!cancelled) setMediaKeys(q.mediaKeys ?? []);
+        if (cancelled) return;
+        setQuestion(q);
+        setMediaKeys(q.mediaKeys ?? []);
       })
-      .catch(() => {
-        // Detail is a nice-to-have here; the actions below still work.
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setLoadError(
+            e instanceof Error ? e.message : "Could not load this question.",
+          );
+        }
       });
+    // Runs before the next fetch (questionId changed) and on close/unmount —
+    // clears the previous question's state so a stale one never flashes
+    // under a newly-opened id, without setting state synchronously in the
+    // effect body itself.
     return () => {
       cancelled = true;
+      setQuestion(null);
+      setMediaKeys([]);
+      setLoadError(null);
+      setArchiveConfirm(false);
     };
   }, [open, questionId]);
 
@@ -113,26 +136,41 @@ export function QuestionDetailDrawer({
     }
   }
 
-  async function act(action: QuestionAction) {
+  async function act(action: QuestionAction, confirm = false) {
     if (!questionId) return;
     setPending(action);
     setActionError(null);
     try {
-      const res = await actOnQuestion(questionId, action);
+      const res = await actOnQuestion(questionId, action, confirm);
+      setArchiveConfirm(false);
       onActioned?.(action, res.status);
       onClose();
     } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : `Could not ${action} the question.`,
-      );
+      // Same in-use safeguard as media/edit: archiving a question already
+      // used in an exam asks for confirmation instead of silently archiving.
+      if (
+        action === "archive" &&
+        err instanceof ApiError &&
+        err.status === 409
+      ) {
+        setArchiveConfirm(true);
+        setActionError(err.message);
+      } else {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : `Could not ${action} the question.`,
+        );
+      }
     } finally {
       setPending(null);
     }
   }
 
   if (!open) return null;
+
+  const canApproveReject = question?.status === "REVIEW";
+  const canArchive = question?.status !== "ARCHIVED";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end [font-family:var(--font-hanken)]">
@@ -148,11 +186,19 @@ export function QuestionDetailDrawer({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <h2 className="text-xl font-bold text-admin-ink">
-                Question #BIO-4921
+                {question
+                  ? `${question.subject} — ${question.chapter}`
+                  : loading
+                    ? "Loading…"
+                    : "Question"}
               </h2>
-              <span className="rounded-full bg-danger-soft px-3 py-1 text-xs font-bold uppercase text-danger">
-                Pending Review
-              </span>
+              {question && (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold uppercase ${STATUS_TONE[question.status]}`}
+                >
+                  {STATUS_LABEL[question.status]}
+                </span>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -181,139 +227,164 @@ export function QuestionDetailDrawer({
 
         {/* Body */}
         <div className="flex-1 overflow-auto px-8 py-6">
-          {tab === 1 ? (
+          {loadError ? (
+            <p role="alert" className="py-10 text-center text-danger">
+              {loadError}
+            </p>
+          ) : loading ? (
+            <p className="py-10 text-center text-admin-muted">Loading…</p>
+          ) : !question ? (
             <p className="py-10 text-center text-admin-muted">
-              No recent activity on this question.
+              Open a question to review it.
+            </p>
+          ) : tab === 1 ? (
+            <p className="py-10 text-center text-admin-muted">
+              Activity history is not tracked for questions yet.
             </p>
           ) : (
             <div className="flex flex-col gap-6">
-              {questionId && (
-                <section className="rounded-xl border border-admin-line/60 p-4">
-                  <MediaPicker
-                    selected={mediaKeys}
-                    onChange={(keys) => void saveMedia(keys)}
-                    disabled={mediaSaving}
-                  />
-                  {mediaNote && (
-                    <p className="mt-2 text-xs font-semibold text-admin-muted">
-                      {mediaSaving ? "Saving…" : mediaNote}
-                    </p>
-                  )}
-                  {confirmKeys && !mediaSaving && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void saveMedia(confirmKeys, true)}
-                        className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
-                      >
-                        Attach anyway
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setConfirmKeys(null);
-                          setMediaNote(null);
-                        }}
-                        className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </section>
-              )}
-              {/* Duplicate banner */}
-              <div className="flex items-start gap-3 rounded-r-lg border-l-4 border-warn bg-admin-surface p-4">
-                <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-warn" />
-                <div className="flex-1">
-                  <p className="font-bold text-admin-ink">
-                    Possible Duplicate Detected
+              <section className="rounded-xl border border-admin-line/60 p-4">
+                <MediaPicker
+                  selected={mediaKeys}
+                  onChange={(keys) => void saveMedia(keys)}
+                  disabled={mediaSaving}
+                />
+                {mediaNote && (
+                  <p className="mt-2 text-xs font-semibold text-admin-muted">
+                    {mediaSaving ? "Saving…" : mediaNote}
                   </p>
-                  <p className="mt-0.5 text-sm text-admin-muted">
-                    This question shares 85% textual similarity with #BIO-1102.
-                    Please review before approving.
-                  </p>
-                </div>
-                <button className="shrink-0 rounded-lg border border-admin-line bg-white px-3 py-1.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
-                  Review Diff
-                </button>
-              </div>
+                )}
+                {confirmKeys && !mediaSaving && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void saveMedia(confirmKeys, true)}
+                      className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+                    >
+                      Attach anyway
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmKeys(null);
+                        setMediaNote(null);
+                      }}
+                      className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </section>
 
               {/* Meta chips */}
               <div className="flex flex-wrap items-center gap-2">
-                {META.map((m) => (
+                {[
+                  `Sub: ${question.subject}`,
+                  `Ch: ${question.chapter}`,
+                  question.topic ? `Topic: ${question.topic}` : null,
+                  `Type: ${
+                    question.type === "MCQ"
+                      ? "Single Choice"
+                      : question.type === "MSQ"
+                        ? "Multi-select"
+                        : "Numeric"
+                  }`,
+                  `Diff: ${question.difficulty[0]}${question.difficulty.slice(1).toLowerCase()}`,
+                  `Marks: +${question.marks} / -${question.negativeMarks}`,
+                ]
+                  .filter((m): m is string => Boolean(m))
+                  .map((m) => (
+                    <span
+                      key={m}
+                      className="rounded-lg bg-admin-surface px-3 py-1.5 text-sm text-admin-muted"
+                    >
+                      {m}
+                    </span>
+                  ))}
+                {question.tags.map((tag) => (
                   <span
-                    key={m}
-                    className="rounded-lg bg-admin-surface px-3 py-1.5 text-sm text-admin-muted"
+                    key={tag}
+                    className="flex items-center gap-1 rounded-full bg-admin-mint/40 px-3 py-1 text-xs font-semibold text-admin"
                   >
-                    {m}
+                    <PlusIcon className="size-3" />
+                    {tag}
                   </span>
                 ))}
-                <button className="flex size-8 items-center justify-center rounded-full border border-admin-line text-admin-muted hover:bg-admin-bg">
-                  <PlusIcon className="size-4" />
-                </button>
               </div>
 
               {/* Stem */}
               <section className="rounded-xl border border-admin-line/60 p-5">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                    Question Stem
-                  </p>
-                  <button className="text-sm font-semibold text-admin-2">
-                    ✎ Edit
-                  </button>
-                </div>
-                <p className="mt-3 text-admin-ink">
-                  During which phase of mitosis do the sister chromatids
-                  separate and move towards opposite poles of the cell? Ensure
-                  you consider the role of the kinetochore microtubules in your
-                  reasoning.
+                <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                  Question Stem
                 </p>
-                <div className="mt-4 flex flex-col items-center justify-center rounded-lg border border-admin-line bg-admin-bg py-10 text-center">
-                  <p className="text-sm font-semibold text-admin-muted">
-                    The Stages of Mitosis: Cell Division
-                  </p>
-                  <p className="mt-2 text-xs text-admin-subtle">
-                    Fig 1: Cellular Division Phase
-                  </p>
-                </div>
+                <p className="mt-3 whitespace-pre-wrap text-admin-ink">
+                  {question.statement}
+                </p>
               </section>
 
-              {/* Options */}
-              <section>
-                <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                  Options
-                </p>
-                <div className="mt-3 flex flex-col gap-2">
-                  {OPTIONS.map((o) => (
-                    <div
-                      key={o.label}
-                      className={`flex items-start gap-3 rounded-xl border p-4 ${
-                        o.correct
-                          ? "border-admin/40 bg-admin-mint/15"
-                          : "border-admin-line/60"
-                      }`}
-                    >
-                      {o.correct ? (
-                        <CheckCircleIcon className="mt-0.5 size-5 shrink-0 text-admin" />
-                      ) : (
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-admin-surface text-xs font-bold text-admin-muted">
-                          {o.label}
-                        </span>
-                      )}
-                      <div>
-                        <p className="font-semibold text-admin-ink">{o.text}</p>
-                        {o.rationale && (
-                          <p className="mt-1 text-sm text-admin-muted">
-                            {o.rationale}
-                          </p>
-                        )}
-                      </div>
+              {/* Options (MCQ / MSQ) or the numeric answer (INTEGER) */}
+              {question.type === "INTEGER" ? (
+                <section>
+                  <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                    Correct Answer
+                  </p>
+                  <div className="mt-3 flex items-center gap-3 rounded-xl border border-admin/40 bg-admin-mint/15 p-4">
+                    <CheckCircleIcon className="size-5 shrink-0 text-admin" />
+                    <p className="font-semibold text-admin-ink">
+                      {String(question.answerKey)}
+                    </p>
+                  </div>
+                </section>
+              ) : (
+                question.options && (
+                  <section>
+                    <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                      Options
+                    </p>
+                    <div className="mt-3 flex flex-col gap-2">
+                      {question.options.map((o) => {
+                        const correct = isCorrectOption(
+                          question.answerKey,
+                          o.key,
+                        );
+                        return (
+                          <div
+                            key={o.key}
+                            className={`flex items-start gap-3 rounded-xl border p-4 ${
+                              correct
+                                ? "border-admin/40 bg-admin-mint/15"
+                                : "border-admin-line/60"
+                            }`}
+                          >
+                            {correct ? (
+                              <CheckCircleIcon className="mt-0.5 size-5 shrink-0 text-admin" />
+                            ) : (
+                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-admin-surface text-xs font-bold text-admin-muted">
+                                {o.key}
+                              </span>
+                            )}
+                            <p className="font-semibold text-admin-ink">
+                              {o.text}
+                            </p>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-              </section>
+                  </section>
+                )
+              )}
+
+              {question.explanation && (
+                <section className="rounded-xl border border-admin-line/60 p-5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                    Explanation
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap text-admin-ink">
+                    {question.explanation}
+                  </p>
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -324,26 +395,48 @@ export function QuestionDetailDrawer({
             className={`text-sm ${actionError ? "text-danger" : "text-admin-muted"}`}
             role={actionError ? "alert" : undefined}
           >
-            {actionError ?? (questionId ? "" : "Open a question to review it.")}
+            {actionError ?? (question ? "" : "Open a question to review it.")}
           </p>
           <div className="flex items-center gap-3">
+            {archiveConfirm ? (
+              <>
+                <button
+                  disabled={pending !== null}
+                  onClick={() => void act("archive", true)}
+                  className="rounded-lg bg-danger px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
+                >
+                  {pending === "archive" ? "Archiving…" : "Archive anyway"}
+                </button>
+                <button
+                  disabled={pending !== null}
+                  onClick={() => {
+                    setArchiveConfirm(false);
+                    setActionError(null);
+                  }}
+                  className="rounded-lg border border-admin-line px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                disabled={!question || !canArchive || pending !== null}
+                onClick={() => void act("archive")}
+                className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-muted hover:bg-admin-bg disabled:opacity-50"
+              >
+                {pending === "archive" ? "Archiving…" : "Archive"}
+              </button>
+            )}
             <button
-              disabled={!questionId || pending !== null}
-              onClick={() => act("archive")}
-              className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-muted hover:bg-admin-bg disabled:opacity-50"
-            >
-              {pending === "archive" ? "Archiving…" : "Archive"}
-            </button>
-            <button
-              disabled={!questionId || pending !== null}
-              onClick={() => act("reject")}
+              disabled={!question || !canApproveReject || pending !== null}
+              onClick={() => void act("reject")}
               className="rounded-lg border border-admin-line bg-white px-6 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30 disabled:opacity-50"
             >
               {pending === "reject" ? "Rejecting…" : "Reject"}
             </button>
             <button
-              disabled={!questionId || pending !== null}
-              onClick={() => act("approve")}
+              disabled={!question || !canApproveReject || pending !== null}
+              onClick={() => void act("approve")}
               className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
             >
               {pending === "approve" ? "Approving…" : "Approve Question"}

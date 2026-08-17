@@ -112,6 +112,7 @@ export default function ParticipantsPage() {
 function ParticipantsInner() {
   const [tab, setTab] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const params = useSearchParams();
   const { data, loading, error } = useParticipants(params.get("examId"));
 
@@ -162,6 +163,14 @@ function ParticipantsInner() {
   return (
     <AdminShell title="Exams">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
+        {exportError && (
+          <p
+            role="alert"
+            className="rounded-lg border border-danger/30 bg-danger/5 px-4 py-2.5 text-sm text-danger"
+          >
+            {exportError}
+          </p>
+        )}
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -186,6 +195,7 @@ function ParticipantsInner() {
               onClick={async () => {
                 if (!data?.exam) return;
                 setExporting(true);
+                setExportError(null);
                 try {
                   await downloadResultsExport(
                     data.exam.id,
@@ -193,7 +203,9 @@ function ParticipantsInner() {
                     `${data.exam.title}-results.csv`,
                   );
                 } catch (e) {
-                  alert(e instanceof Error ? e.message : "Export failed");
+                  setExportError(
+                    e instanceof Error ? e.message : "Export failed",
+                  );
                 } finally {
                   setExporting(false);
                 }

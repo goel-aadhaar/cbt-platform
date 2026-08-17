@@ -46,6 +46,11 @@ const COPY: Record<
     advice: "Your administrator can re-enable it.",
     alarming: true,
   },
+  INSTITUTE_SUSPENDED: {
+    title: "Institute suspended",
+    advice: "Contact the platform administrator for details.",
+    alarming: true,
+  },
 };
 
 /** Screens that already explain why you are looking at them. */

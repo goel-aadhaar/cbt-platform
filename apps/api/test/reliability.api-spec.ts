@@ -254,12 +254,14 @@ describe('Reliability', () => {
     it('auto-submits once time is up and refuses further answers', async () => {
       const student = await addStudent(tenant, 'Timer Expiry', 'REL7');
       // A short window so the attempt expires quickly, but wide enough that the
-      // setup round-trips cannot eat it before the candidate starts.
+      // setup round-trips (create, sections, questions, batch, submit-for-
+      // review, approve, schedule, publish — 8 sequential API calls) cannot
+      // eat it before the candidate starts.
       const { examId } = await createPublishedExam(tenant, {
         title: 'Expiring Exam',
         durationMinutes: 60,
         questionIds: [questionA],
-        endAt: new Date(Date.now() + 25_000).toISOString(),
+        endAt: new Date(Date.now() + 45_000).toISOString(),
       });
 
       const start = await api<{ id: string; remainingSeconds: number }>(
@@ -272,7 +274,7 @@ describe('Reliability', () => {
       // Trust the SERVER's clock, not the test's: wait out its own deadline.
       const remaining = start.body.remainingSeconds;
       expect(remaining).toBeGreaterThan(0);
-      expect(remaining).toBeLessThanOrEqual(25);
+      expect(remaining).toBeLessThanOrEqual(45);
 
       await api(`/attempts/${attemptId}/responses/${questionA}`, {
         method: 'PUT',

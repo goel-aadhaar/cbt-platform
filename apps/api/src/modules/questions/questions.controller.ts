@@ -25,6 +25,7 @@ import {
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { ArchiveQuestionDto } from './dto/archive-question.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QueryQuestionsDto } from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
@@ -137,7 +138,10 @@ export class QuestionsController {
 
   @Post(':id/archive')
   @Roles(Role.ADMIN)
-  archive(@Param('id', ParseUUIDPipe) id: string) {
-    return this.questions.archive(id);
+  archive(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiveQuestionDto,
+  ) {
+    return this.questions.archive(id, dto.confirm);
   }
 }

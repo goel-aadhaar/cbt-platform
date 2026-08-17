@@ -19,11 +19,16 @@ import { InvitationService } from './invitation.service';
 export class InvitationController {
   constructor(private readonly invitations: InvitationService) {}
 
+  /**
+   * SUPERADMIN seeds any institute with its first administrator; ADMIN can
+   * also add a fellow administrator, scoped to their own institute (enforced
+   * in the service — never trust `dto.instituteId` for an ADMIN caller).
+   */
   @Post('admin')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.ADMIN)
   @ApiBearerAuth()
   inviteAdmin(@CurrentUser() user: AuthUser, @Body() dto: InviteAdminDto) {
-    return this.invitations.inviteAdmin(user.userId, dto);
+    return this.invitations.inviteAdmin(user, dto);
   }
 
   @Post('teacher')
@@ -40,7 +45,17 @@ export class InvitationController {
     return this.invitations.inviteStudent(user.instituteId, user.userId, dto);
   }
 
-  /** Public: invitee completes their account with the emailed token. */
+  /**
+   * Public: invitee completes their account with the emailed token.
+   *
+   * Deliberately NOT on the tighter login budget: a token is 32 random bytes
+   * (brute-forcing it is computationally infeasible regardless of any
+   * reasonable rate limit, unlike a password or a 6-digit OTP), and a bulk
+   * CSV import can legitimately produce dozens of invites accepted from the
+   * same institute network in a short window — the exact NAT-sharing case
+   * CandidateThrottlerGuard exists to not punish. Still covered by the
+   * app-wide default (120/min).
+   */
   @Public()
   @Post('accept')
   accept(@Body() dto: AcceptInviteDto) {

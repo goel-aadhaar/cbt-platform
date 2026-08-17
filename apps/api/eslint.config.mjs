@@ -13,6 +13,7 @@ export default tseslint.config(
       'src/generated/**',
       // Standalone Node tooling (not part of the TS project graph).
       'postman/**',
+      'scripts/**',
     ],
   },
   eslint.configs.recommended,

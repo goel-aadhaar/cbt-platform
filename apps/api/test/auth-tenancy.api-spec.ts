@@ -1,11 +1,13 @@
 import {
   addStudent,
   api,
+  countOtpCodes,
   createApprovedQuestion,
   loginStaff,
   PASSWORD,
   setupTenant,
   TenantFixture,
+  waitForNewOtpCode,
 } from './support/client';
 
 /**
@@ -60,6 +62,159 @@ describe('Auth, RBAC and tenant isolation', () => {
       });
       expect(res.status).toBe(401);
     });
+  });
+
+  /**
+   * Email OTP as a mandatory second factor for every non-student door (§2.2).
+   * The property that matters: a correct password on its own is NOT a login.
+   */
+  describe('login OTP (§2.2)', () => {
+    it('a correct staff password returns a challenge, not a session', async () => {
+      const scratch = await setupTenant('otp');
+      const res = await api<{
+        otpRequired: boolean;
+        challengeId: string;
+        sentTo: string;
+        accessToken?: string;
+      }>('/auth/login', {
+        method: 'POST',
+        body: {
+          email: `admin-${scratch.suffix}@test.local`,
+          password: PASSWORD,
+        },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.otpRequired).toBe(true);
+      expect(res.body.challengeId).toBeTruthy();
+      // The whole point: no credential is handed out at this step.
+      expect(res.body.accessToken).toBeUndefined();
+      // The address is masked so the screen can name the inbox without
+      // exposing it to whoever typed the password.
+      expect(res.body.sentTo).not.toContain(scratch.suffix);
+      expect(res.body.sentTo).toContain('@');
+    });
+
+    it('rejects a wrong code, and the challenge cannot be reused once redeemed', async () => {
+      const scratch = await setupTenant('otp2');
+      const email = `admin-${scratch.suffix}@test.local`;
+
+      const before = countOtpCodes();
+      const challenge = await api<{ challengeId: string }>('/auth/login', {
+        method: 'POST',
+        body: { email, password: PASSWORD },
+      });
+      const code = await waitForNewOtpCode(before);
+
+      const wrong = await api('/auth/login/verify', {
+        method: 'POST',
+        body: {
+          challengeId: challenge.body.challengeId,
+          code: code === '000000' ? '111111' : '000000',
+        },
+      });
+      expect(wrong.status).toBe(401);
+
+      const ok = await api<{ accessToken: string }>('/auth/login/verify', {
+        method: 'POST',
+        body: { challengeId: challenge.body.challengeId, code },
+      });
+      expect(ok.status).toBe(200);
+      expect(ok.body.accessToken).toBeTruthy();
+
+      // Single use: replaying the same code must not mint a second session.
+      const replay = await api('/auth/login/verify', {
+        method: 'POST',
+        body: { challengeId: challenge.body.challengeId, code },
+      });
+      expect(replay.status).toBe(401);
+    });
+
+    /**
+     * REGRESSION: the roles a code may act as are captured on the CHALLENGE at
+     * issue time, so a code minted at the institute door cannot be spent for a
+     * platform session — even for an account that genuinely holds SUPERADMIN.
+     */
+    it('a code minted at the staff door cannot reach a platform session', async () => {
+      const scratch = await setupTenant('otp3');
+      const email = `admin-${scratch.suffix}@test.local`;
+
+      const before = countOtpCodes();
+      const challenge = await api<{ challengeId: string }>('/auth/login', {
+        method: 'POST',
+        body: { email, password: PASSWORD },
+      });
+      const code = await waitForNewOtpCode(before);
+
+      const session = await api<{
+        user: { roles: string[] };
+        selectableRoles: string[];
+      }>('/auth/login/verify', {
+        method: 'POST',
+        body: { challengeId: challenge.body.challengeId, code },
+      });
+      expect(session.status).toBe(200);
+      // The institute door only ever offers institute roles.
+      expect(session.body.selectableRoles).not.toContain('SUPERADMIN');
+    });
+
+    it('students still sign in with one step — no code required', async () => {
+      const token = await addStudent(tenantB, 'No Code Needed', 'NOOTP');
+      // addStudent already asserts a 200 + token from /auth/student/login;
+      // reaching an authenticated route proves it is a real session.
+      expect((await api('/auth/me', { token })).status).toBe(200);
+    });
+  });
+
+  /**
+   * REGRESSION: brute-force lockout is keyed to the ACCOUNT, not the caller's
+   * IP — an institute's staff share one office network, so an IP-keyed limit
+   * would lock out a whole building over one person's typos.
+   */
+  describe('brute-force lockout (§2.2)', () => {
+    it('locks the account after repeated wrong passwords, and a correct one still fails while locked', async () => {
+      const scratch = await setupTenant('lock');
+      const email = `admin-${scratch.suffix}@test.local`;
+
+      // MAX_FAILED_LOGIN_ATTEMPTS is 8; sequential so the counter is exact.
+      for (let i = 0; i < 8; i++) {
+        const res = await api('/auth/login', {
+          method: 'POST',
+          body: { email, password: 'definitely-not-it' },
+        });
+        expect(res.status).toBe(401);
+      }
+
+      // The RIGHT password now fails too — otherwise the lock would be as easy
+      // to step past as the guessing it exists to slow down.
+      const correct = await api<{ message?: string }>('/auth/login', {
+        method: 'POST',
+        body: { email, password: PASSWORD },
+      });
+      expect(correct.status).toBe(401);
+      expect(JSON.stringify(correct.body)).toMatch(/too many failed attempts/i);
+    }, 120_000);
+
+    it('one account’s lockout does not affect another account on the same IP', async () => {
+      const scratch = await setupTenant('lock2');
+      const victim = `admin-${scratch.suffix}@test.local`;
+      const bystander = `teacher-${scratch.suffix}@test.local`;
+
+      for (let i = 0; i < 8; i++) {
+        await api('/auth/login', {
+          method: 'POST',
+          body: { email: victim, password: 'wrong-again' },
+        });
+      }
+
+      // Same IP (this test process), different account: must be unaffected.
+      const other = await api<{ otpRequired: boolean }>('/auth/login', {
+        method: 'POST',
+        body: { email: bystander, password: PASSWORD },
+      });
+      expect(other.status).toBe(200);
+      expect(other.body.otpRequired).toBe(true);
+    }, 120_000);
   });
 
   describe('single active session (§2.2)', () => {

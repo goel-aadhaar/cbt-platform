@@ -53,6 +53,16 @@ model User {
   /// a new login overwrites it, invalidating prior tokens.
   currentSessionId String? @map("current_session_id") @db.Uuid
 
+  /// Brute-force lockout, scoped to the ACCOUNT rather than the caller's IP —
+  /// an institute's staff routinely share one office/lab network, so an
+  /// IP-keyed limit here would lock out a whole building over one person's
+  /// typos (see CandidateThrottlerGuard's own reasoning). Consecutive failed
+  /// passwords increment this; a correct one resets it to 0.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  /// Set once failedLoginAttempts crosses the threshold; login is refused
+  /// until this passes, even with the correct password.
+  lockedUntil         DateTime? @map("locked_until")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -61,6 +71,7 @@ model User {
   invitees  User[]     @relation("UserInvites")
   student   Student?
   sessions  Session[]
+  otpChallenges OtpChallenge[]
 
   questionsCreated  Question[] @relation("QuestionCreatedBy")
   questionsEdited   Question[] @relation("QuestionEditedBy")

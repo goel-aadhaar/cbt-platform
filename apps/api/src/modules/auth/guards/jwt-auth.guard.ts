@@ -38,6 +38,8 @@ export const SESSION_REASON = {
   UNKNOWN: 'SESSION_UNKNOWN',
   /** The account was disabled or is still pending. */
   INACTIVE: 'ACCOUNT_INACTIVE',
+  /** The account's institute was suspended after this session was issued. */
+  INSTITUTE_SUSPENDED: 'INSTITUTE_SUSPENDED',
   /** Signed in, but holds several roles and has not chosen one yet. */
   NO_ROLE: 'ROLE_NOT_SELECTED',
 } as const;
@@ -114,6 +116,7 @@ export class JwtAuthGuard implements CanActivate {
             roles: true,
             status: true,
             instituteId: true,
+            institute: { select: { isActive: true } },
           },
         },
       },
@@ -148,6 +151,19 @@ export class JwtAuthGuard implements CanActivate {
         session.user.status === UserStatus.PENDING
           ? 'Your account has not been activated yet. Check your invitation email.'
           : 'Your account has been disabled. Contact your administrator.',
+      );
+    }
+    // Login already refuses a suspended institute (assertInstituteActive), but
+    // that only stops a NEW sign-in — a session issued while the institute was
+    // active kept working for up to 24h after a superadmin suspended it, since
+    // nothing re-checked institute status on the already-issued session. Every
+    // authenticated request goes through this guard, so this is where a
+    // suspension actually takes effect for someone already signed in.
+    // SUPERADMIN has no institute (null) and is exempt.
+    if (session.user.institute && !session.user.institute.isActive) {
+      throw sessionError(
+        SESSION_REASON.INSTITUTE_SUSPENDED,
+        'Your institute has been suspended. Contact the platform administrator.',
       );
     }
 

@@ -246,24 +246,39 @@ export class AttemptsService {
     // One atomic nested write that also returns the full candidate state — no
     // interactive transaction (which would pin a pool connection) and no second
     // round-trip to read the state back.
-    const attempt = await this.prisma.attempt.create({
-      data: {
-        instituteId: student.instituteId,
-        examId,
-        studentId: student.id,
-        startedAt: now,
-        expiresAt,
-        responses: {
-          createMany: {
-            data: exam.questions.map((eq) => ({
-              questionId: eq.questionId,
-              instituteId: student.instituteId,
-            })),
+    let attempt;
+    try {
+      attempt = await this.prisma.attempt.create({
+        data: {
+          instituteId: student.instituteId,
+          examId,
+          studentId: student.id,
+          startedAt: now,
+          expiresAt,
+          responses: {
+            createMany: {
+              data: exam.questions.map((eq) => ({
+                questionId: eq.questionId,
+                instituteId: student.instituteId,
+              })),
+            },
           },
         },
-      },
-      select: stateSelect,
-    });
+        select: stateSelect,
+      });
+    } catch (err) {
+      // A double-click / thundering-herd "Start Exam" can lose the `existing`
+      // check above to a concurrent request; the @@unique([examId, studentId])
+      // constraint is the real guard. Without this, the loser gets a bare 500
+      // instead of the same clean message the `existing` branch already gives.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException('You have already started this exam');
+      }
+      throw err;
+    }
 
     return {
       ...attempt,
@@ -338,10 +353,19 @@ export class AttemptsService {
   async submit(attemptId: string) {
     const student = await this.currentStudent();
     await this.getActiveAttempt(attemptId, student.id);
-    await this.prisma.attempt.update({
-      where: { id: attemptId },
+    // Conditioned on status at the DB level — closes the race against a
+    // concurrent abandon()/another submit() for the same attempt. Whichever
+    // write reaches Postgres first flips the status; the loser matches zero
+    // rows here instead of silently clobbering the winner's outcome (see
+    // abandon() below, which used to be able to delete a just-submitted
+    // attempt's responses out from under it).
+    const { count } = await this.prisma.attempt.updateMany({
+      where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
       data: { status: AttemptStatus.SUBMITTED, submittedAt: new Date() },
     });
+    if (count === 0) {
+      throw new ConflictException('This attempt is already submitted');
+    }
     return this.summary(attemptId);
   }
 
@@ -357,16 +381,22 @@ export class AttemptsService {
     const student = await this.currentStudent();
     await this.getActiveAttempt(attemptId, student.id);
 
-    await this.prisma.$transaction([
-      this.prisma.response.deleteMany({ where: { attemptId } }),
-      this.prisma.attempt.update({
-        where: { id: attemptId },
-        data: {
-          status: AttemptStatus.ABANDONED,
-          submittedAt: null,
-        },
-      }),
-    ]);
+    // Same race as submit(): claim the attempt with a status-conditioned
+    // update FIRST, and only delete responses if that claim actually wins.
+    // The previous version deleted responses unconditionally before the
+    // status check, so a submit() landing between the delete and the update
+    // (or an abandon() racing a submit()) could wipe a just-submitted
+    // attempt's answers while it still read back as SUBMITTED.
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.attempt.updateMany({
+        where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
+        data: { status: AttemptStatus.ABANDONED, submittedAt: null },
+      });
+      if (count === 0) {
+        throw new ConflictException('This attempt is already submitted');
+      }
+      await tx.response.deleteMany({ where: { attemptId } });
+    });
 
     return { attemptId, status: AttemptStatus.ABANDONED };
   }

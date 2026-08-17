@@ -216,13 +216,21 @@ export function fetchExamMonitor(
  */
 export type QuestionAction = "submit" | "approve" | "reject" | "archive";
 
-/** POST /questions/:id/{approve|reject|archive} */
+/**
+ * POST /questions/:id/{approve|reject|archive}
+ *
+ * Archiving a question already used in an exam 409s with the affected exam
+ * titles unless `confirm: true` — same in-use safeguard as editing a
+ * question (§2.5). `submit`/`approve`/`reject` never take a body.
+ */
 export function actOnQuestion(
   questionId: string,
   action: QuestionAction,
+  confirm?: boolean,
 ): Promise<{ id: string; status: string }> {
   return apiFetch(`/questions/${questionId}/${action}`, {
     method: "POST",
+    body: action === "archive" ? { confirm } : undefined,
     ...auth(),
   });
 }
@@ -448,6 +456,18 @@ export function inviteTeacher(body: {
   return apiFetch(`/invitations/teacher`, { method: "POST", body, ...auth() });
 }
 
+/**
+ * POST /invitations/admin — ADMIN. Invites a fellow administrator into the
+ * caller's own institute; the caller cannot name a different one (the
+ * backend derives it from the session regardless of what's sent here).
+ */
+export function inviteAdmin(body: {
+  name: string;
+  email: string;
+}): Promise<{ id?: string; email?: string } & Record<string, unknown>> {
+  return apiFetch(`/invitations/admin`, { method: "POST", body, ...auth() });
+}
+
 /* ------------------------------------------------------------------ *
  * STAFF ROSTER                                                        *
  * ------------------------------------------------------------------ */
@@ -456,6 +476,7 @@ export interface StaffRow {
   id: string;
   name: string;
   email: string;
+  roles: ("ADMIN" | "TEACHER")[];
   status: "PENDING" | "ACTIVE" | "DISABLED";
   joinedAt: string;
   /** Derived from the subjects this teacher authors questions in. */

@@ -71,7 +71,7 @@ export function expectStatus(res: ApiResponse, expected: number): void {
   }
 }
 
-// --- Invitation links (the dev mail adapter prints them to the app log) ---
+// --- Invitation links + OTP codes (the dev mail adapter prints both to the app log) ---
 
 function inviteTokens(): string[] {
   const log = readFileSync(API_LOG_FILE, 'utf8');
@@ -90,6 +90,27 @@ async function waitForNewInviteToken(before: number): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error('Timed out waiting for an invitation token in the API log');
+}
+
+function otpCodes(): string[] {
+  const log = readFileSync(API_LOG_FILE, 'utf8');
+  return [...log.matchAll(/code: (\d{6})/g)].map((m) => m[1]);
+}
+
+export function countOtpCodes(): number {
+  return otpCodes().length;
+}
+
+/** jest-api.json runs with maxWorkers: 1, so "the newest code so far" is
+ * always the one just issued — no need to correlate by email. */
+export async function waitForNewOtpCode(before: number): Promise<string> {
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const codes = otpCodes();
+    if (codes.length > before) return codes[codes.length - 1];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Timed out waiting for an OTP code in the API log');
 }
 
 /**
@@ -115,30 +136,58 @@ export async function waitForInviteTokens(
 
 // --- Domain builders -------------------------------------------------------
 
-export async function loginSuperadmin(): Promise<string> {
-  // The platform owner has its own door; /auth/login refuses SUPERADMIN.
-  const res = await api<{ accessToken: string }>('/auth/platform/login', {
+interface OtpChallengeResponse {
+  otpRequired: true;
+  challengeId: string;
+  expiresAt: string;
+  sentTo: string;
+}
+
+/**
+ * Every non-student door is two steps (§2.2): a correct password only earns
+ * a mailed code, which POST /auth/login/verify redeems for the real session.
+ * The dev mail adapter prints the code to the API log instead of sending it.
+ */
+async function completeOtpLogin(
+  loginPath: string,
+  body: { email: string; password: string },
+): Promise<string> {
+  const before = otpCodes().length;
+  const challenge = await api<OtpChallengeResponse>(loginPath, {
     method: 'POST',
-    body: SUPERADMIN,
+    body,
   });
-  if (res.status !== 200) {
+  if (challenge.status !== 200) {
     throw new Error(
-      `Superadmin login failed (${res.status}). Seed the database first: pnpm --filter @drsk/api db:seed`,
+      `${loginPath} failed (${challenge.status}): ${JSON.stringify(challenge.body)}`,
     );
   }
-  return res.body.accessToken;
+  const code = await waitForNewOtpCode(before);
+  const verified = await api<{ accessToken: string }>('/auth/login/verify', {
+    method: 'POST',
+    body: { challengeId: challenge.body.challengeId, code },
+  });
+  expectStatus(verified, 200);
+  return verified.body.accessToken;
+}
+
+export async function loginSuperadmin(): Promise<string> {
+  // The platform owner has its own door; /auth/login refuses SUPERADMIN.
+  try {
+    return await completeOtpLogin('/auth/platform/login', SUPERADMIN);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `Superadmin login failed. Seed the database first: pnpm --filter @drsk/api db:seed (${reason})`,
+    );
+  }
 }
 
 export async function loginStaff(
   email: string,
   password: string = PASSWORD,
 ): Promise<string> {
-  const res = await api<{ accessToken: string }>('/auth/login', {
-    method: 'POST',
-    body: { email, password },
-  });
-  expectStatus(res, 200);
-  return res.body.accessToken;
+  return completeOtpLogin('/auth/login', { email, password });
 }
 
 export interface TenantFixture {
@@ -147,6 +196,7 @@ export interface TenantFixture {
   instituteId: string;
   superToken: string;
   adminToken: string;
+  adminUserId: string;
   teacherToken: string;
   programId: string;
   classId: string;
@@ -174,6 +224,8 @@ export async function setupTenant(label = 't'): Promise<TenantFixture> {
     superToken,
   );
   const adminToken = await loginStaff(adminEmail);
+  const adminMe = await api<{ id: string }>('/auth/me', { token: adminToken });
+  const adminUserId = adminMe.body.id;
 
   const teacherEmail = `teacher-${suffix}@test.local`;
   await inviteAndAccept(
@@ -205,6 +257,7 @@ export async function setupTenant(label = 't'): Promise<TenantFixture> {
     instituteId,
     superToken,
     adminToken,
+    adminUserId,
     teacherToken,
     programId: program.body.id,
     classId: klass.body.id,
@@ -351,6 +404,21 @@ export async function createPublishedExam(
       body: { batchId },
     });
   }
+
+  // publish() only accepts APPROVED exams (the whole point of the approval
+  // step — see exams.controller.ts create()'s own comment). Route through the
+  // real lifecycle rather than relying on a shortcut.
+  const submitted = await api(`/exams/${examId}/submit`, {
+    method: 'POST',
+    token: tenant.teacherToken,
+    body: { reviewerId: tenant.adminUserId },
+  });
+  expectStatus(submitted, 200);
+  const approved = await api(`/exams/${examId}/approve`, {
+    method: 'POST',
+    token: tenant.adminToken,
+  });
+  expectStatus(approved, 200);
 
   await api(`/exams/${examId}/schedule`, {
     method: 'PATCH',

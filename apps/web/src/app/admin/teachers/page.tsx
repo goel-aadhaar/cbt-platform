@@ -51,10 +51,13 @@ function TeachersPageInner() {
   const params = useSearchParams();
   const [addOpen, setAddOpen] = useState(params.get("new") === "1");
   const [notice, setNotice] = useState<string | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsStaff, setDetailsStaff] = useState<StaffRow | null>(null);
+  /** Which staff role this roster is currently viewing. */
+  const [viewRole, setViewRole] = useState<"TEACHER" | "ADMIN">("TEACHER");
 
-  const { data, loading, error } = useAdminData(() =>
-    listStaff({ limit: 200 }),
+  const { data, loading, error } = useAdminData(
+    () => listStaff({ role: viewRole, limit: 200 }),
+    [viewRole],
   );
   const all = useMemo(() => data?.items ?? [], [data]);
 
@@ -95,14 +98,33 @@ function TeachersPageInner() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold text-admin-ink">Teachers</h2>
+            <h2 className="text-3xl font-bold text-admin-ink">
+              {viewRole === "ADMIN" ? "Administrators" : "Teachers"}
+            </h2>
             <p className="mt-1 text-sm text-admin-muted">
               {loading
                 ? "Loading…"
-                : `${counts.total} staff member(s) · ${counts.assignments} questions authored`}
+                : viewRole === "ADMIN"
+                  ? `${counts.total} administrator(s) in this institute`
+                  : `${counts.total} staff member(s) · ${counts.assignments} questions authored`}
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex rounded-lg border border-admin-line bg-white p-1">
+              {(["TEACHER", "ADMIN"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setViewRole(r)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
+                    viewRole === r
+                      ? "bg-admin/10 text-admin"
+                      : "text-admin-muted hover:text-admin-ink"
+                  }`}
+                >
+                  {r === "TEACHER" ? "Teachers" : "Administrators"}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setAddOpen(true)}
               className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
@@ -226,7 +248,7 @@ function TeachersPageInner() {
                 {STAFF.map((s) => (
                   <tr
                     key={s.email}
-                    onClick={() => setDetailsOpen(true)}
+                    onClick={() => setDetailsStaff(s)}
                     className="cursor-pointer hover:bg-admin-bg/40"
                   >
                     <td className="px-4 py-4">
@@ -264,7 +286,9 @@ function TeachersPageInner() {
                     <td className="px-4 py-4 text-admin-muted">
                       {s.questionsAuthored} q · {s.examsAuthored} exams
                     </td>
-                    <td className="px-4 py-4 text-admin-ink">Teacher</td>
+                    <td className="px-4 py-4 text-admin-ink">
+                      {s.roles.includes("ADMIN") ? "Administrator" : "Teacher"}
+                    </td>
                     <td className="px-4 py-4">
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -323,11 +347,19 @@ function TeachersPageInner() {
       <AddStaffDrawer
         open={addOpen}
         onClose={() => setAddOpen(false)}
-        onInvited={(staffName) => setNotice(`Invitation sent to ${staffName}.`)}
+        onInvited={(staffName, role) => {
+          setNotice(
+            `Invitation sent to ${staffName} as ${role === "ADMIN" ? "an administrator" : "a teacher"}.`,
+          );
+          // If we invited into the other role's roster, switch the view so
+          // the new invite is actually visible rather than silently absent.
+          if (role !== viewRole) setViewRole(role);
+        }}
       />
       <StaffDetailsDrawer
-        open={detailsOpen}
-        onClose={() => setDetailsOpen(false)}
+        open={detailsStaff !== null}
+        staff={detailsStaff}
+        onClose={() => setDetailsStaff(null)}
       />
     </AdminShell>
   );

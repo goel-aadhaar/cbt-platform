@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 
 import { PrismaService } from '../../database/prisma.service';
 import { Role, UserStatus } from './auth.types';
-import { GoogleTokenService } from './google-token.service';
+import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
 
 /** Roles an institute-facing login may act as. SUPERADMIN is not among them. */
@@ -40,6 +40,19 @@ export interface LoginResult {
   selectableRoles: Role[];
 }
 
+/**
+ * What a non-student login returns instead of a session: the password was
+ * right, but a mailed code is still required (§2.2). No token is issued here,
+ * so a correct password alone gets an attacker nothing.
+ */
+export interface OtpRequired {
+  otpRequired: true;
+  challengeId: string;
+  expiresAt: string;
+  /** Masked so the user knows which inbox to check without exposing it. */
+  sentTo: string;
+}
+
 /** Minimal shape needed to complete a login (a full User row satisfies it). */
 interface AuthenticatableUser {
   id: string;
@@ -49,7 +62,13 @@ interface AuthenticatableUser {
   status: UserStatus;
   instituteId: string | null;
   passwordHash: string | null;
+  failedLoginAttempts: number;
+  lockedUntil: Date | null;
 }
+
+/** Consecutive wrong passwords before the ACCOUNT (not the caller's IP) locks. */
+const MAX_FAILED_LOGIN_ATTEMPTS = 8;
+const LOCKOUT_MINUTES = 15;
 
 @Injectable()
 export class AuthService {
@@ -57,7 +76,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly jwt: JwtService,
-    private readonly google: GoogleTokenService,
+    private readonly otp: OtpService,
   ) {}
 
   /**
@@ -73,13 +92,13 @@ export class AuthService {
     email: string,
     password: string,
     meta: SessionMeta,
-  ): Promise<LoginResult> {
+  ): Promise<OtpRequired> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Students authenticate via the student endpoint, not by email.
     if (!user || user.roles.includes(Role.STUDENT)) {
       throw new UnauthorizedException('Invalid credentials');
     }
-    return this.completeLogin(user, password, meta, STAFF_ROLES);
+    return this.challengeAfterPassword(user, password, meta, STAFF_ROLES);
   }
 
   /** Platform owner. Deliberately its own door; nobody else may use it. */
@@ -87,7 +106,7 @@ export class AuthService {
     email: string,
     password: string,
     meta: SessionMeta,
-  ): Promise<LoginResult> {
+  ): Promise<OtpRequired> {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !user.roles.includes(Role.SUPERADMIN)) {
       throw new UnauthorizedException('Invalid credentials');
@@ -95,42 +114,85 @@ export class AuthService {
     // Only ever a platform session, even if the account also administers an
     // institute — the cross-tenant role is not something you arrive at by
     // accident from another door.
-    return this.completeLogin(user, password, meta, [Role.SUPERADMIN]);
+    return this.challengeAfterPassword(user, password, meta, [Role.SUPERADMIN]);
   }
 
   /**
-   * Staff sign-in with a verified Google identity.
+   * Second step of a non-student login: redeem the mailed code for a session.
    *
-   * Matching is by email against an account that ALREADY EXISTS and has been
-   * invited. Nothing is auto-provisioned: on a multi-tenant examination
-   * platform, "signed in with Google" must never be able to conjure a staff
-   * account, or anyone with a Google address could walk into a tenant. Which
-   * institute and which role they get comes from that existing record, never
-   * from the request.
+   * The roles this session may act as come from the CHALLENGE, not from the
+   * request — a code minted at the institute door cannot be spent for a
+   * platform session even if the account holds SUPERADMIN.
    */
-  async loginStaffWithGoogle(
-    credential: string,
+  async verifyLoginOtp(
+    challengeId: string,
+    code: string,
     meta: SessionMeta,
   ): Promise<LoginResult> {
-    const identity = await this.google.verify(credential);
-
-    const user = await this.prisma.user.findUnique({
-      where: { email: identity.email },
+    const { userId, allowedRoles } = await this.otp.verify({
+      challengeId,
+      code,
     });
-    if (!user || user.roles.includes(Role.STUDENT)) {
-      throw new UnauthorizedException(
-        `No staff account exists for ${identity.email}. Ask your administrator to invite you first.`,
-      );
-    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Invalid credentials');
+    // Re-checked at redemption, not just at password time: an account
+    // disabled (or an institute suspended) in the seconds between the two
+    // steps must not still complete the login.
     if (user.status !== UserStatus.ACTIVE) {
-      throw new ForbiddenException(
-        user.status === UserStatus.PENDING
-          ? 'Your invitation has not been accepted yet. Use the link in your invitation email to set a password first.'
-          : 'Your account has been disabled. Contact your administrator.',
-      );
+      throw new UnauthorizedException('Invalid credentials');
     }
     await this.assertInstituteActive(user.instituteId);
-    return this.issueFor(user, meta, STAFF_ROLES);
+
+    return this.issueFor(user, meta, allowedRoles);
+  }
+
+  /**
+   * Shared first step for every non-student door: verify the password, then
+   * mail a code instead of issuing a session.
+   *
+   * The password is checked in full here (including account status and
+   * institute suspension) so a code is never sent to an account that could
+   * not have signed in anyway — an unsolicited code is itself a signal worth
+   * not leaking.
+   */
+  private async challengeAfterPassword(
+    user: AuthenticatableUser,
+    password: string,
+    meta: SessionMeta,
+    allowedHere: Role[],
+  ): Promise<OtpRequired> {
+    await this.verifyPasswordWithLockout(user, password);
+
+    await this.assertInstituteActive(user.instituteId);
+
+    // Refuse here rather than after the round-trip through email: an account
+    // with no role for this door can never complete the login, so sending a
+    // code would only be misleading.
+    const selectable = user.roles.filter((r) => allowedHere.includes(r));
+    if (selectable.length === 0) {
+      throw new ForbiddenException(
+        user.roles.includes(Role.SUPERADMIN)
+          ? 'Platform accounts sign in through the platform console, not an institute login.'
+          : 'This account cannot sign in here.',
+      );
+    }
+
+    const challenge = await this.otp.issue({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      allowedRoles: allowedHere,
+      userAgent: meta.userAgent,
+      ip: meta.ip,
+    });
+
+    return {
+      otpRequired: true,
+      challengeId: challenge.challengeId,
+      expiresAt: challenge.expiresAt.toISOString(),
+      sentTo: maskEmail(user.email),
+    };
   }
 
   async loginStudent(
@@ -297,23 +359,72 @@ export class AuthService {
     return { changed: true };
   }
 
+  /**
+   * Password-only login, issuing a session directly. STUDENTS ONLY — every
+   * other door goes through challengeAfterPassword() and a mailed code
+   * instead. Candidates are exempt because an exam hall cannot depend on
+   * inbox access, and a student session has no administrative reach.
+   */
   private async completeLogin(
     user: AuthenticatableUser,
     password: string,
     meta: SessionMeta,
     allowedHere: Role[],
   ): Promise<LoginResult> {
-    if (user.status !== UserStatus.ACTIVE || user.passwordHash === null) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-    const ok = await this.passwords.verify(user.passwordHash, password);
-    if (!ok) throw new UnauthorizedException('Invalid credentials');
+    await this.verifyPasswordWithLockout(user, password);
 
     // Checked after the password so the reason only reaches someone who owns
     // the account; it is a state they can act on, not a credential hint.
     await this.assertInstituteActive(user.instituteId);
 
     return this.issueFor(user, meta, allowedHere);
+  }
+
+  /**
+   * Verify a password with a per-ACCOUNT brute-force lockout — deliberately
+   * not per-IP (see CandidateThrottlerGuard and the schema comment on
+   * User.lockedUntil: an institute's staff share a network, so an IP-keyed
+   * limit here would lock out a whole building over one person's typos).
+   *
+   * The lock is checked BEFORE verifying the password, so a correct password
+   * submitted while locked still fails — otherwise the lock would be exactly
+   * as easy to bypass as the thing it exists to slow down.
+   */
+  private async verifyPasswordWithLockout(
+    user: AuthenticatableUser,
+    password: string,
+  ): Promise<void> {
+    if (user.status !== UserStatus.ACTIVE || user.passwordHash === null) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      throw new UnauthorizedException(
+        'Too many failed attempts. Try again in a few minutes.',
+      );
+    }
+
+    const ok = await this.passwords.verify(user.passwordHash, password);
+    if (!ok) {
+      const attempts = user.failedLoginAttempts + 1;
+      const locked = attempts >= MAX_FAILED_LOGIN_ATTEMPTS;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: locked ? 0 : attempts,
+          lockedUntil: locked
+            ? new Date(Date.now() + LOCKOUT_MINUTES * 60_000)
+            : null,
+        },
+      });
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
   }
 
   /**
@@ -490,4 +601,16 @@ export class AuthService {
 
     return token;
   }
+}
+
+/**
+ * `priya.sharma@school.edu` -> `pr•••@school.edu`. Enough for the owner to
+ * recognise which inbox to check, not enough to hand an address to someone
+ * who only guessed the password.
+ */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '•••';
+  const head = local.slice(0, 2);
+  return `${head}${'•'.repeat(3)}@${domain}`;
 }
