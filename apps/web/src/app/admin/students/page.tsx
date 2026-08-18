@@ -328,8 +328,12 @@ function StudentsPageInner() {
       <AddStudentDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onCreated={(studentName) => {
-          setNotice(`Invite sent to ${studentName}.`);
+        onCreated={(studentName, rollNumber) => {
+          setNotice(
+            rollNumber
+              ? `Invite sent to ${studentName} — roll number ${rollNumber}.`
+              : `Invite sent to ${studentName}.`,
+          );
           setTimeout(() => window.location.reload(), 900);
         }}
       />

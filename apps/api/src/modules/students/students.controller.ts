@@ -44,12 +44,12 @@ export class StudentsController {
 
   /**
    * Bulk-import a batch's students from a CSV upload (§2.10). Field `file`;
-   * columns `name`, `email` (required) and optional `rollNumber`.
+   * columns `name`, `email` (required). Roll numbers are always
+   * server-generated, never read from the file.
    */
   @Post('import')
   @ApiConsumes('multipart/form-data')
   @ApiQuery({ name: 'batchId', required: true })
-  @ApiQuery({ name: 'rollPrefix', required: false })
   @ApiBody({
     schema: {
       type: 'object',
@@ -63,7 +63,6 @@ export class StudentsController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query('batchId', ParseUUIDPipe) batchId: string,
     @CurrentUser() user: AuthUser,
-    @Query('rollPrefix') rollPrefix?: string,
   ) {
     if (!file) {
       throw new BadRequestException('CSV file is required (form field "file")');
@@ -71,7 +70,6 @@ export class StudentsController {
     return this.students.importCsv({
       batchId,
       buffer: file.buffer,
-      rollPrefix,
       invitedById: user.userId,
       fileName: file.originalname,
     });

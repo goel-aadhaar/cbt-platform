@@ -265,11 +265,13 @@ export async function setupTenant(label = 't'): Promise<TenantFixture> {
   };
 }
 
+/** Returns the invite response body — callers that need it (e.g. the
+ * server-generated roll number) read it off there; the rest just await. */
 async function inviteAndAccept(
   path: string,
   body: Record<string, unknown>,
   inviterToken: string,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   const before = countInviteTokens();
   const invite = await api(path, { method: 'POST', token: inviterToken, body });
   if (invite.status >= 300) {
@@ -285,21 +287,30 @@ async function inviteAndAccept(
   if (accept.status >= 300) {
     throw new Error(`Accept failed (${accept.status})`);
   }
+  return invite.body as Record<string, unknown>;
 }
 
-/** Invites a student, accepts the invite, and logs them in. */
+/**
+ * Invites a student, accepts the invite, and logs them in.
+ *
+ * `emailTag` is only used to build a unique test email (e.g. 'AUTH1' ->
+ * auth1-<suffix>@test.local) — it is NOT the roll number. The roll number
+ * is always server-generated (§2.11), so the real one is read back from the
+ * invite response and used for the login call.
+ */
 export async function addStudent(
   tenant: TenantFixture,
   name: string,
-  rollNumber: string,
+  emailTag: string,
   batchId: string = tenant.batchId,
 ): Promise<string> {
-  const email = `${rollNumber.toLowerCase()}-${tenant.suffix}@test.local`;
-  await inviteAndAccept(
+  const email = `${emailTag.toLowerCase()}-${tenant.suffix}@test.local`;
+  const invited = await inviteAndAccept(
     '/invitations/student',
-    { name, email, rollNumber, batchId },
+    { name, email, batchId },
     tenant.adminToken,
   );
+  const rollNumber = invited.rollNumber as string;
 
   const res = await api<{ accessToken: string }>('/auth/student/login', {
     method: 'POST',
@@ -311,6 +322,21 @@ export async function addStudent(
   });
   expectStatus(res, 200);
   return res.body.accessToken;
+}
+
+/**
+ * The real, server-generated roll number (§2.11) for the student owning
+ * this token. Tests that need to log in a second time, or cross-reference a
+ * results row back to a specific candidate, can't use the label passed to
+ * addStudent() for that — it was never sent to the server.
+ */
+export async function getRollNumber(studentToken: string): Promise<string> {
+  const res = await api<{ student: { rollNumber: string } }>(
+    '/auth/me/profile',
+    { token: studentToken },
+  );
+  expectStatus(res, 200);
+  return res.body.student.rollNumber;
 }
 
 /** Authors a question as the teacher and approves it as the admin. */

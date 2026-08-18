@@ -3,6 +3,7 @@ import {
   api,
   createApprovedQuestion,
   createPublishedExam,
+  getRollNumber,
   PASSWORD,
   setupTenant,
   TenantFixture,
@@ -183,6 +184,7 @@ describe('Reliability', () => {
   describe('session recovery (§2.2)', () => {
     it('a re-login mid-exam issues a working token and preserves saved answers', async () => {
       const studentFirst = await addStudent(tenant, 'Session', 'REL5');
+      const rollNumber = await getRollNumber(studentFirst);
       const { examId } = await createPublishedExam(tenant, {
         title: 'Session Exam',
         questionIds: [questionA],
@@ -208,7 +210,7 @@ describe('Reliability', () => {
           method: 'POST',
           body: {
             instituteSlug: tenant.slug,
-            rollNumber: 'REL5',
+            rollNumber,
             password: PASSWORD,
           },
         },

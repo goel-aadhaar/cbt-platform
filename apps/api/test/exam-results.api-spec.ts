@@ -3,6 +3,7 @@ import {
   api,
   createApprovedQuestion,
   createPublishedExam,
+  getRollNumber,
   setupTenant,
   TenantFixture,
 } from './support/client';
@@ -21,6 +22,14 @@ describe('Exam lifecycle and results engine', () => {
   let examId: string;
   const attempts: Record<string, string> = {};
   const tokens: Record<string, string> = {};
+  /**
+   * Roll numbers are always server-generated (§2.11), not the 'TOP'/'MID'/
+   * 'LOW' labels used below — those are only local test bookkeeping keys
+   * (and the seed for a unique test email). This maps the real generated
+   * roll number back to its label, so results (keyed by the server's real
+   * rollNumber) can still be looked up as byRoll.TOP / .MID / .LOW.
+   */
+  const rollToLabel: Record<string, string> = {};
 
   // Heavy fixture: an institute, staff, two questions, a published exam and
   // three candidates who each sit it — ~50 round-trips to the database.
@@ -44,6 +53,8 @@ describe('Exam lifecycle and results engine', () => {
     for (const [roll, name, a1, a2] of plan) {
       const token = await addStudent(tenant, name, roll);
       tokens[roll] = token;
+
+      rollToLabel[await getRollNumber(token)] = roll;
 
       const start = await api<{ id: string }>('/attempts', {
         method: 'POST',
@@ -315,7 +326,7 @@ describe('Exam lifecycle and results engine', () => {
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
 
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
 
       // +4 / -1 marking, hand-checked.
@@ -337,7 +348,7 @@ describe('Exam lifecycle and results engine', () => {
         }[]
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
 
       expect(byRoll.TOP.overallRank).toBe(1);
@@ -353,7 +364,7 @@ describe('Exam lifecycle and results engine', () => {
         { percentile: number; student: { rollNumber: string } }[]
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
 
       // (candidates scoring <= me) / total * 100
@@ -411,7 +422,7 @@ describe('Exam lifecycle and results engine', () => {
         { totalScore: number; student: { rollNumber: string } }[]
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
 
       // Everyone now gets q2's +4: 8, 3-(-1)+4 => 4+4=8, and 0+4=4.
@@ -437,7 +448,7 @@ describe('Exam lifecycle and results engine', () => {
         { totalScore: number; student: { rollNumber: string } }[]
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
       expect(byRoll.TOP.totalScore).toBe(4);
       expect(byRoll.MID.totalScore).toBe(4);
@@ -468,7 +479,7 @@ describe('Exam lifecycle and results engine', () => {
         }[]
       >(`/exams/${examId}/results`, { token: tenant.adminToken });
       const byRoll = Object.fromEntries(
-        results.body.map((r) => [r.student.rollNumber, r]),
+        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
       );
 
       // Max marks still count the question; only the award is manual.

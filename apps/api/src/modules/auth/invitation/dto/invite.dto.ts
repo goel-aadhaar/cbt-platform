@@ -37,7 +37,11 @@ export class InviteTeacherDto {
   email: string;
 }
 
-/** Admin invites a student (into the admin's own institute). */
+/**
+ * Admin invites a student (into the admin's own institute). No rollNumber
+ * field — it's always server-generated ({yy}{institute code}{sequence}),
+ * never caller-supplied.
+ */
 export class InviteStudentDto {
   @IsString()
   @MinLength(2)
@@ -45,10 +49,6 @@ export class InviteStudentDto {
 
   @IsEmail()
   email: string;
-
-  @IsString()
-  @MinLength(1)
-  rollNumber: string;
 
   @IsUUID()
   batchId: string;

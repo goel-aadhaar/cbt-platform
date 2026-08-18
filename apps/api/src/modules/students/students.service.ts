@@ -18,7 +18,6 @@ import { UpdateStudentDto } from './dto/update-student.dto';
 export interface ImportSummary {
   batchId: string;
   batch: string;
-  rollPrefix: string;
   total: number;
   imported: { row: number; name: string; email: string; rollNumber: string }[];
   failed: { row: number; email: string; reason: string }[];
@@ -50,16 +49,16 @@ export class StudentsService {
   }
 
   /**
-   * Bulk-import a batch's students from a CSV (§2.10). Columns: `name`, `email`
-   * (required) and `rollNumber` (optional — auto-generated when blank). Each row
-   * is created through the normal invitation flow (PENDING → email link → set
-   * password). Processing is per-row and fault-tolerant: a bad row is reported
-   * in `failed` without aborting the rest.
+   * Bulk-import a batch's students from a CSV (§2.10). Columns: `name`,
+   * `email` (required) — roll numbers are always server-generated
+   * ({yy}{institute code}{sequence}, §2.11), never read from the file. Each
+   * row is created through the normal invitation flow (PENDING → email link
+   * → set password). Processing is per-row and fault-tolerant: a bad row is
+   * reported in `failed` without aborting the rest.
    */
   async importCsv(params: {
     batchId: string;
     buffer: Buffer;
-    rollPrefix?: string;
     invitedById: string;
     /** Original upload name, recorded in the import history. */
     fileName?: string;
@@ -86,19 +85,6 @@ export class StudentsService {
       throw new BadRequestException('CSV must have "name" and "email" columns');
     }
 
-    // Roll-number generation: sequential, zero-padded, unique within institute.
-    const existingRolls = (
-      await this.prisma.student.findMany({
-        where: { instituteId },
-        select: { rollNumber: true },
-      })
-    ).map((s) => s.rollNumber);
-    // Shared across explicit + generated rolls so neither collides with the
-    // other, nor with rolls already in the institute.
-    const seenRolls = new Set(existingRolls);
-    const prefix = derivePrefix(params.rollPrefix, batch.name);
-    const nextRoll = makeRollGenerator(prefix, seenRolls);
-
     const seenEmails = new Set<string>();
     const imported: ImportSummary['imported'] = [];
     const failed: ImportSummary['failed'] = [];
@@ -108,29 +94,29 @@ export class StudentsService {
       rowNum++;
       const name = rec.name;
       const email = rec.email.toLowerCase();
-      let roll = rec.rollnumber || rec['roll number'] || rec.roll || '';
       try {
         if (!name) throw new Error('Missing name');
         if (!EMAIL_RE.test(email)) throw new Error('Invalid email');
         if (seenEmails.has(email)) {
           throw new Error('Duplicate email in file');
         }
-        if (roll) {
-          if (seenRolls.has(roll)) throw new Error('Duplicate roll number');
-        } else {
-          roll = nextRoll();
-        }
 
-        await this.invitations.inviteStudent(instituteId, params.invitedById, {
-          name,
-          email,
-          rollNumber: roll,
-          batchId: batch.id,
-        });
+        // inviteStudent() generates the roll number itself and, row-by-row
+        // sequential awaiting here, always sees every prior row's write —
+        // no risk of two rows in the same file computing the same one.
+        const invited = await this.invitations.inviteStudent(
+          instituteId,
+          params.invitedById,
+          { name, email, batchId: batch.id },
+        );
 
         seenEmails.add(email);
-        seenRolls.add(roll);
-        imported.push({ row: rowNum, name, email, rollNumber: roll });
+        imported.push({
+          row: rowNum,
+          name,
+          email,
+          rollNumber: invited.rollNumber ?? '',
+        });
       } catch (err) {
         failed.push({
           row: rowNum,
@@ -153,7 +139,6 @@ export class StudentsService {
     return {
       batchId: batch.id,
       batch: batch.name,
-      rollPrefix: prefix,
       total: records.length,
       imported,
       failed,
@@ -277,44 +262,4 @@ export class StudentsService {
     if (!student) throw new NotFoundException('Student not found');
     return student;
   }
-}
-
-/** Roll-number prefix: explicit override, else derived from the batch name. */
-function derivePrefix(override: string | undefined, batchName: string): string {
-  const explicit = override
-    ?.trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-  if (explicit) return explicit;
-  const fromBatch = batchName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 6);
-  return fromBatch || 'STU';
-}
-
-/**
- * Returns a generator that yields the next free `<PREFIX><0000>` roll number,
- * starting after the highest existing sequence for that prefix. The `taken` set
- * is read and updated in place, so generated rolls never collide with existing
- * ones, explicit rolls in the same file, or each other.
- */
-function makeRollGenerator(prefix: string, taken: Set<string>): () => string {
-  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const seqRe = new RegExp(`^${escaped}(\\d+)$`);
-  let max = 0;
-  for (const roll of taken) {
-    const match = seqRe.exec(roll);
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  let n = max;
-  return () => {
-    let roll: string;
-    do {
-      n++;
-      roll = `${prefix}${String(n).padStart(4, '0')}`;
-    } while (taken.has(roll));
-    taken.add(roll);
-    return roll;
-  };
 }

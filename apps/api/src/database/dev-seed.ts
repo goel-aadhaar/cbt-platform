@@ -52,10 +52,15 @@ async function devSeed(): Promise<void> {
   }
 
   // ── Tenant + academic hierarchy ──────────────────────────────────────
+  // Fixed, memorable 4-digit code — this is a single deterministic demo
+  // tenant (deleted + recreated each run), not the random-with-retry
+  // generation InstitutesService.create() uses for real institutes.
+  const INSTITUTE_CODE = '1000';
   const institute = await prisma.institute.create({
-    data: { name: 'Demo Institute', slug: SLUG },
+    data: { name: 'Demo Institute', slug: SLUG, code: INSTITUTE_CODE },
   });
   const iid = institute.id;
+  const rollYear = String(new Date().getFullYear() % 100).padStart(2, '0');
 
   const neet = await prisma.program.create({
     data: { instituteId: iid, name: 'NEET' },
@@ -181,7 +186,8 @@ async function devSeed(): Promise<void> {
     for (let k = 0; k < count; k++) {
       const first = FIRST[sIdx % FIRST.length];
       const last = LAST[sIdx % LAST.length];
-      const roll = String(2400183920 + sIdx); // 2400183920, ...21, ...
+      // Matches the real generation scheme (§2.11): {yy}{institute code}{seq}.
+      const roll = `${rollYear}${INSTITUTE_CODE}${String(sIdx + 1).padStart(4, '0')}`;
       const email = `${first}.${last}.${sIdx}@demo.local`.toLowerCase();
       const user = await prisma.user.create({
         data: {

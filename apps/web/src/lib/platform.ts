@@ -25,6 +25,8 @@ export interface Tenant {
   id: string;
   name: string;
   slug: string;
+  /** 4-digit code embedded in every student roll number this tenant issues. */
+  code: string;
   isActive: boolean;
   createdAt: string;
   stats: TenantStats;

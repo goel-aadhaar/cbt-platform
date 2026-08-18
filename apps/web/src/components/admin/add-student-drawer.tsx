@@ -19,12 +19,13 @@ import { KeyIcon, UserIcon, XIcon } from "./icons";
  * POST /invitations/student.
  *
  * The backend creates students through the INVITE flow — it needs
- * `{name, email, rollNumber, batchId}` and mails an activation link, so the
- * student lands in PENDING until they set a password. The design's
- * "Parent/Guardian Phone" and "Generate Credentials" controls have no backing
- * field, so they're replaced by the email + roll number the API requires and a
- * note explaining what actually happens. Program/Class remain as filters that
- * narrow the Batch list (the real org hierarchy is program → class → batch).
+ * `{name, email, batchId}` and mails an activation link, so the student
+ * lands in PENDING until they set a password. The roll number is always
+ * server-generated ({yy}{institute code}{sequence}, §2.11), never entered
+ * here. The design's "Parent/Guardian Phone" and "Generate Credentials"
+ * controls have no backing field, so they're replaced by a note explaining
+ * what actually happens. Program/Class remain as filters that narrow the
+ * Batch list (the real org hierarchy is program → class → batch).
  */
 export function AddStudentDrawer({
   open,
@@ -33,11 +34,10 @@ export function AddStudentDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated?: (name: string) => void;
+  onCreated?: (name: string, rollNumber: string | undefined) => void;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [rollNumber, setRoll] = useState("");
   const [programId, setProgramId] = useState("");
   const [classId, setClassId] = useState("");
   const [batchId, setBatchId] = useState("");
@@ -78,26 +78,21 @@ export function AddStudentDrawer({
   );
 
   const valid =
-    name.trim().length >= 2 &&
-    /\S+@\S+\.\S+/.test(email) &&
-    rollNumber.trim().length > 0 &&
-    batchId !== "";
+    name.trim().length >= 2 && /\S+@\S+\.\S+/.test(email) && batchId !== "";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
-      await inviteStudent({
+      const invited = await inviteStudent({
         name: name.trim(),
         email: email.trim(),
-        rollNumber: rollNumber.trim(),
         batchId,
       });
-      onCreated?.(name.trim());
+      onCreated?.(name.trim(), invited.rollNumber);
       setName("");
       setEmail("");
-      setRoll("");
       setBatchId("");
       onClose();
     } catch (err) {
@@ -157,25 +152,15 @@ export function AddStudentDrawer({
             </div>
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Email" required>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="student@example.com"
-                className={inputCls}
-              />
-            </Field>
-            <Field label="Roll Number" required>
-              <input
-                value={rollNumber}
-                onChange={(e) => setRoll(e.target.value)}
-                placeholder="e.g. 2400183945"
-                className={inputCls}
-              />
-            </Field>
-          </div>
+          <Field label="Email" required>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="student@example.com"
+              className={inputCls}
+            />
+          </Field>
 
           <div className="grid grid-cols-2 gap-4">
             <Field label="Program">
@@ -240,7 +225,8 @@ export function AddStudentDrawer({
               </p>
               <p className="text-xs text-admin-muted">
                 The student receives an activation link and stays PENDING until
-                they set their password.
+                they set their password. Their roll number is assigned
+                automatically — you&apos;ll see it once the invite is sent.
               </p>
             </div>
           </div>

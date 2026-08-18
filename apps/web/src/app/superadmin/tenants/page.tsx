@@ -176,7 +176,14 @@ function TenantsScreen() {
                     <td className="px-3 py-4">
                       <p className="font-bold text-admin-ink">{t.name}</p>
                       <p className="text-xs text-admin-muted">
-                        {t.slug} · since{" "}
+                        {t.slug} · code{" "}
+                        <span
+                          className="font-mono"
+                          title="Embedded in every student roll number this institute issues"
+                        >
+                          {t.code}
+                        </span>{" "}
+                        · since{" "}
                         {new Date(t.createdAt).toLocaleDateString("en-IN", {
                           day: "numeric",
                           month: "short",

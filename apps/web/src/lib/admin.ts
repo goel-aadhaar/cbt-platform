@@ -438,13 +438,18 @@ export function listBatches(classId?: string): Promise<BatchRow[]> {
  * INVITATIONS (how staff + students are actually created)             *
  * ------------------------------------------------------------------ */
 
-/** POST /invitations/student — ADMIN. Creates a PENDING student + invite. */
+/**
+ * POST /invitations/student — ADMIN. Creates a PENDING student + invite.
+ * No rollNumber field: it's always server-generated
+ * ({yy}{institute code}{sequence}), returned in the response.
+ */
 export function inviteStudent(body: {
   name: string;
   email: string;
-  rollNumber: string;
   batchId: string;
-}): Promise<{ id?: string; email?: string } & Record<string, unknown>> {
+}): Promise<
+  { id?: string; email?: string; rollNumber?: string } & Record<string, unknown>
+> {
   return apiFetch(`/invitations/student`, { method: "POST", body, ...auth() });
 }
 
@@ -515,7 +520,6 @@ export function listStaff(
 export interface ImportSummary {
   batchId: string;
   batch: string;
-  rollPrefix: string | null;
   total: number;
   imported: { row: number; name: string; email: string; rollNumber: string }[];
   failed: { row: number; email: string; reason: string }[];
@@ -524,16 +528,16 @@ export interface ImportSummary {
 /**
  * POST /students/import — multipart upload. Sent with fetch directly (not
  * apiFetch) because the body is FormData: setting Content-Type manually would
- * strip the multipart boundary.
+ * strip the multipart boundary. Roll numbers are always server-generated —
+ * a rollNumber column in the CSV, if present, is ignored.
  */
 export async function importStudentsCsv(
   file: File,
-  opts: { batchId: string; rollPrefix?: string },
+  opts: { batchId: string },
 ): Promise<ImportSummary> {
   const base =
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   const qs = new URLSearchParams({ batchId: opts.batchId });
-  if (opts.rollPrefix) qs.set("rollPrefix", opts.rollPrefix);
 
   const form = new FormData();
   form.append("file", file);

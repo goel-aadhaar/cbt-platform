@@ -230,11 +230,13 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < rolls.length; i += IMPORT_CHUNK) {
       const chunk = rolls.slice(i, i + IMPORT_CHUNK);
+      // No rollNumber column: it's always server-generated (§2.11) now, and
+      // a CSV column for it would just be silently ignored.
       const csv = [
-        'name,email,rollNumber',
+        'name,email',
         ...chunk.map(
           (roll) =>
-            `Cand ${roll},${roll.toLowerCase()}-${tenant.suffix}@load.local,${roll}`,
+            `Cand ${roll},${roll.toLowerCase()}-${tenant.suffix}@load.local`,
         ),
       ].join('\n');
 
@@ -280,8 +282,26 @@ async function main(): Promise<void> {
     );
     summarise('invitations/accept', accepts);
 
+    // Roll numbers are always server-generated (§2.11), so `rolls` above was
+    // only ever a label for building unique emails — fetch the real ones
+    // the import actually assigned, paginating since the roster endpoint
+    // caps at 200 rows per page.
+    const rollNumbers: string[] = [];
+    for (let offset = 0; offset < CONCURRENCY; offset += 200) {
+      const page = await api<{ items: { rollNumber: string }[] }>('/students', {
+        token: tenant.adminToken,
+        query: { batchId: tenant.batchId, limit: 200, offset },
+      });
+      rollNumbers.push(...page.body.items.map((s) => s.rollNumber));
+    }
+    if (rollNumbers.length !== CONCURRENCY) {
+      throw new Error(
+        `Expected ${CONCURRENCY} roll numbers, found ${rollNumbers.length}`,
+      );
+    }
+
     const logins = await mapWithConcurrency(
-      rolls,
+      rollNumbers,
       SEED_CONCURRENCY,
       (rollNumber) =>
         api<{ accessToken: string }>('/auth/student/login', {

@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -5,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateInstituteDto } from './dto/create-institute.dto';
 import { UpdateInstituteDto } from './dto/update-institute.dto';
@@ -14,9 +17,12 @@ const summarySelect = {
   id: true,
   name: true,
   slug: true,
+  code: true,
   isActive: true,
   createdAt: true,
 } as const;
+
+const MAX_CODE_ATTEMPTS = 20;
 
 /**
  * Tenant administration — superadmin only.
@@ -38,16 +44,39 @@ export class InstitutesService {
         `Institute slug '${dto.slug}' is already taken`,
       );
     }
-    const institute = await this.prisma.institute.create({
-      data: { name: dto.name, slug: dto.slug },
-      select: summarySelect,
-    });
-    // Every other method on this service attaches `stats` — a freshly
-    // created tenant has nothing yet, but the frontend's Tenant type treats
-    // `stats` as required and reads `t.stats.students` straight off the row
-    // the create call returns. Omitting it here crashed the tenants list the
-    // moment a new institute was added.
-    return { ...institute, stats: emptyStats() };
+
+    // 4-digit code, assigned once and never changed (every student roll
+    // number this institute issues embeds it). Random + retry-on-conflict
+    // rather than a counter: 10,000 possible codes and nowhere near that
+    // many institutes, so a collision is rare enough that retrying is
+    // simpler than machinery to avoid one.
+    for (let attempt = 1; attempt <= MAX_CODE_ATTEMPTS; attempt++) {
+      const code = String(randomInt(0, 10000)).padStart(4, '0');
+      try {
+        const institute = await this.prisma.institute.create({
+          data: { name: dto.name, slug: dto.slug, code },
+          select: summarySelect,
+        });
+        // Every other method on this service attaches `stats` — a freshly
+        // created tenant has nothing yet, but the frontend's Tenant type
+        // treats `stats` as required and reads `t.stats.students` straight
+        // off the row the create call returns. Omitting it here crashed the
+        // tenants list the moment a new institute was added.
+        return { ...institute, stats: emptyStats() };
+      } catch (err) {
+        // Only retry a genuine code collision — a slug race (the caller's
+        // own check above is TOCTOU-able too) needs a new slug from the
+        // caller, not another code, so burning retries on it would just
+        // fail the same way 20 times before surfacing a confusing error.
+        const codeCollision =
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          (err.meta?.target as string[] | undefined)?.includes('code');
+        if (!codeCollision || attempt === MAX_CODE_ATTEMPTS) throw err;
+      }
+    }
+    // Unreachable — the loop above always returns or throws.
+    throw new Error('Could not allocate an institute code');
   }
 
   /**

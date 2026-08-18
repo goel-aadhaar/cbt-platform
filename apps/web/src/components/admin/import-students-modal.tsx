@@ -21,8 +21,9 @@ import {
  * Bulk-import students from CSV (Figma 9:6962), wired to POST /students/import.
  *
  * The backend requires a target `batchId` and a CSV with `name` + `email`
- * columns (`rollNumber` optional — auto-generated from the batch prefix when
- * blank). Each row goes through the normal invitation flow, so imported
+ * columns. Roll numbers are always server-generated
+ * ({yy}{institute code}{sequence}, §2.11) — a rollNumber column, if present,
+ * is ignored. Each row goes through the normal invitation flow, so imported
  * students land in PENDING. Max upload is 2 MB (backend limit), and only CSV is
  * accepted — the design's "XLSX / 50MB" copy overstated both.
  */
@@ -37,7 +38,6 @@ export function ImportStudentsModal({
 }) {
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [batchId, setBatchId] = useState("");
-  const [rollPrefix, setRollPrefix] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export function ImportStudentsModal({
   }, [open]);
 
   function downloadTemplate() {
-    const csv = "name,email,rollNumber\nJane Doe,jane@example.com,\n";
+    const csv = "name,email\nJane Doe,jane@example.com\n";
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a");
     a.href = url;
@@ -72,10 +72,7 @@ export function ImportStudentsModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await importStudentsCsv(file, {
-        batchId,
-        ...(rollPrefix.trim() ? { rollPrefix: rollPrefix.trim() } : {}),
-      });
+      const res = await importStudentsCsv(file, { batchId });
       setSummary(res);
       onImported?.(res);
     } catch (e) {
@@ -89,7 +86,6 @@ export function ImportStudentsModal({
     setFile(null);
     setSummary(null);
     setError(null);
-    setRollPrefix("");
     onClose();
   }
 
@@ -179,36 +175,23 @@ export function ImportStudentsModal({
             </div>
           ) : (
             <>
-              <div className="mb-4 grid grid-cols-2 gap-4">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-sm font-semibold text-admin-ink">
-                    Target batch<span className="ml-0.5 text-danger">*</span>
-                  </span>
-                  <select
-                    value={batchId}
-                    onChange={(e) => setBatchId(e.target.value)}
-                    className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-                  >
-                    <option value="">Select batch</option>
-                    {batches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-sm font-semibold text-admin-ink">
-                    Roll prefix (optional)
-                  </span>
-                  <input
-                    value={rollPrefix}
-                    onChange={(e) => setRollPrefix(e.target.value)}
-                    placeholder="derived from batch name"
-                    className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-                  />
-                </label>
-              </div>
+              <label className="mb-4 flex flex-col gap-1.5">
+                <span className="text-sm font-semibold text-admin-ink">
+                  Target batch<span className="ml-0.5 text-danger">*</span>
+                </span>
+                <select
+                  value={batchId}
+                  onChange={(e) => setBatchId(e.target.value)}
+                  className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+                >
+                  <option value="">Select batch</option>
+                  {batches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <button
                 type="button"
@@ -224,7 +207,7 @@ export function ImportStudentsModal({
                 <span className="mt-1 text-sm text-admin-muted">
                   {file
                     ? `${(file.size / 1024).toFixed(1)} KB — click to replace`
-                    : "Columns: name, email, rollNumber (optional) · max 2 MB"}
+                    : "Columns: name, email · roll numbers are assigned automatically · max 2 MB"}
                 </span>
               </button>
               <input

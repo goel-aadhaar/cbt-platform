@@ -9,11 +9,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import type { AuthConfig } from '../../../config/auth.config';
+import { Prisma } from '../../../generated/prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { AuthUser } from '../auth.types';
 import { Role, UserStatus } from '../auth.types';
 import { MailService } from '../mail/mail.service';
 import { PasswordService } from '../password.service';
+
+const MAX_ROLL_ATTEMPTS = 5;
 
 export interface InvitedUser {
   id: string;
@@ -21,6 +24,8 @@ export interface InvitedUser {
   email: string;
   roles: Role[];
   status: UserStatus;
+  /** Present only for a student invite — the server-generated roll number. */
+  rollNumber?: string;
 }
 
 interface CreateInvitationParams {
@@ -94,13 +99,20 @@ export class InvitationService {
     });
   }
 
+  /**
+   * The roll number is never caller-supplied — it is always generated as
+   * {yy}{institute code}{4-digit sequence}, the sequence resetting every
+   * year per institute (§2.10). A resurrected lapsed invite (same email,
+   * already has a Student row) keeps its existing roll number rather than
+   * being issued a new one — re-sending an invite must not change the
+   * candidate's login identifier.
+   */
   async inviteStudent(
     inviterInstituteId: string | null,
     invitedById: string,
     params: {
       name: string;
       email: string;
-      rollNumber: string;
       batchId: string;
     },
   ): Promise<InvitedUser> {
@@ -113,44 +125,63 @@ export class InvitationService {
       throw new BadRequestException('Batch not found in your institute');
     }
 
-    const duplicateRoll = await this.prisma.student.findUnique({
-      where: {
-        instituteId_rollNumber: {
-          instituteId: institute.id,
-          rollNumber: params.rollNumber,
-        },
-      },
-      select: {
-        user: {
-          select: { email: true, status: true, invitationExpiresAt: true },
-        },
-      },
+    const existingStudent = await this.prisma.student.findFirst({
+      where: { instituteId: institute.id, user: { email: params.email } },
+      select: { rollNumber: true },
     });
-    // The roll number is only a real conflict if it belongs to someone else,
-    // or to a still-live invite. If it's this same email's own lapsed invite,
-    // createInvitation() below resurrects that user row (and this Student
-    // row via upsert) rather than creating a duplicate.
-    if (
-      duplicateRoll &&
-      !(
-        duplicateRoll.user.email === params.email &&
-        this.isResurrectable(duplicateRoll.user)
-      )
-    ) {
-      throw new ConflictException(
-        'Roll number already exists in this institute',
-      );
-    }
 
-    return this.createInvitation({
-      name: params.name,
-      email: params.email,
-      roles: [Role.STUDENT],
-      instituteId: institute.id,
-      instituteName: institute.name,
-      invitedById,
-      student: { rollNumber: params.rollNumber, batchId: batch.id },
+    for (let attempt = 1; attempt <= MAX_ROLL_ATTEMPTS; attempt++) {
+      const rollNumber =
+        existingStudent?.rollNumber ??
+        (await this.nextRollNumber(institute.id, institute.code));
+      try {
+        return await this.createInvitation({
+          name: params.name,
+          email: params.email,
+          roles: [Role.STUDENT],
+          instituteId: institute.id,
+          instituteName: institute.name,
+          invitedById,
+          student: { rollNumber, batchId: batch.id },
+        });
+      } catch (err) {
+        // A concurrent invite claimed the same computed roll number first —
+        // retry with a freshly-recomputed one. Never applies to a
+        // resurrected invite's own existing roll number, which cannot
+        // collide with anything but itself.
+        const lostRace =
+          !existingStudent &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002';
+        if (!lostRace || attempt === MAX_ROLL_ATTEMPTS) throw err;
+      }
+    }
+    // Unreachable — the loop above always returns or throws.
+    throw new Error('Could not allocate a roll number');
+  }
+
+  /**
+   * Next free roll number for this institute this year:
+   * {yy}{code}{sequence}. The sequence is the highest existing suffix for
+   * this institute+year plus one, so it stays contiguous even if an earlier
+   * student was later deactivated.
+   */
+  private async nextRollNumber(
+    instituteId: string,
+    code: string,
+  ): Promise<string> {
+    const yy = String(new Date().getFullYear() % 100).padStart(2, '0');
+    const prefix = `${yy}${code}`;
+    const existing = await this.prisma.student.findMany({
+      where: { instituteId, rollNumber: { startsWith: prefix } },
+      select: { rollNumber: true },
     });
+    let max = 0;
+    for (const { rollNumber } of existing) {
+      const suffix = rollNumber.slice(prefix.length);
+      if (/^\d{4}$/.test(suffix)) max = Math.max(max, Number(suffix));
+    }
+    return `${prefix}${String(max + 1).padStart(4, '0')}`;
   }
 
   async accept(token: string, password: string): Promise<{ email: string }> {
@@ -257,6 +288,7 @@ export class InvitationService {
       email: user.email,
       roles: user.roles,
       status: user.status,
+      rollNumber: params.student?.rollNumber,
     };
   }
 

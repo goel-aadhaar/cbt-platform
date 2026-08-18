@@ -3,6 +3,7 @@ import {
   api,
   countOtpCodes,
   createApprovedQuestion,
+  getRollNumber,
   loginStaff,
   PASSWORD,
   setupTenant,
@@ -345,12 +346,13 @@ describe('Auth, RBAC and tenant isolation', () => {
     });
 
     it('a student cannot log in against another institute slug', async () => {
-      await addStudent(tenantA, 'Student Three', 'AUTH3');
+      const token = await addStudent(tenantA, 'Student Three', 'AUTH3');
+      const rollNumber = await getRollNumber(token);
       const res = await api('/auth/student/login', {
         method: 'POST',
         body: {
           instituteSlug: tenantB.slug,
-          rollNumber: 'AUTH3',
+          rollNumber,
           password: PASSWORD,
         },
       });
