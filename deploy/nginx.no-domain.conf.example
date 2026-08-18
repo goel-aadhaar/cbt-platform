@@ -1,0 +1,37 @@
+# Reverse proxy for a no-domain, IP-only deployment (see DEPLOYMENT.md).
+# Single origin, path-based: /api/* goes to the backend, everything else to
+# the frontend — this is what deploy/.env.api.production's CORS_ORIGINS and
+# deploy/.env.web.production's NEXT_PUBLIC_API_URL assume. Plain HTTP; add a
+# domain and switch to deploy/nginx.conf.example + certbot when you have one.
+#
+#   sudo cp deploy/nginx.no-domain.conf.example /etc/nginx/sites-available/drsk
+#   sudo ln -s /etc/nginx/sites-available/drsk /etc/nginx/sites-enabled/
+#   sudo rm -f /etc/nginx/sites-enabled/default
+#   sudo nginx -t && sudo systemctl reload nginx
+
+server {
+    listen 80 default_server;
+    server_name _;
+
+    # NestJS's own global prefix is /api, so the full original path passes
+    # through unchanged — no rewrite needed.
+    location /api/ {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}

@@ -4,6 +4,29 @@ Both apps run as plain Node processes under pm2, behind nginx for TLS and
 domain routing. The database is Neon (managed Postgres) — nothing to install
 for it on the instance itself.
 
+## No domain yet? Start here
+
+If you don't have a domain pointed at the instance, use the IP-only path
+instead of "Configure" below:
+
+- Ready-to-copy env files: `deploy/.env.api.production` and
+  `deploy/.env.web.production` (gitignored — never committed, copy them to
+  the instance directly, e.g. `scp deploy/.env.api.production
+ec2-user@<ip>:~/cbt-platform/apps/api/.env`). Replace `EC2_PUBLIC_IP` with
+  the instance's real address in both first.
+- Use `deploy/nginx.no-domain.conf.example` instead of
+  `deploy/nginx.conf.example` — single origin, path-based (`/api/*` →
+  backend, everything else → frontend), so only port 80 needs to be open.
+- Skip the `certbot` step — this is plain HTTP. **Real user credentials,
+  session tokens, and OTP codes travel in cleartext** until you add a domain
+  and TLS; treat this as a working test deployment, not one for real
+  students, until then.
+- The env file reuses your local dev database rather than a fresh one — see
+  the comment in `deploy/.env.api.production` for the tradeoff and how to
+  switch later.
+
+Everything else below (build, seed, pm2, verify) is the same either way.
+
 ## Before you start
 
 - An Elastic IP, associated with the instance (so it survives stop/start).
