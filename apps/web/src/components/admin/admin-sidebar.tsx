@@ -136,14 +136,14 @@ export function AdminSidebar() {
       <div className="mt-auto rounded-xl border border-admin-line bg-admin/[0.06] p-4">
         <p className="text-sm font-bold text-admin-ink">Need help?</p>
         <p className="mt-1 text-xs text-admin-muted">
-          View docs or contact support for assistance.
+          There&apos;s no admin docs site yet — this opens an email to support.
         </p>
-        <button
-          type="button"
-          className="mt-3 w-full rounded-lg border border-admin-line bg-white py-2 text-xs font-semibold text-admin-ink hover:bg-admin-bg"
+        <a
+          href="mailto:support@drsk.in"
+          className="mt-3 block w-full rounded-lg border border-admin-line bg-white py-2 text-center text-xs font-semibold text-admin-ink hover:bg-admin-bg"
         >
-          Open guide
-        </button>
+          Email support
+        </a>
       </div>
 
       {/* Logout */}

@@ -14,8 +14,8 @@ import {
   TimerIcon,
   TrophyIcon,
 } from "@/components/student/icons";
-import { useAvailableExams } from "@/hooks/use-available-exams";
-import type { AvailableExam } from "@/lib/student";
+import { useExamSchedule } from "@/hooks/use-exam-schedule";
+import type { AvailableExam, UpcomingExam } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -65,34 +65,24 @@ function liveFromAvailable(exam: AvailableExam): MockTest {
   };
 }
 
-const PLACEHOLDER_UPCOMING: MockTest[] = [
-  {
+function upcomingFromSchedule(exam: UpcomingExam): MockTest {
+  const start = new Date(exam.startAt);
+  return {
     status: "upcoming",
-    title: "Physics Unit Test: Optics",
-    scope: "Physics Only",
+    title: exam.title,
+    scope: "Full Syllabus",
     icon: TrophyIcon,
     meta: [
-      { icon: CalendarIcon, text: "Schedule publishes soon" },
-      { icon: TimerIcon, text: "Duration: 1 Hour" },
-      { icon: TrophyIcon, text: "180 Marks" },
+      {
+        icon: CalendarIcon,
+        text: `Opens: ${start.toLocaleString([], { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "short" })}`,
+      },
+      { icon: TimerIcon, text: `Duration: ${exam.durationMinutes} minutes` },
     ],
-    cta: "Not yet scheduled",
+    cta: "Not yet open",
     disabled: true,
-  },
-  {
-    status: "upcoming",
-    title: "Biology Mock: Genetics",
-    scope: "Biology Only",
-    icon: FlaskIcon,
-    meta: [
-      { icon: CalendarIcon, text: "Schedule publishes soon" },
-      { icon: TimerIcon, text: "Duration: 1.5 Hours" },
-      { icon: TrophyIcon, text: "360 Marks" },
-    ],
-    cta: "Not yet scheduled",
-    disabled: true,
-  },
-];
+  };
+}
 
 const BADGE: Record<Status, { label: string; className: string }> = {
   live: {
@@ -110,9 +100,10 @@ const BADGE: Record<Status, { label: string; className: string }> = {
 };
 
 export default function FullMockTestsPage() {
-  const { items, loading, error } = useAvailableExams();
-  const liveCards = items.map(liveFromAvailable);
-  const cards: MockTest[] = [...liveCards, ...PLACEHOLDER_UPCOMING];
+  const { live, upcoming, loading, error } = useExamSchedule();
+  const liveCards = live.map(liveFromAvailable);
+  const upcomingCards = upcoming.map(upcomingFromSchedule);
+  const cards: MockTest[] = [...liveCards, ...upcomingCards];
 
   return (
     <StudentShell
@@ -150,7 +141,7 @@ export default function FullMockTestsPage() {
           {cards.map((test, i) => (
             <TestCard key={`${test.title}-${i}`} test={test} />
           ))}
-          {cards.length === 1 && (
+          {cards.length === 0 && (
             <div className="rounded-2xl border border-dashed border-admin-line bg-admin/[0.03] p-6 text-sm text-admin-muted md:col-span-2">
               No upcoming exams scheduled yet. Your institute will publish them
               here once they&apos;re ready.

@@ -84,8 +84,19 @@ export async function uploadMedia(
   return (await res.json()) as MediaItem;
 }
 
-export function deleteMedia(id: string): Promise<{ deleted: boolean }> {
-  return apiFetch(`/media/${id}`, { method: "DELETE", token: token() });
+/**
+ * DELETE /media/:id — permanently removes the library item. Refused with a
+ * 409 (ApiError with a human-readable message) while a question still has it
+ * attached, unless `confirm` is set.
+ */
+export function deleteMedia(
+  id: string,
+  confirm = false,
+): Promise<{ deleted: boolean }> {
+  return apiFetch(`/media/${id}${confirm ? "?confirm=true" : ""}`, {
+    method: "DELETE",
+    token: token(),
+  });
 }
 
 /** Human-readable file size for the library listing. */

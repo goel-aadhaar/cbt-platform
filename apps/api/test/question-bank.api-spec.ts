@@ -178,4 +178,80 @@ describe('Question bank', () => {
       expect(res.status).toBe(200);
     });
   });
+
+  /**
+   * Media deletion safeguard (§2.7): mediaKeys is a plain string[] on
+   * Question, not a foreign key, so the database cannot stop a delete that
+   * would leave a diagram question unanswerable. This mirrors the
+   * QuestionUsedInExams guard above, one layer up the chain.
+   */
+  describe('media deletion safeguard (§2.7)', () => {
+    // Smallest legal PNG (1x1 transparent pixel).
+    const PNG_BYTES = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    function pngForm(fileName: string): FormData {
+      const form = new FormData();
+      form.append(
+        'file',
+        new Blob([PNG_BYTES], { type: 'image/png' }),
+        fileName,
+      );
+      return form;
+    }
+
+    it('blocks deleting an image still attached to a question, naming it', async () => {
+      const uploaded = await api<{ id: string; key: string }>('/media', {
+        method: 'POST',
+        token: tenant.teacherToken,
+        form: pngForm('diagram.png'),
+      });
+      expect(uploaded.status).toBe(201);
+      const mediaId = uploaded.body.id;
+
+      const questionId = await createApprovedQuestion(tenant, {
+        statement: 'Question with an attached diagram',
+        mediaKeys: [uploaded.body.key],
+      });
+
+      const blocked = await api<{
+        error: string;
+        details: { affectedQuestions: { id: string }[] };
+      }>(`/media/${mediaId}`, {
+        method: 'DELETE',
+        token: tenant.teacherToken,
+      });
+      expect(blocked.status).toBe(409);
+      expect(blocked.body.error).toBe('MediaUsedInQuestions');
+      expect(blocked.body.details.affectedQuestions.map((q) => q.id)).toContain(
+        questionId,
+      );
+
+      const confirmed = await api<{ deleted: boolean }>(`/media/${mediaId}`, {
+        method: 'DELETE',
+        token: tenant.teacherToken,
+        query: { confirm: 'true' },
+      });
+      expect(confirmed.status).toBe(200);
+      expect(confirmed.body.deleted).toBe(true);
+    });
+
+    it('deletes an unattached image directly, no confirmation needed', async () => {
+      const uploaded = await api<{ id: string }>('/media', {
+        method: 'POST',
+        token: tenant.teacherToken,
+        form: pngForm('unused.png'),
+      });
+      expect(uploaded.status).toBe(201);
+
+      const res = await api<{ deleted: boolean }>(
+        `/media/${uploaded.body.id}`,
+        { method: 'DELETE', token: tenant.teacherToken },
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.deleted).toBe(true);
+    });
+  });
 });

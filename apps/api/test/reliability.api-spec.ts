@@ -307,5 +307,48 @@ describe('Reliability', () => {
         state.body.responses.find((r) => r.questionId === questionA)?.answer,
       ).toBe('A');
     });
+
+    it('a violation reported after submission does not clobber the submitted status', async () => {
+      // Regression: reportViolation() used to write status/submittedAt
+      // unconditionally, so a violation landing just after a real submit()
+      // (a very plausible race in the exam's final seconds) could flip an
+      // already-SUBMITTED attempt back to AUTO_SUBMITTED and overwrite its
+      // real submittedAt. Sequencing submit() before the violation report
+      // deterministically exercises the "loser" side of that race.
+      const student = await addStudent(tenant, 'Violation Race', 'REL9');
+      const { examId } = await createPublishedExam(tenant, {
+        title: 'Violation Race Exam',
+        questionIds: [questionA],
+        maxViolations: 1,
+      });
+
+      const start = await api<{ id: string }>('/attempts', {
+        method: 'POST',
+        token: student,
+        body: { examId },
+      });
+      const attemptId = start.body.id;
+
+      const submitted = await api<{ status: string; submittedAt: string }>(
+        `/attempts/${attemptId}/submit`,
+        { method: 'POST', token: student },
+      );
+      expect(submitted.status).toBe(200);
+      expect(submitted.body.status).toBe('SUBMITTED');
+      const submittedAt = submitted.body.submittedAt;
+
+      await api(`/attempts/${attemptId}/violations`, {
+        method: 'POST',
+        token: student,
+        body: { type: 'TAB_SWITCH' },
+      });
+
+      const state = await api<{ status: string; submittedAt: string }>(
+        `/attempts/${attemptId}`,
+        { token: student },
+      );
+      expect(state.body.status).toBe('SUBMITTED');
+      expect(state.body.submittedAt).toBe(submittedAt);
+    });
   });
 });

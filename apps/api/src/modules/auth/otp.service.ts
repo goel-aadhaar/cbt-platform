@@ -1,7 +1,9 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import type { AuthConfig } from '../../config/auth.config';
 import { PrismaService } from '../../database/prisma.service';
 import { Role } from './auth.types';
 import { MailService } from './mail/mail.service';
@@ -10,19 +12,6 @@ import { MailService } from './mail/mail.service';
 const TTL_MINUTES = 10;
 /** Wrong guesses before the challenge is burned. 6 digits = 1e6 space. */
 const MAX_ATTEMPTS = 5;
-/**
- * Codes issuable per user inside the window, to bound inbox-spam / cost.
- *
- * This is a spam/cost bound, NOT the brute-force control — guessing is capped
- * by MAX_ATTEMPTS per challenge, and password guessing by the account lockout
- * in AuthService. So it can be generous without weakening anything, and it
- * needs to be: one person legitimately signs in several times a day (new
- * device, cleared storage, session revoked by signing in elsewhere), and a
- * shared operational account like the platform owner does so far more often.
- * Overridable via env for deployments that want it tighter or looser.
- */
-const MAX_ISSUED_PER_WINDOW = Number(process.env.OTP_MAX_PER_WINDOW ?? 30);
-const ISSUE_WINDOW_MINUTES = Number(process.env.OTP_WINDOW_MINUTES ?? 15);
 
 export interface OtpChallengeIssued {
   challengeId: string;
@@ -45,10 +34,30 @@ export interface OtpChallengeIssued {
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
 
+  /**
+   * Codes issuable per user inside the window, to bound inbox-spam / cost.
+   *
+   * This is a spam/cost bound, NOT the brute-force control — guessing is
+   * capped by MAX_ATTEMPTS per challenge, and password guessing by the
+   * account lockout in AuthService. So it can be generous without weakening
+   * anything, and it needs to be: one person legitimately signs in several
+   * times a day (new device, cleared storage, session revoked by signing in
+   * elsewhere), and a shared operational account like the platform owner
+   * does so far more often. Overridable via env for deployments that want it
+   * tighter or looser.
+   */
+  private readonly maxIssuedPerWindow: number;
+  private readonly issueWindowMinutes: number;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
-  ) {}
+    config: ConfigService,
+  ) {
+    const auth = config.getOrThrow<AuthConfig>('auth');
+    this.maxIssuedPerWindow = auth.otpMaxPerWindow;
+    this.issueWindowMinutes = auth.otpWindowMinutes;
+  }
 
   /**
    * Mint a code, store its hash, email the plaintext.
@@ -149,11 +158,11 @@ export class OtpService {
 
   /** Bounds how many codes one account can trigger, to limit inbox spam. */
   private async assertIssueRateOk(userId: string): Promise<void> {
-    const since = new Date(Date.now() - ISSUE_WINDOW_MINUTES * 60_000);
+    const since = new Date(Date.now() - this.issueWindowMinutes * 60_000);
     const recent = await this.prisma.otpChallenge.count({
       where: { userId, createdAt: { gte: since } },
     });
-    if (recent >= MAX_ISSUED_PER_WINDOW) {
+    if (recent >= this.maxIssuedPerWindow) {
       this.logger.warn(`OTP issue rate exceeded for user ${userId}`);
       throw new UnauthorizedException(
         'Too many codes requested. Wait a few minutes and try again.',

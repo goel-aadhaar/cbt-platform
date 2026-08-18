@@ -2,7 +2,8 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { SearchIcon } from "@/components/admin/icons";
+import { PlusIcon, SearchIcon } from "@/components/admin/icons";
+import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
@@ -41,6 +42,7 @@ function QuestionsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [authorOpen, setAuthorOpen] = useState(false);
 
   const load = useCallback(async (s: Scope, term: string) => {
     setRows(null);
@@ -120,6 +122,13 @@ function QuestionsScreen() {
             className="h-11 w-full rounded-full border border-admin-line bg-white pl-10 pr-4 text-sm outline-none focus:border-admin"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setAuthorOpen(true)}
+          className="ml-auto flex items-center gap-2 rounded-full bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+        >
+          <PlusIcon className="size-4" /> Add Question
+        </button>
       </div>
 
       {error && (
@@ -210,6 +219,11 @@ function QuestionsScreen() {
         questionId={openId ?? undefined}
         open={openId !== null}
         onClose={() => setOpenId(null)}
+      />
+      <QuestionAuthorDrawer
+        open={authorOpen}
+        onClose={() => setAuthorOpen(false)}
+        onCreated={() => void load(scope, search.trim())}
       />
     </TeacherShell>
   );

@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+import {
+  type DocxImportSummary,
+  type Difficulty,
+  type QuestionType,
+  importQuestionsDocx,
+} from "@/lib/questions";
 
 import {
   AlertTriangleIcon,
   CheckIcon,
   CloudUploadIcon,
   DownloadIcon,
-  FileTextIcon,
   XIcon,
 } from "./icons";
 
@@ -53,99 +59,243 @@ function Shell({
   );
 }
 
-const RECENT = [
-  {
-    file: "biology_midterm_qbank.csv",
-    meta: "Oct 24, 2023 at 10:42 AM • 45kb",
-    ok: true,
-  },
-  {
-    file: "chemistry_final_v2_broken.csv",
-    meta: "Oct 22, 2023 at 3:15 PM • 12kb",
-    ok: false,
-  },
-];
+const IMPORT_DIFFICULTIES: Difficulty[] = ["EASY", "MEDIUM", "HARD"];
+const IMPORT_TYPES: QuestionType[] = ["MCQ", "MSQ", "INTEGER"];
 
+/**
+ * Bulk-import questions from a .docx upload, wired to POST /questions/import.
+ * Each question in the file must start with "Q:" or a number ("1."), with
+ * options as "A) …" and the correct answer as "Answer: …" — the same contract
+ * the backend parser documents. Subject/chapter/difficulty/type/exam here are
+ * only fallbacks applied to rows that omit that field.
+ */
 export function QuestionImportModal({
   open,
   onClose,
+  onImported,
 }: {
   open: boolean;
   onClose: () => void;
+  onImported?: (summary: DocxImportSummary) => void;
 }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [subject, setSubject] = useState("");
+  const [chapter, setChapter] = useState("");
+  const [difficulty, setDifficulty] = useState<Difficulty | "">("");
+  const [type, setType] = useState<QuestionType | "">("");
+  const [examType, setExamType] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<DocxImportSummary | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function downloadTemplate() {
+    const doc = [
+      "Q: What is the SI unit of force?",
+      "A) Joule",
+      "B) Newton",
+      "C) Watt",
+      "D) Pascal",
+      "Answer: B",
+      "",
+      "Q: Select all prime numbers.",
+      "A) 2",
+      "B) 4",
+      "C) 5",
+      "D) 9",
+      "Answer: A, C",
+      "",
+      "Q: What is 12 + 7?",
+      "Answer: 19",
+      "",
+    ].join("\n");
+    const url = URL.createObjectURL(new Blob([doc], { type: "text/plain" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "drsk-questions-template.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function upload() {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await importQuestionsDocx(file, {
+        ...(subject.trim() ? { subject: subject.trim() } : {}),
+        ...(chapter.trim() ? { chapter: chapter.trim() } : {}),
+        ...(difficulty ? { difficulty } : {}),
+        ...(type ? { type } : {}),
+        ...(examType.trim() ? { examType: examType.trim() } : {}),
+      });
+      setSummary(res);
+      onImported?.(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function reset() {
+    setFile(null);
+    setSummary(null);
+    setError(null);
+    setSubject("");
+    setChapter("");
+    setDifficulty("");
+    setType("");
+    setExamType("");
+    onClose();
+  }
+
   if (!open) return null;
   return (
     <Shell
       title="Import Questions"
-      onClose={onClose}
+      onClose={reset}
       wide
       footer={
         <>
           <button
-            onClick={onClose}
+            onClick={reset}
             className="rounded-lg px-5 py-2.5 text-sm font-semibold text-admin-muted hover:text-admin-ink"
           >
-            Cancel
+            {summary ? "Done" : "Cancel"}
           </button>
-          <button
-            disabled
-            title="Question import mapping not implemented"
-            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
-          >
-            Proceed to map fields →
-          </button>
+          {!summary && (
+            <button
+              onClick={upload}
+              disabled={!file || busy}
+              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
+            >
+              {busy ? "Importing…" : "Import questions"}
+            </button>
+          )}
         </>
       }
     >
-      <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-admin-line bg-admin-bg px-6 py-10 text-center">
-        <span className="flex size-14 items-center justify-center rounded-full bg-admin-mint/40 text-admin">
-          <CloudUploadIcon className="size-6" />
-        </span>
-        <p className="mt-4 text-lg font-bold text-admin-ink">
-          Click or drag file to this area to upload
-        </p>
-        <p className="mt-1 max-w-sm text-sm text-admin-muted">
-          Support for a single or bulk upload. Strictly prohibit from uploading
-          company data or other band files.
-        </p>
-        <p className="mt-4 text-sm text-admin-muted">
-          Need a formatted CSV?{" "}
-          <button className="font-semibold text-admin-2">
-            <DownloadIcon className="mr-1 inline size-4" /> Download template
-          </button>
-        </p>
-      </div>
-
-      <p className="mt-6 font-bold text-admin-ink">Recent Imports</p>
-      <div className="mt-3 flex flex-col gap-3">
-        {RECENT.map((r) => (
-          <div
-            key={r.file}
-            className={`flex items-center gap-3 rounded-xl border p-4 ${r.ok ? "border-admin-line/60" : "border-danger/20 bg-danger-soft/20"}`}
-          >
-            <span
-              className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${r.ok ? "bg-admin/10 text-admin" : "bg-danger/10 text-danger"}`}
-            >
-              {r.ok ? (
-                <FileTextIcon className="size-4" />
-              ) : (
-                <AlertTriangleIcon className="size-4" />
-              )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-admin-ink">
-                {r.file}
+      {summary ? (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-admin/30 bg-admin/5 p-4">
+            <p className="font-bold text-admin">
+              Imported {summary.imported.length} of {summary.total} questions
+            </p>
+            {summary.failed.length > 0 && (
+              <p className="mt-1 text-sm text-danger">
+                {summary.failed.length} question(s) failed.
               </p>
-              <p className="text-xs text-admin-subtle">{r.meta}</p>
-            </div>
-            <span
-              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold ${r.ok ? "bg-admin-mint/50 text-admin" : "bg-danger/10 text-danger"}`}
-            >
-              {r.ok ? "Success" : "Failed"}
-            </span>
+            )}
           </div>
-        ))}
-      </div>
+          {summary.failed.length > 0 && (
+            <div className="rounded-xl border border-danger/20 bg-danger-soft/20 p-3">
+              {summary.failed.slice(0, 8).map((f) => (
+                <p key={f.index} className="text-sm text-danger">
+                  #{f.index}: {f.reason}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="flex w-full flex-col items-center justify-center rounded-xl border-2 border-dashed border-admin-line bg-admin-bg px-6 py-10 text-center hover:bg-admin/3"
+          >
+            <span className="flex size-14 items-center justify-center rounded-full bg-admin-mint/40 text-admin">
+              <CloudUploadIcon className="size-6" />
+            </span>
+            <p className="mt-4 text-lg font-bold text-admin-ink">
+              {file ? file.name : "Click to upload a .docx file"}
+            </p>
+            <p className="mt-1 max-w-sm text-sm text-admin-muted">
+              {file
+                ? `${(file.size / 1024).toFixed(1)} KB — click to replace`
+                : 'Each question starts with "Q:" or a number, options as "A) …", answer as "Answer: …" · max 5 MB'}
+            </p>
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".docx"
+            hidden
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setError(null);
+            }}
+          />
+          <p className="mt-4">
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              className="text-sm font-semibold text-admin-2"
+            >
+              <DownloadIcon className="mr-1 inline size-4" /> Download format
+              example
+            </button>
+          </p>
+
+          <p className="mt-6 text-sm font-bold text-admin-ink">
+            Defaults for rows that omit a field (optional)
+          </p>
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+            <input
+              value={chapter}
+              onChange={(e) => setChapter(e.target.value)}
+              placeholder="Chapter"
+              className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+            <input
+              value={examType}
+              onChange={(e) => setExamType(e.target.value)}
+              placeholder="Exam type"
+              className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+            <select
+              value={difficulty}
+              onChange={(e) => setDifficulty(e.target.value as Difficulty | "")}
+              className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+            >
+              <option value="">Difficulty</option>
+              {IMPORT_DIFFICULTIES.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as QuestionType | "")}
+              className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+            >
+              <option value="">Type</option>
+              {IMPORT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-4 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              <AlertTriangleIcon className="size-4 shrink-0" /> {error}
+            </p>
+          )}
+        </>
+      )}
     </Shell>
   );
 }
@@ -156,11 +306,7 @@ const FORMATS = [
   { id: "pdf", label: "PDF", desc: "Print-ready question paper" },
 ];
 
-const SCOPES = [
-  "Current filter (14,285)",
-  "Selected questions",
-  "Entire question bank",
-];
+const SCOPES = ["Current filter", "Selected questions", "Entire question bank"];
 
 export function QuestionExportModal({
   open,

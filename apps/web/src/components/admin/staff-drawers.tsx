@@ -142,18 +142,26 @@ export function AddStaffDrawer({
       {role === "TEACHER" && (
         <>
           <Field label="Subject(s)">
-            <ChipInput
-              chips={["Biology", "Chemistry"]}
-              placeholder="Type to search…"
+            <input
+              disabled
+              placeholder="Not set on invite"
+              title="Subject assignment isn't tracked yet — the teacher's authored subjects are derived from the questions they write."
+              className={`${inputCls} bg-admin-surface text-admin-subtle disabled:cursor-not-allowed`}
             />
             <span className="mt-1 text-xs text-admin-subtle">
-              Assigned after the teacher activates their account.
+              Not sent with this invite — a teacher&apos;s subjects are derived
+              from what they author, once they start.
             </span>
           </Field>
           <Field label="Batch(es)">
-            <ChipInput chips={["2024-A"]} placeholder="Type to search…" />
+            <input
+              disabled
+              placeholder="Not set on invite"
+              title="Batch assignment for staff isn't implemented yet."
+              className={`${inputCls} bg-admin-surface text-admin-subtle disabled:cursor-not-allowed`}
+            />
             <span className="mt-1 text-xs text-admin-subtle">
-              Assigned after activation.
+              Not sent with this invite.
             </span>
           </Field>
         </>
@@ -484,30 +492,5 @@ function Field({
       </span>
       {children}
     </label>
-  );
-}
-
-function ChipInput({
-  chips,
-  placeholder,
-}: {
-  chips: string[];
-  placeholder: string;
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2.5">
-      {chips.map((c) => (
-        <span
-          key={c}
-          className="flex items-center gap-1 rounded bg-admin-mint/40 px-2 py-1 text-sm text-admin"
-        >
-          {c} <XIcon className="size-3" />
-        </span>
-      ))}
-      <input
-        placeholder={placeholder}
-        className="flex-1 bg-transparent text-sm outline-none placeholder:text-admin-subtle"
-      />
-    </div>
   );
 }

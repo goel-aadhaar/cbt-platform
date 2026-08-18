@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -117,13 +118,40 @@ export class MediaService {
     return { ...row, body };
   }
 
-  async remove(id: string) {
+  async remove(id: string, confirm?: boolean) {
     const { instituteId } = this.ctx();
     const row = await this.prisma.media.findFirst({
       where: { id, instituteId },
       select: { id: true, key: true },
     });
     if (!row) throw new NotFoundException('Media not found');
+
+    // mediaKeys is a plain string[] on Question (no FK), so the database
+    // cannot stop this on its own — a diagram question is unanswerable
+    // without its image (§2.7), so deleting one still embedded in a
+    // question would silently break it, live exam or not.
+    if (!confirm) {
+      const usedIn = await this.prisma.question.findMany({
+        where: { instituteId, mediaKeys: { has: row.key } },
+        select: { id: true, statement: true, status: true },
+      });
+      if (usedIn.length > 0) {
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'MediaUsedInQuestions',
+          message:
+            'This image is still attached to one or more questions. Deleting ' +
+            'it will leave them without their diagram. Re-send with ' +
+            'confirm=true to delete anyway.',
+          affectedQuestions: usedIn.map((q) => ({
+            id: q.id,
+            statement: q.statement.slice(0, 80),
+            status: q.status,
+          })),
+        });
+      }
+    }
+
     // Remove the record first: a stray object is harmless, a record pointing
     // at nothing is not.
     await this.prisma.media.delete({ where: { id: row.id } });

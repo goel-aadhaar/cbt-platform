@@ -7,12 +7,13 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -62,7 +63,11 @@ export class MediaController {
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.media.remove(id);
+  @ApiQuery({ name: 'confirm', required: false, type: Boolean })
+  remove(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('confirm') confirm?: string,
+  ) {
+    return this.media.remove(id, confirm === 'true');
   }
 }

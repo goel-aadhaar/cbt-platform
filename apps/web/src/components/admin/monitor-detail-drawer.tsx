@@ -14,15 +14,6 @@ interface Student {
   status: Status;
 }
 
-const PLACEHOLDER_STUDENTS: Student[] = [
-  { name: "John Doe", initials: "JD", status: "on-track" },
-  { name: "Sarah Adams", initials: "SA", status: "on-track" },
-  { name: "Mike Ross", initials: "MR", status: "idle" },
-  { name: "Alex Kim", initials: "!", status: "flagged" },
-  { name: "Lisa Jin", initials: "LJ", status: "on-track" },
-  { name: "Ben Clark", initials: "BC", status: "on-track" },
-];
-
 function initialsOf(name: string): string {
   return name
     .split(" ")
@@ -34,9 +25,10 @@ function initialsOf(name: string): string {
 }
 
 /**
- * Live session drawer. Given a `monitor` payload (GET /exams/:id/monitor) it
- * renders real candidates and counts; without one it falls back to the design's
- * placeholder grid.
+ * Live session drawer. Renders the exam's real candidates and counts from a
+ * `monitor` payload (GET /exams/:id/monitor) — the admin monitoring page only
+ * ever opens this with an already-fetched session, so there is no loading or
+ * missing-data state to render here.
  */
 export function MonitorDetailDrawer({
   open,
@@ -48,40 +40,36 @@ export function MonitorDetailDrawer({
   monitor?: ExamMonitor;
 }) {
   const [tab, setTab] = useState(0);
-  if (!open) return null;
+  if (!open || !monitor) return null;
 
-  const STUDENTS: Student[] = monitor
-    ? monitor.students.slice(0, 24).map((s) => ({
-        name: s.name,
-        initials: s.flagged ? "!" : initialsOf(s.name),
-        status: s.flagged
-          ? "flagged"
-          : s.status === "IN_PROGRESS"
-            ? "on-track"
-            : "idle",
-      }))
-    : PLACEHOLDER_STUDENTS;
+  const STUDENTS: Student[] = monitor.students.slice(0, 24).map((s) => ({
+    name: s.name,
+    initials: s.flagged ? "!" : initialsOf(s.name),
+    status: s.flagged
+      ? "flagged"
+      : s.status === "IN_PROGRESS"
+        ? "on-track"
+        : "idle",
+  }));
 
-  const submittedCount = monitor
-    ? monitor.counts.submitted + monitor.counts.autoSubmitted
-    : 45;
-  const avgProgress = monitor
-    ? monitor.totalQuestions > 0 && monitor.students.length > 0
+  const submittedCount =
+    monitor.counts.submitted + monitor.counts.autoSubmitted;
+  const avgProgress =
+    monitor.totalQuestions > 0 && monitor.students.length > 0
       ? Math.round(
           (monitor.students.reduce((n, s) => n + s.answered, 0) /
             (monitor.students.length * monitor.totalQuestions)) *
             100,
         )
-      : 0
-    : 68;
-  const incidents = monitor
-    ? monitor.students.filter((s) => s.violations > 0 || s.flagged).length
-    : 3;
+      : 0;
+  const incidents = monitor.students.filter(
+    (s) => s.violations > 0 || s.flagged,
+  ).length;
 
   const STAT = [
     {
       label: "Submitted",
-      value: `${submittedCount} / ${monitor?.totalStudents ?? 120}`,
+      value: `${submittedCount} / ${monitor.totalStudents}`,
     },
     { label: "Avg Progress", value: `${avgProgress}%` },
     {
@@ -104,24 +92,22 @@ export function MonitorDetailDrawer({
             <div>
               <div className="flex items-center gap-3">
                 <h2 className="text-xl font-bold text-admin">
-                  {monitor?.title ?? "NEET Full Mock 04"}
+                  {monitor.title}
                 </h2>
                 <span className="flex items-center gap-1.5 rounded-full bg-admin-mint/50 px-2.5 py-1 text-xs font-bold text-admin">
                   <span className="size-1.5 rounded-full bg-admin" />{" "}
-                  {monitor ? monitor.examStatus : "LIVE"}
+                  {monitor.examStatus}
                 </span>
               </div>
               <p className="mt-1 text-sm text-admin-muted">
-                {monitor
-                  ? [
-                      `${monitor.totalStudents} candidates`,
-                      monitor.window.startAt
-                        ? `Started: ${new Date(monitor.window.startAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" • ")
-                  : "Batch 2024-A • Duration: 120 mins • Started: 10:00 AM"}
+                {[
+                  `${monitor.totalStudents} candidates`,
+                  monitor.window.startAt
+                    ? `Started: ${new Date(monitor.window.startAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")}
               </p>
             </div>
             <button
@@ -159,7 +145,7 @@ export function MonitorDetailDrawer({
               {
                 label: "Incidents",
                 icon: <AlertTriangleIcon className="size-4" />,
-                badge: 3,
+                badge: incidents,
               },
             ].map((t, i) => (
               <button

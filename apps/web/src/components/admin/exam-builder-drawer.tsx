@@ -225,6 +225,11 @@ export function ExamBuilderDrawer({
   async function submit() {
     setSubmitting(true);
     setError(null);
+    // The API has no bulk-create endpoint, so this is many sequential calls
+    // with no server-side rollback. If one after createExam() fails, a DRAFT
+    // already exists — tracked here so the error can say so by name instead
+    // of leaving an orphaned draft with no explanation.
+    let created: { id: string; title: string } | null = null;
     try {
       setProgress("Creating exam…");
       const exam = await createExam({
@@ -237,6 +242,7 @@ export function ExamBuilderDrawer({
         ...(programId ? { programId } : {}),
         ...(categoryId ? { categoryId } : {}),
       });
+      created = { id: exam.id, title: exam.title };
 
       // Each call is a separate round-trip (the API has no bulk endpoint), so a
       // large paper can take a while — report question-level progress, not just
@@ -279,14 +285,20 @@ export function ExamBuilderDrawer({
         }
       }
 
-      onCreated?.(exam.id, exam.title);
+      onCreated?.(created.id, created.title);
       reset();
       onClose();
     } catch (e) {
+      const reason =
+        e instanceof Error ? e.message : "Could not create the exam.";
+      // A step after createExam() failed: the draft exists, so say so by name
+      // rather than leaving it to be found by accident in the exam list.
       setError(
-        e instanceof Error
-          ? e.message
-          : "Could not create the exam. Try again.",
+        created
+          ? `${reason} A draft titled "${created.title}" was already ` +
+              `created before this step failed — find it in the exam list to ` +
+              `finish setting it up, or discard it.`
+          : reason,
       );
     } finally {
       setSubmitting(false);

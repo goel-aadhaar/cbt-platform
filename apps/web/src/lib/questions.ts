@@ -124,6 +124,90 @@ export function getQuestion(id: string): Promise<QuestionDetail> {
   });
 }
 
+/** Body for POST /questions — mirrors the server's CreateQuestionDto 1:1. */
+export interface CreateQuestionInput {
+  subject: string;
+  chapter: string;
+  topic?: string;
+  difficulty: Difficulty;
+  type: QuestionType;
+  examType: string;
+  tags?: string[];
+  statement: string;
+  /** Required for MCQ/MSQ (2+ options); omitted for INTEGER. */
+  options?: { key: string; text: string }[];
+  /** MCQ: one option key. MSQ: option keys. INTEGER: a number. */
+  answerKey: string | number | string[];
+  explanation?: string;
+  marks?: number;
+  negativeMarks?: number;
+  mediaKeys?: string[];
+}
+
+/** POST /questions — author a single question as DRAFT. */
+export function createQuestion(
+  input: CreateQuestionInput,
+): Promise<QuestionDetail> {
+  return apiFetch<QuestionDetail>(`/questions`, {
+    method: "POST",
+    body: input,
+    token: getToken() ?? undefined,
+  });
+}
+
+/** Defaults applied to a row that omits the field, mirrors the server's DocxDefaults. */
+export interface DocxImportDefaults {
+  subject?: string;
+  chapter?: string;
+  difficulty?: Difficulty;
+  type?: QuestionType;
+  examType?: string;
+}
+
+export interface DocxImportSummary {
+  total: number;
+  imported: { index: number; id: string; type: string; statement: string }[];
+  failed: { index: number; statement: string; reason: string }[];
+}
+
+/**
+ * POST /questions/import — multipart upload of a .docx question set. Sent
+ * with fetch directly (not apiFetch) because the body is FormData: setting
+ * Content-Type manually would strip the multipart boundary.
+ */
+export async function importQuestionsDocx(
+  file: File,
+  defaults: DocxImportDefaults = {},
+): Promise<DocxImportSummary> {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const qs = new URLSearchParams();
+  if (defaults.subject) qs.set("subject", defaults.subject);
+  if (defaults.chapter) qs.set("chapter", defaults.chapter);
+  if (defaults.difficulty) qs.set("difficulty", defaults.difficulty);
+  if (defaults.type) qs.set("type", defaults.type);
+  if (defaults.examType) qs.set("examType", defaults.examType);
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(`${base}/questions/import?${qs}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+    body: form,
+  });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = payload?.message;
+    throw new Error(
+      Array.isArray(msg)
+        ? msg.join(", ")
+        : (msg ?? `Import failed (${res.status})`),
+    );
+  }
+  return payload as DocxImportSummary;
+}
+
 /**
  * PATCH /questions/:id — replace the attached media.
  *

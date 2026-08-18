@@ -145,9 +145,12 @@ tenant.
 
 Not tied to one role — platform behavior every console inherits.
 
-- **Tenant isolation** — defense in depth: a Prisma query extension scopes
-  every read/write to the caller's institute, backed by Postgres row-level
-  security as a second line.
+- **Tenant isolation** — every service scopes its own Prisma queries to the
+  caller's institute, taken from the per-request tenant context
+  (`TenantContextService`, populated by `TenantContextInterceptor` after
+  auth). This is enforcement in application code, audited endpoint by
+  endpoint — see Known gaps for the two defence-in-depth layers that are
+  designed but not yet active.
 - **Session-loss handling** — revoked, expired, or role-mismatched sessions
   surface a modal naming the exact reason, then redirect to sign-in on a
   visible countdown.
@@ -162,9 +165,6 @@ Not tied to one role — platform behavior every console inherits.
 
 ## Known gaps
 
-- Email isn't configured — invite links and OTP codes log to the API console
-  instead of sending. A real `MailService` adapter (SES) is the only piece
-  missing; the port is already in place.
 - Media is stored on local disk — needs an S3 bucket before it survives a
   redeploy.
 - Media's S3 adapter, once configured, hands out permanent unsigned public

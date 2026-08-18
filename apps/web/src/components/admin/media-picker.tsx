@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { ApiError } from "@/lib/api";
 import {
+  deleteMedia,
   formatBytes,
   listMedia,
   mediaSrc,
@@ -16,6 +18,10 @@ import {
  * Shows the tenant's library and an upload control, and reports the SELECTED
  * KEYS back — questions reference media by key, never by URL, so moving the
  * bucket or putting a CDN in front never invalidates a question.
+ *
+ * Library items can also be permanently deleted from here. The backend
+ * refuses (409) while a question still has the image attached; re-sending
+ * with confirm asks it to delete anyway.
  */
 export function MediaPicker({
   selected,
@@ -31,6 +37,8 @@ export function MediaPicker({
   const [storage, setStorage] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -67,6 +75,26 @@ export function MediaPicker({
     }
   }
 
+  async function handleDelete(item: MediaItem, confirm: boolean) {
+    setDeletingId(item.id);
+    setError(null);
+    try {
+      await deleteMedia(item.id, confirm);
+      setItems((prev) => (prev ?? []).filter((m) => m.id !== item.id));
+      onChange(selected.filter((k) => k !== item.key));
+      setConfirmDeleteId(null);
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.status === 409) {
+        setConfirmDeleteId(item.id);
+        setError(e.message);
+      } else {
+        setError(e instanceof Error ? e.message : "Could not delete the image");
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   function toggle(key: string) {
     onChange(
       selected.includes(key)
@@ -95,12 +123,38 @@ export function MediaPicker({
       </div>
 
       {error && (
-        <p
+        <div
           role="alert"
           className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
         >
-          {error}
-        </p>
+          <p>{error}</p>
+          {confirmDeleteId && (
+            <div className="mt-2 flex gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const item = (items ?? []).find(
+                    (m) => m.id === confirmDeleteId,
+                  );
+                  if (item) void handleDelete(item, true);
+                }}
+                className="font-bold uppercase text-red-700 hover:underline"
+              >
+                Delete anyway
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDeleteId(null);
+                  setError(null);
+                }}
+                className="font-semibold text-admin-muted hover:text-admin-ink"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="mt-2 flex items-center gap-2">
@@ -139,34 +193,46 @@ export function MediaPicker({
         <div className="mt-3 grid grid-cols-4 gap-2">
           {items.map((m) => {
             const on = selected.includes(m.key);
+            const busy = deletingId === m.id;
             return (
-              <button
-                key={m.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => toggle(m.key)}
-                title={`${m.fileName} · ${formatBytes(m.size)}${m.altText ? ` · ${m.altText}` : ""}`}
-                aria-pressed={on}
-                className={`group relative aspect-square overflow-hidden rounded-lg border-2 transition-colors ${
-                  on
-                    ? "border-admin ring-2 ring-admin/30"
-                    : "border-admin-line hover:border-admin/50"
-                } disabled:opacity-50`}
-              >
-                {/* Library thumbnails are tenant images of unknown dimensions;
-                    a plain img keeps this simple and avoids remote-loader config. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={mediaSrc(m.url)}
-                  alt={m.altText ?? m.fileName}
-                  className="size-full object-cover"
-                />
-                {on && (
-                  <span className="absolute right-1 top-1 rounded-full bg-admin px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    ✓
-                  </span>
-                )}
-              </button>
+              <div key={m.id} className="group relative aspect-square">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => toggle(m.key)}
+                  title={`${m.fileName} · ${formatBytes(m.size)}${m.altText ? ` · ${m.altText}` : ""}`}
+                  aria-pressed={on}
+                  className={`size-full overflow-hidden rounded-lg border-2 transition-colors ${
+                    on
+                      ? "border-admin ring-2 ring-admin/30"
+                      : "border-admin-line hover:border-admin/50"
+                  } disabled:opacity-50`}
+                >
+                  {/* Library thumbnails are tenant images of unknown dimensions;
+                      a plain img keeps this simple and avoids remote-loader config. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={mediaSrc(m.url)}
+                    alt={m.altText ?? m.fileName}
+                    className="size-full object-cover"
+                  />
+                  {on && (
+                    <span className="absolute right-1 top-1 rounded-full bg-admin px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      ✓
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled || busy}
+                  onClick={() => void handleDelete(m, false)}
+                  aria-label={`Delete ${m.fileName}`}
+                  title="Delete from the library"
+                  className="absolute bottom-1 right-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white opacity-0 transition-opacity hover:bg-red-600 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100"
+                >
+                  {busy ? "…" : "×"}
+                </button>
+              </div>
             );
           })}
         </div>

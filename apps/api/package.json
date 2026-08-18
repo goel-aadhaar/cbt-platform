@@ -35,6 +35,7 @@
     "db:seed:dev": "node dist/database/dev-seed.js"
   },
   "dependencies": {
+    "@aws-sdk/client-ses": "^3.1111.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

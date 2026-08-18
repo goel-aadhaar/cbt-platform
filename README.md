@@ -134,19 +134,19 @@ code. The roles a redeemed code may act as come from the _challenge_ (i.e.
 which door issued it), not from anything the client sends — a code minted at
 the institute login cannot be spent for a platform session.
 
-No mail provider is configured in development, so the dev adapter
-(`ConsoleMailService`) **prints the code to the API's terminal window**
-instead of sending it:
+Without a mail provider configured, the dev adapter (`ConsoleMailService`)
+**prints the code to the API's terminal window** instead of sending it:
 
 ```
 🔐 Login code → Anil Kumar <anil@demo.local> | code: 482913 (expires in 10 min)
 ```
 
-Copy that into the "Verification code" field on the login screen. In
-production, a real `MailService` adapter (SES) sends it and logs nothing —
-the code never touches a log file. The code is single-use, expires in 10
-minutes, is capped at 5 wrong guesses, and issuance itself is rate-limited
-(5 codes per 15 minutes per account) to bound inbox spam.
+Copy that into the "Verification code" field on the login screen. Setting
+`AWS_SES_FROM_EMAIL` switches `MailService` to the SES adapter, which sends
+the code for real and logs nothing — the code never touches a log file (see
+`.env.example`'s "Email delivery" section). The code is single-use, expires
+in 10 minutes, is capped at 5 wrong guesses, and issuance itself is
+rate-limited (30 codes per 15 minutes per account) to bound inbox spam.
 
 ## Testing
 

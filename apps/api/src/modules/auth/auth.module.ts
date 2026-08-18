@@ -13,6 +13,7 @@ import { InvitationService } from './invitation/invitation.service';
 import { RolesGuard } from './guards/roles.guard';
 import { ConsoleMailService } from './mail/console-mail.service';
 import { MailService } from './mail/mail.service';
+import { SesMailService } from './mail/ses-mail.service';
 import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
 import { TenantContextInterceptor } from './tenant/tenant-context.interceptor';
@@ -56,8 +57,20 @@ import { TenantContextService } from './tenant/tenant-context.service';
     PasswordService,
     OtpService,
     TenantContextService,
-    // Mail port → console adapter (dev). Swap to SES via env later.
-    { provide: MailService, useClass: ConsoleMailService },
+    ConsoleMailService,
+    SesMailService,
+    // Mail port (§2.6): SES is selected the moment a verified sender is
+    // configured, matching MediaModule's "S3 the moment a bucket is set"
+    // pattern — console logging remains the fallback until then.
+    {
+      provide: MailService,
+      inject: [ConfigService, ConsoleMailService, SesMailService],
+      useFactory: (
+        config: ConfigService,
+        console: ConsoleMailService,
+        ses: SesMailService,
+      ) => (config.getOrThrow<AuthConfig>('auth').sesFromEmail ? ses : console),
+    },
     // Order matters: authenticate (JwtAuthGuard) before authorize (RolesGuard).
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },

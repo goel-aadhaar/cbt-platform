@@ -454,16 +454,25 @@ export class AttemptsService {
           detail: dto.detail,
         },
       });
-      const { violationCount } = await tx.attempt.update({
-        where: { id: attemptId },
+      // Conditioned on status, same as submit()/abandon(): a concurrent
+      // submit() landing between getActiveAttempt()'s check above and here
+      // must not have its terminal status clobbered back to AUTO_SUBMITTED
+      // by a violation reported around the same instant.
+      await tx.attempt.updateMany({
+        where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
         data: { violationCount: { increment: 1 } },
-        select: { violationCount: true },
+      });
+      const current = await tx.attempt.findUniqueOrThrow({
+        where: { id: attemptId },
+        select: { violationCount: true, status: true },
       });
       const autoSubmitted =
-        maxViolations > 0 && violationCount >= maxViolations;
+        current.status === AttemptStatus.IN_PROGRESS &&
+        maxViolations > 0 &&
+        current.violationCount >= maxViolations;
       if (autoSubmitted) {
-        await tx.attempt.update({
-          where: { id: attemptId },
+        await tx.attempt.updateMany({
+          where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
           data: {
             status: AttemptStatus.AUTO_SUBMITTED,
             submittedAt: new Date(),
@@ -471,7 +480,7 @@ export class AttemptsService {
           },
         });
       }
-      return { violationCount, autoSubmitted };
+      return { violationCount: current.violationCount, autoSubmitted };
     });
 
     return {
@@ -567,8 +576,11 @@ export class AttemptsService {
       throw new BadRequestException('This attempt is already submitted');
     }
     if (new Date() > attempt.expiresAt) {
-      await this.prisma.attempt.update({
-        where: { id: attemptId },
+      // Conditioned on status, same as submit()/abandon(): a concurrent
+      // submit() landing between the read above and this write must not be
+      // clobbered back to AUTO_SUBMITTED with a wrong submittedAt.
+      await this.prisma.attempt.updateMany({
+        where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
         data: { status: AttemptStatus.AUTO_SUBMITTED, submittedAt: new Date() },
       });
       throw new BadRequestException(
@@ -584,8 +596,11 @@ export class AttemptsService {
       attempt.status === AttemptStatus.IN_PROGRESS &&
       new Date() > attempt.expiresAt
     ) {
-      await this.prisma.attempt.update({
-        where: { id: attemptId },
+      // Conditioned on status, same as submit()/abandon(): a concurrent
+      // submit() landing between the read above and this write must not be
+      // clobbered back to AUTO_SUBMITTED with a wrong submittedAt.
+      await this.prisma.attempt.updateMany({
+        where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
         data: { status: AttemptStatus.AUTO_SUBMITTED, submittedAt: new Date() },
       });
     }

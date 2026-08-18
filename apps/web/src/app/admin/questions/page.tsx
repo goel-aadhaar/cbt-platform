@@ -4,6 +4,7 @@ import type { ComponentType, SVGProps } from "react";
 import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import {
   QuestionExportModal,
@@ -53,6 +54,7 @@ export default function QuestionBankPage() {
   const [onlyMine, setOnlyMine] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [authorOpen, setAuthorOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
@@ -130,9 +132,8 @@ export default function QuestionBankPage() {
               Export
             </OutlineBtn>
             <button
-              disabled
-              title="Question authoring form isn't built yet — use Import to add questions"
-              className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setAuthorOpen(true)}
+              className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
             >
               <PlusIcon className="size-4" /> Add Question
             </button>
@@ -273,10 +274,22 @@ export default function QuestionBankPage() {
       <QuestionImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
+        onImported={() => {
+          setNotice("Questions imported — refreshing the bank.");
+          setTimeout(() => window.location.reload(), 800);
+        }}
       />
       <QuestionExportModal
         open={exportOpen}
         onClose={() => setExportOpen(false)}
+      />
+      <QuestionAuthorDrawer
+        open={authorOpen}
+        onClose={() => setAuthorOpen(false)}
+        onCreated={() => {
+          setNotice("Question saved as a draft.");
+          setTimeout(() => window.location.reload(), 800);
+        }}
       />
       <QuestionDetailDrawer
         open={detailOpen}

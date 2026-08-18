@@ -42,6 +42,21 @@ export const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().default('1d'),
   INVITE_TTL_HOURS: z.coerce.number().int().positive().default(72),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  /**
+   * Login OTP issuance cap per account — a spam/cost bound, not the
+   * brute-force control (guessing is capped per-challenge and by the account
+   * lockout). See OtpService for why the default is generous.
+   */
+  OTP_MAX_PER_WINDOW: z.coerce.number().int().positive().default(30),
+  OTP_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
+  /**
+   * Email delivery (§2.6). Optional: invite links and OTP codes log to the
+   * console until this is set, matching the media module's "S3 the moment a
+   * bucket is configured" pattern — MailService switches to the SES adapter
+   * the moment a from-address is present.
+   */
+  AWS_SES_FROM_EMAIL: z.string().email().optional(),
+  AWS_SES_FROM_NAME: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

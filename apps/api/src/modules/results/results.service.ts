@@ -376,25 +376,26 @@ export class ResultsService {
       }),
     ]);
 
+    // One pass over every attempt's responses (not questions × candidates
+    // with a per-question .find() over each attempt's responses) — this used
+    // to be O(questions × candidates × responses-per-attempt), which for a
+    // large exam (hundreds of questions, thousands of candidates) is a real
+    // multi-second stall on an admin-facing panel.
+    const questionMeta = new Map(
+      rows.map((r) => [r.questionId, r.question] as const),
+    );
     const stats = new Map<string, { attempted: number; correct: number }>();
     for (const a of attempts) {
       for (const r of a.responses) {
         const cur = stats.get(r.questionId) ?? { attempted: 0, correct: 0 };
-        if (r.answer !== null) cur.attempted += 1;
-        stats.set(r.questionId, cur);
-      }
-    }
-    for (const row of rows) {
-      const cur = stats.get(row.questionId);
-      if (!cur) continue;
-      for (const a of attempts) {
-        const r = a.responses.find((x) => x.questionId === row.questionId);
-        if (
-          r?.answer != null &&
-          isCorrect(row.question.type, r.answer, row.question.answerKey)
-        ) {
-          cur.correct += 1;
+        if (r.answer !== null) {
+          cur.attempted += 1;
+          const q = questionMeta.get(r.questionId);
+          if (q && isCorrect(q.type, r.answer, q.answerKey)) {
+            cur.correct += 1;
+          }
         }
+        stats.set(r.questionId, cur);
       }
     }
 
