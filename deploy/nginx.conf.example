@@ -1,0 +1,39 @@
+# Reverse proxy for a single-instance deployment (see DEPLOYMENT.md).
+#
+# Replace app.yourdomain.com / api.yourdomain.com with your real domains, then:
+#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/drsk
+#   sudo ln -s /etc/nginx/sites-available/drsk /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+# Run certbot afterwards — it rewrites these server blocks to add TLS.
+
+server {
+    listen 80;
+    server_name api.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:4000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+server {
+    listen 80;
+    server_name app.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # Next.js dev-mode hot-reload upgrade headers are harmless to keep
+        # here even though `next start` doesn't use them.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}

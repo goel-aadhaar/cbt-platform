@@ -160,3 +160,10 @@ over HTTP. It needs `build` and the superadmin seed first. **Do not put a
 timeout under ~12 minutes on it** — killing it mid-run surfaces as
 `ECONNRESET`/`ECONNREFUSED` failures that look like tenant-isolation bugs but
 are only the harness being torn down.
+
+## Deployment
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for a single-instance deployment (pm2 +
+nginx). `ecosystem.config.js` and `deploy/nginx.conf.example` are the checked-in
+process/proxy definitions it walks through; `scripts/deploy.sh` re-runs the
+whole build-and-reload cycle for subsequent updates.
