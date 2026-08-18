@@ -100,6 +100,22 @@ export function platformLogin(input: StaffLoginInput): Promise<OtpChallenge> {
 }
 
 /**
+ * POST /invitations/accept — redeems an invite token (from the emailed
+ * accept-invite link) for a password, activating the account. Works for any
+ * invited role — admin, teacher, or student — the token alone decides who.
+ * No session is issued; the invitee signs in normally afterwards.
+ */
+export function acceptInvite(
+  token: string,
+  password: string,
+): Promise<{ email: string }> {
+  return apiFetch<{ email: string }>("/invitations/accept", {
+    method: "POST",
+    body: { token, password },
+  });
+}
+
+/**
  * POST /auth/login/verify — step 2 for staff and platform alike.
  *
  * Redeems the emailed code for a real session. Which roles the session may
