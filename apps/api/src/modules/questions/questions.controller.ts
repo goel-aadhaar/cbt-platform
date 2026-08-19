@@ -46,15 +46,17 @@ export class QuestionsController {
   /**
    * Bulk-import questions from a .docx upload (§2.4). Field `file`; each question
    * starts with `Q:`/`1.`, options `A) …`, `Answer: …`, plus optional `Key:
-   * value` lines. Query params supply defaults for omitted fields.
+   * value` lines. `subjectId`/`chapterId` apply to every question in the file
+   * (selected once via the import modal's cascading dropdowns); `examCategoryId`
+   * is optional; `difficulty`/`type` are per-row defaults for rows that omit them.
    */
   @Post('import')
   @ApiConsumes('multipart/form-data')
-  @ApiQuery({ name: 'subject', required: false })
-  @ApiQuery({ name: 'chapter', required: false })
+  @ApiQuery({ name: 'subjectId', required: true })
+  @ApiQuery({ name: 'chapterId', required: true })
   @ApiQuery({ name: 'difficulty', required: false })
   @ApiQuery({ name: 'type', required: false })
-  @ApiQuery({ name: 'examType', required: false })
+  @ApiQuery({ name: 'examCategoryId', required: false })
   @ApiBody({
     schema: {
       type: 'object',
@@ -66,18 +68,21 @@ export class QuestionsController {
   )
   importDocx(
     @UploadedFile() file: Express.Multer.File | undefined,
-    @Query('subject') subject?: string,
-    @Query('chapter') chapter?: string,
+    @Query('subjectId', new ParseUUIDPipe({ optional: true }))
+    subjectId?: string,
+    @Query('chapterId', new ParseUUIDPipe({ optional: true }))
+    chapterId?: string,
     @Query('difficulty') difficulty?: string,
     @Query('type') type?: string,
-    @Query('examType') examType?: string,
+    @Query('examCategoryId', new ParseUUIDPipe({ optional: true }))
+    examCategoryId?: string,
   ) {
     if (!file) {
       throw new BadRequestException('A .docx file is required (field "file")');
     }
     return this.questions.importDocx(
       file.buffer,
-      { subject, chapter, difficulty, type, examType },
+      { subjectId, chapterId, difficulty, type, examCategoryId },
       file.originalname,
     );
   }

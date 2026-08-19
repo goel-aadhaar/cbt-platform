@@ -21,6 +21,67 @@ enum QuestionStatus {
   ARCHIVED
 }
 
+/// Subject (e.g. Biology, Physics) — the top level of the question-bank
+/// classification hierarchy. Admin-managed; mirrors Program (academic.prisma).
+model Subject {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  chapters  Chapter[]
+  questions Question[]
+
+  @@unique([instituteId, name])
+  @@index([instituteId])
+  @@map("subjects")
+}
+
+/// A chapter within a subject. Admin-managed; mirrors Class (academic.prisma).
+model Chapter {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  subjectId   String   @map("subject_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  topics    Topic[]
+  questions Question[]
+
+  @@unique([subjectId, name])
+  @@index([instituteId])
+  @@index([subjectId])
+  @@map("chapters")
+}
+
+/// A topic within a chapter — the leaf level, optional on a question. Mirrors
+/// Batch (academic.prisma).
+model Topic {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  chapterId   String   @map("chapter_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  chapter   Chapter    @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  questions Question[]
+
+  @@unique([chapterId, name])
+  @@index([instituteId])
+  @@index([chapterId])
+  @@map("topics")
+}
+
 /// A question in the independent, governed question bank (§2.4). Tenant-scoped;
 /// authored by teachers, approved by admins. Exams are later assembled from
 /// APPROVED questions.
@@ -28,14 +89,25 @@ model Question {
   id          String @id @default(uuid()) @db.Uuid
   instituteId String @map("institute_id") @db.Uuid
 
-  // Tagging / classification (§2.4 — mandatory except topic).
+  // Tagging / classification (§2.4 — mandatory except topic). `subject`/
+  // `chapter`/`topic` are denormalized display+search text kept in sync from
+  // subjectId/chapterId/topicId whenever a question is written — the
+  // generated `searchVector` column below depends on these three column
+  // names directly, so they stay even though the FKs are the source of truth.
   subject    String
   chapter    String
   topic      String?
+  subjectId  String       @map("subject_id") @db.Uuid
+  chapterId  String       @map("chapter_id") @db.Uuid
+  topicId    String?      @map("topic_id") @db.Uuid
   difficulty Difficulty
   type       QuestionType
   language   String       @default("en")
-  examType   String       @map("exam_type")
+  /// The catalogue entry this question is suited for (§2.3's ExamCategory,
+  /// reused rather than inventing a parallel "exam type" taxonomy). Optional
+  /// so questions authored before this existed, or with no matching category,
+  /// keep working — same tolerance as Exam.categoryId.
+  examCategoryId String?  @map("exam_category_id") @db.Uuid
   tags       String[]     @default([])
 
   // Content (§2.4). options/answerKey are JSON to fit all types:
@@ -80,6 +152,10 @@ model Question {
   editedBy   User?     @relation("QuestionEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
   approvedBy      User? @relation("QuestionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
   practiceAddedBy User? @relation("QuestionPracticeAddedBy", fields: [practiceAddedById], references: [id], onDelete: SetNull)
+  subjectRef      Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  chapterRef      Chapter      @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  topicRef        Topic?       @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  examCategory    ExamCategory? @relation(fields: [examCategoryId], references: [id], onDelete: SetNull)
   examQuestions ExamQuestion[]
   responses     Response[]
   practiceAnswers PracticeAnswer[]
@@ -87,6 +163,9 @@ model Question {
   @@index([instituteId])
   @@index([instituteId, status])
   @@index([instituteId, subject])
+  @@index([subjectId])
+  @@index([chapterId])
+  @@index([examCategoryId])
   @@index([instituteId, inPracticeLibrary])
   @@index([searchVector], type: Gin)
   @@map("questions")

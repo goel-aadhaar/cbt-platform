@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
@@ -14,16 +15,16 @@ import { Difficulty, QuestionStatus, QuestionType } from '../question.types';
 /** Question bank filters (§2.4). */
 export class QueryQuestionsDto {
   @IsOptional()
-  @IsString()
-  subject?: string;
+  @IsUUID()
+  subjectId?: string;
 
   @IsOptional()
-  @IsString()
-  chapter?: string;
+  @IsUUID()
+  chapterId?: string;
 
   @IsOptional()
-  @IsString()
-  topic?: string;
+  @IsUUID()
+  topicId?: string;
 
   @IsOptional()
   @IsEnum(Difficulty)
@@ -38,8 +39,8 @@ export class QueryQuestionsDto {
   status?: QuestionStatus;
 
   @IsOptional()
-  @IsString()
-  examType?: string;
+  @IsUUID()
+  examCategoryId?: string;
 
   @IsOptional()
   @IsString()

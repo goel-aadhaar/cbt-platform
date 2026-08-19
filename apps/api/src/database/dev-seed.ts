@@ -258,6 +258,29 @@ async function devSeed(): Promise<void> {
     Chemistry: [],
     Biology: [],
   };
+
+  // Question-bank taxonomy (§2.4): a Subject/Chapter row per seeded name, and
+  // one ExamCategory questions can point at — mirrors what an admin would
+  // set up via /admin/question-taxonomy and /admin/exam-categories.
+  const examCategory = await prisma.examCategory.create({
+    data: { instituteId: iid, name: 'NEET', createdById: admin.id },
+  });
+  const subjectIdByName: Record<string, string> = {};
+  const chapterIdByName: Record<string, Record<string, string>> = {};
+  for (const subject of SUBJECTS) {
+    const subjectRow = await prisma.subject.create({
+      data: { instituteId: iid, name: subject },
+    });
+    subjectIdByName[subject] = subjectRow.id;
+    chapterIdByName[subject] = {};
+    for (const chapter of CHAPTERS[subject]) {
+      const chapterRow = await prisma.chapter.create({
+        data: { instituteId: iid, subjectId: subjectRow.id, name: chapter },
+      });
+      chapterIdByName[subject][chapter] = chapterRow.id;
+    }
+  }
+
   let qSeq = 0;
   for (const subject of SUBJECTS) {
     for (let j = 0; j < 10; j++) {
@@ -280,9 +303,11 @@ async function devSeed(): Promise<void> {
           subject,
           chapter,
           topic: `${chapter} basics`,
+          subjectId: subjectIdByName[subject],
+          chapterId: chapterIdByName[subject][chapter],
+          examCategoryId: examCategory.id,
           difficulty: DIFF[j % 3],
           type: type,
-          examType: 'NEET',
           tags: [
             subject.toLowerCase(),
             chapter.toLowerCase().replace(/\s+/g, '-'),

@@ -22,6 +22,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { BatchesModule } from './modules/batches/batches.module';
+import { ChaptersModule } from './modules/chapters/chapters.module';
 import { ClassesModule } from './modules/classes/classes.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { ExamCategoriesModule } from './modules/exam-categories/exam-categories.module';
@@ -30,6 +31,8 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { ProgramsModule } from './modules/programs/programs.module';
 import { QuestionsModule } from './modules/questions/questions.module';
+import { SubjectsModule } from './modules/subjects/subjects.module';
+import { TopicsModule } from './modules/topics/topics.module';
 import { ResultsModule } from './modules/results/results.module';
 import { PracticeModule } from './modules/practice/practice.module';
 import { StaffModule } from './modules/staff/staff.module';
@@ -85,6 +88,9 @@ import { StudentsModule } from './modules/students/students.module';
     ProgramsModule,
     ClassesModule,
     BatchesModule,
+    SubjectsModule,
+    ChaptersModule,
+    TopicsModule,
     PracticeModule,
     StaffModule,
     StudentsModule,

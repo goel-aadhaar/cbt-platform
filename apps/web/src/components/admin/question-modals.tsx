@@ -1,7 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import {
+  listChapters,
+  listSubjects,
+  type ChapterRow,
+  type Subject,
+} from "@/lib/admin";
+import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   type DocxImportSummary,
   type Difficulty,
@@ -79,15 +86,43 @@ export function QuestionImportModal({
   onImported?: (summary: DocxImportSummary) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [subject, setSubject] = useState("");
-  const [chapter, setChapter] = useState("");
+  const [subjects, setSubjects] = useState<Subject[] | null>(null);
+  const [chapters, setChapters] = useState<ChapterRow[] | null>(null);
+  const [examCategories, setExamCategories] = useState<ExamCategory[] | null>(
+    null,
+  );
+  const [subjectId, setSubjectId] = useState("");
+  const [chapterId, setChapterId] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty | "">("");
   const [type, setType] = useState<QuestionType | "">("");
-  const [examType, setExamType] = useState("");
+  const [examCategoryId, setExamCategoryId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<DocxImportSummary | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    listSubjects()
+      .then(setSubjects)
+      .catch(() => setSubjects([]));
+    listExamCategories(true)
+      .then((r) => setExamCategories(r.items))
+      .catch(() => setExamCategories([]));
+  }, [open]);
+
+  useEffect(() => {
+    if (!subjectId) return;
+    listChapters(subjectId)
+      .then(setChapters)
+      .catch(() => setChapters([]));
+  }, [subjectId]);
+
+  function selectSubject(id: string) {
+    setSubjectId(id);
+    setChapterId("");
+    setChapters(null);
+  }
 
   function downloadTemplate() {
     const doc = [
@@ -118,16 +153,16 @@ export function QuestionImportModal({
   }
 
   async function upload() {
-    if (!file) return;
+    if (!file || !subjectId || !chapterId) return;
     setBusy(true);
     setError(null);
     try {
       const res = await importQuestionsDocx(file, {
-        ...(subject.trim() ? { subject: subject.trim() } : {}),
-        ...(chapter.trim() ? { chapter: chapter.trim() } : {}),
+        subjectId,
+        chapterId,
         ...(difficulty ? { difficulty } : {}),
         ...(type ? { type } : {}),
-        ...(examType.trim() ? { examType: examType.trim() } : {}),
+        ...(examCategoryId ? { examCategoryId } : {}),
       });
       setSummary(res);
       onImported?.(res);
@@ -142,11 +177,12 @@ export function QuestionImportModal({
     setFile(null);
     setSummary(null);
     setError(null);
-    setSubject("");
-    setChapter("");
+    setSubjectId("");
+    setChapterId("");
+    setChapters(null);
     setDifficulty("");
     setType("");
-    setExamType("");
+    setExamCategoryId("");
     onClose();
   }
 
@@ -167,7 +203,7 @@ export function QuestionImportModal({
           {!summary && (
             <button
               onClick={upload}
-              disabled={!file || busy}
+              disabled={!file || !subjectId || !chapterId || busy}
               className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
             >
               {busy ? "Importing…" : "Import questions"}
@@ -239,27 +275,59 @@ export function QuestionImportModal({
           </p>
 
           <p className="mt-6 text-sm font-bold text-admin-ink">
-            Defaults for rows that omit a field (optional)
+            Subject and chapter apply to every question in the file. Difficulty,
+            type and exam type are fallbacks for rows that omit them.
           </p>
           <div className="mt-3 grid grid-cols-3 gap-3">
-            <input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Subject"
+            <select
+              value={subjectId}
+              onChange={(e) => selectSubject(e.target.value)}
+              disabled={subjects === null}
               className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-            />
-            <input
-              value={chapter}
-              onChange={(e) => setChapter(e.target.value)}
-              placeholder="Chapter"
+            >
+              <option value="">
+                {subjects === null ? "Loading…" : "Subject *"}
+              </option>
+              {subjects?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={chapterId}
+              onChange={(e) => setChapterId(e.target.value)}
+              disabled={!subjectId || chapters === null}
               className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-            />
-            <input
-              value={examType}
-              onChange={(e) => setExamType(e.target.value)}
-              placeholder="Exam type"
+            >
+              <option value="">
+                {!subjectId
+                  ? "Select a subject first"
+                  : chapters === null
+                    ? "Loading…"
+                    : "Chapter *"}
+              </option>
+              {chapters?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={examCategoryId}
+              onChange={(e) => setExamCategoryId(e.target.value)}
+              disabled={examCategories === null}
               className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-            />
+            >
+              <option value="">
+                {examCategories === null ? "Loading…" : "Exam type"}
+              </option>
+              {examCategories?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
             <select
               value={difficulty}
               onChange={(e) => setDifficulty(e.target.value as Difficulty | "")}

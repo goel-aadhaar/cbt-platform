@@ -11,9 +11,13 @@ export interface QuestionListItem {
   subject: string;
   chapter: string;
   topic: string | null;
+  subjectId: string;
+  chapterId: string;
+  topicId: string | null;
   difficulty: Difficulty;
   type: QuestionType;
-  examType: string;
+  examCategoryId: string | null;
+  examCategory: { id: string; name: string } | null;
   tags: string[];
   marks: number;
   negativeMarks: number;
@@ -35,12 +39,12 @@ export interface QuestionListItem {
  */
 export interface QuestionQuery {
   status?: QuestionStatus;
-  subject?: string;
-  chapter?: string;
-  topic?: string;
+  subjectId?: string;
+  chapterId?: string;
+  topicId?: string;
   difficulty?: Difficulty;
   type?: QuestionType;
-  examType?: string;
+  examCategoryId?: string;
   /** Single tag to match (the API matches one tag at a time). */
   tag?: string;
   /** Only questions curated into the practice library (or only those not). */
@@ -56,12 +60,12 @@ export interface QuestionQuery {
 /** The filter fields a picker UI can set (everything except paging/status). */
 export type QuestionFilters = Pick<
   QuestionQuery,
-  | "subject"
-  | "chapter"
-  | "topic"
+  | "subjectId"
+  | "chapterId"
+  | "topicId"
   | "difficulty"
   | "type"
-  | "examType"
+  | "examCategoryId"
   | "tag"
   | "search"
   | "inPracticeLibrary"
@@ -81,12 +85,12 @@ export async function listQuestions(
 ): Promise<Paginated<QuestionListItem>> {
   const params = new URLSearchParams();
   if (q.status) params.set("status", q.status);
-  if (q.subject) params.set("subject", q.subject);
-  if (q.chapter) params.set("chapter", q.chapter);
-  if (q.topic) params.set("topic", q.topic);
+  if (q.subjectId) params.set("subjectId", q.subjectId);
+  if (q.chapterId) params.set("chapterId", q.chapterId);
+  if (q.topicId) params.set("topicId", q.topicId);
   if (q.difficulty) params.set("difficulty", q.difficulty);
   if (q.type) params.set("type", q.type);
-  if (q.examType) params.set("examType", q.examType);
+  if (q.examCategoryId) params.set("examCategoryId", q.examCategoryId);
   if (q.tag) params.set("tag", q.tag);
   if (q.inPracticeLibrary !== undefined)
     params.set("inPracticeLibrary", String(q.inPracticeLibrary));
@@ -126,12 +130,12 @@ export function getQuestion(id: string): Promise<QuestionDetail> {
 
 /** Body for POST /questions — mirrors the server's CreateQuestionDto 1:1. */
 export interface CreateQuestionInput {
-  subject: string;
-  chapter: string;
-  topic?: string;
+  subjectId: string;
+  chapterId: string;
+  topicId?: string;
   difficulty: Difficulty;
   type: QuestionType;
-  examType: string;
+  examCategoryId?: string;
   tags?: string[];
   statement: string;
   /** Required for MCQ/MSQ (2+ options); omitted for INTEGER. */
@@ -157,11 +161,11 @@ export function createQuestion(
 
 /** Defaults applied to a row that omits the field, mirrors the server's DocxDefaults. */
 export interface DocxImportDefaults {
-  subject?: string;
-  chapter?: string;
+  subjectId?: string;
+  chapterId?: string;
   difficulty?: Difficulty;
   type?: QuestionType;
-  examType?: string;
+  examCategoryId?: string;
 }
 
 export interface DocxImportSummary {
@@ -182,11 +186,12 @@ export async function importQuestionsDocx(
   const base =
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   const qs = new URLSearchParams();
-  if (defaults.subject) qs.set("subject", defaults.subject);
-  if (defaults.chapter) qs.set("chapter", defaults.chapter);
+  if (defaults.subjectId) qs.set("subjectId", defaults.subjectId);
+  if (defaults.chapterId) qs.set("chapterId", defaults.chapterId);
   if (defaults.difficulty) qs.set("difficulty", defaults.difficulty);
   if (defaults.type) qs.set("type", defaults.type);
-  if (defaults.examType) qs.set("examType", defaults.examType);
+  if (defaults.examCategoryId)
+    qs.set("examCategoryId", defaults.examCategoryId);
 
   const form = new FormData();
   form.append("file", file);

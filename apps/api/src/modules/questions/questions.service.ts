@@ -21,13 +21,18 @@ import {
 import { QuestionSearchPort } from './ports/question-search.port';
 import { Difficulty, QuestionStatus, QuestionType } from './question.types';
 
-/** Defaults applied to a DOCX import when a question omits the field (§2.4). */
+/**
+ * Defaults applied to every question in a DOCX import (§2.4) — unlike the
+ * other fields, subject/chapter/exam-category are selected ONCE for the
+ * whole file (via the import modal's cascading dropdowns) rather than
+ * inferred per-row, since they must resolve to real taxonomy rows now.
+ */
 export interface DocxDefaults {
-  subject?: string;
-  chapter?: string;
+  subjectId?: string;
+  chapterId?: string;
   difficulty?: string;
   type?: string;
-  examType?: string;
+  examCategoryId?: string;
 }
 
 /** Result of a bulk DOCX question import (§2.4). */
@@ -47,10 +52,14 @@ const listSelect = {
   subject: true,
   chapter: true,
   topic: true,
+  subjectId: true,
+  chapterId: true,
+  topicId: true,
   difficulty: true,
   type: true,
   language: true,
-  examType: true,
+  examCategoryId: true,
+  examCategory: { select: { id: true, name: true } },
   tags: true,
   marks: true,
   negativeMarks: true,
@@ -105,17 +114,26 @@ export class QuestionsService {
   async create(dto: CreateQuestionDto) {
     const { userId, instituteId } = this.ctx();
     this.validateContent(dto.type, dto.options, dto.answerKey);
+    const tax = await this.resolveTaxonomy(instituteId, {
+      subjectId: dto.subjectId,
+      chapterId: dto.chapterId,
+      topicId: dto.topicId ?? undefined,
+      examCategoryId: dto.examCategoryId ?? undefined,
+    });
 
     return this.prisma.question.create({
       data: {
         instituteId,
-        subject: dto.subject,
-        chapter: dto.chapter,
-        topic: dto.topic,
+        subject: tax.subjectName,
+        chapter: tax.chapterName,
+        topic: tax.topicName,
+        subjectId: tax.subjectId,
+        chapterId: tax.chapterId,
+        topicId: tax.topicId,
+        examCategoryId: tax.examCategoryId,
         difficulty: dto.difficulty,
         type: dto.type,
         language: dto.language ?? 'en',
-        examType: dto.examType,
         tags: dto.tags ?? [],
         statement: dto.statement,
         options: dto.options as unknown as Prisma.InputJsonValue,
@@ -132,6 +150,77 @@ export class QuestionsService {
   }
 
   /**
+   * Resolves subjectId/chapterId/topicId/examCategoryId against the real
+   * taxonomy (§2.4), verifying each belongs to the caller's institute and
+   * that chapter/topic actually nest under the given subject/chapter — the
+   * same parent-ownership check ClassesService/BatchesService use. Returns
+   * the resolved names too, since `subject`/`chapter`/`topic` on Question
+   * stay denormalized for the generated search_vector column.
+   */
+  private async resolveTaxonomy(
+    instituteId: string,
+    input: {
+      subjectId: string;
+      chapterId: string;
+      topicId?: string;
+      examCategoryId?: string;
+    },
+  ): Promise<{
+    subjectId: string;
+    chapterId: string;
+    topicId: string | null;
+    examCategoryId: string | null;
+    subjectName: string;
+    chapterName: string;
+    topicName: string | null;
+  }> {
+    const subject = await this.prisma.subject.findFirst({
+      where: { id: input.subjectId, instituteId },
+    });
+    if (!subject) throw new BadRequestException('Subject not found');
+
+    const chapter = await this.prisma.chapter.findFirst({
+      where: { id: input.chapterId, instituteId, subjectId: subject.id },
+    });
+    if (!chapter) {
+      throw new BadRequestException(
+        'Chapter not found in the selected subject',
+      );
+    }
+
+    let topic: { id: string; name: string } | null = null;
+    if (input.topicId) {
+      topic = await this.prisma.topic.findFirst({
+        where: { id: input.topicId, instituteId, chapterId: chapter.id },
+      });
+      if (!topic) {
+        throw new BadRequestException(
+          'Topic not found in the selected chapter',
+        );
+      }
+    }
+
+    let examCategoryId: string | null = null;
+    if (input.examCategoryId) {
+      const category = await this.prisma.examCategory.findFirst({
+        where: { id: input.examCategoryId, instituteId },
+      });
+      if (!category) throw new BadRequestException('Exam category not found');
+      examCategoryId = category.id;
+    }
+
+    return {
+      subjectId: subject.id,
+      chapterId: chapter.id,
+      topicId: topic?.id ?? null,
+      examCategoryId,
+      subjectName: subject.name,
+      chapterName: chapter.name,
+      topicName: topic?.name ?? null,
+    };
+  }
+
+  /**
    * Bulk-import questions from a .docx (§2.4). Each parsed block becomes a DRAFT
    * question through the normal {@link create} path (so content validation and
    * the lifecycle apply). Per-question fault-tolerant: a bad block is reported
@@ -142,7 +231,12 @@ export class QuestionsService {
     defaults: DocxDefaults,
     fileName = 'questions.docx',
   ): Promise<DocxImportSummary> {
-    this.ctx(); // ensure tenant context (also enforced by create())
+    const { instituteId } = this.ctx(); // also enforced by create()
+    if (!defaults.subjectId || !defaults.chapterId) {
+      throw new BadRequestException(
+        'Select a subject and chapter to import into',
+      );
+    }
 
     // Parse via the Import port (§2.6) — the DOCX adapter today.
     const parsed = await this.importer.parse(buffer);
@@ -182,13 +276,23 @@ export class QuestionsService {
     }
 
     // Best-effort history: never let logging fail an import that succeeded.
+    const [subject, chapter] = await Promise.all([
+      this.prisma.subject.findFirst({
+        where: { id: defaults.subjectId, instituteId },
+        select: { name: true },
+      }),
+      this.prisma.chapter.findFirst({
+        where: { id: defaults.chapterId, instituteId },
+        select: { name: true },
+      }),
+    ]);
     await this.imports.record({
       kind: 'QUESTIONS_DOCX',
       fileName,
       total: parsed.length,
       imported: imported.length,
       failures: failed,
-      target: `${defaults.subject} · ${defaults.chapter}`,
+      target: `${subject?.name ?? 'Unknown subject'} · ${chapter?.name ?? 'Unknown chapter'}`,
     });
 
     return { total: parsed.length, imported, failed };
@@ -198,13 +302,13 @@ export class QuestionsService {
     const { instituteId, userId } = this.ctx();
     const structuralWhere: Prisma.QuestionWhereInput = {
       instituteId,
-      ...(query.subject ? { subject: query.subject } : {}),
-      ...(query.chapter ? { chapter: query.chapter } : {}),
-      ...(query.topic ? { topic: query.topic } : {}),
+      ...(query.subjectId ? { subjectId: query.subjectId } : {}),
+      ...(query.chapterId ? { chapterId: query.chapterId } : {}),
+      ...(query.topicId ? { topicId: query.topicId } : {}),
       ...(query.difficulty ? { difficulty: query.difficulty } : {}),
       ...(query.type ? { type: query.type } : {}),
       ...(query.status ? { status: query.status } : {}),
-      ...(query.examType ? { examType: query.examType } : {}),
+      ...(query.examCategoryId ? { examCategoryId: query.examCategoryId } : {}),
       ...(query.inPracticeLibrary !== undefined
         ? { inPracticeLibrary: query.inPracticeLibrary }
         : {}),
@@ -268,7 +372,7 @@ export class QuestionsService {
   }
 
   async update(id: string, dto: UpdateQuestionDto) {
-    const { userId, role } = this.ctx();
+    const { userId, role, instituteId } = this.ctx();
     const existing = await this.getOwned(id);
 
     if (existing.status === QuestionStatus.ARCHIVED) {
@@ -312,16 +416,49 @@ export class QuestionsService {
       dto.answerKey ?? existing.answerKey,
     );
 
+    // Only re-resolve the taxonomy if the caller actually touched one of its
+    // fields — otherwise leave subject/chapter/topic/examCategory untouched.
+    const taxonomyChanged =
+      dto.subjectId !== undefined ||
+      dto.chapterId !== undefined ||
+      dto.topicId !== undefined ||
+      dto.examCategoryId !== undefined;
+    // `dto.topicId`/`examCategoryId` are `string | null | undefined`: undefined
+    // means "not sent, keep the existing value"; null means "clear it". A
+    // plain `dto.topicId ?? existing.topicId` would conflate the two, since
+    // `??` treats an explicit null the same as undefined.
+    const nextTopicId =
+      dto.topicId !== undefined
+        ? (dto.topicId ?? undefined)
+        : (existing.topicId ?? undefined);
+    const nextExamCategoryId =
+      dto.examCategoryId !== undefined
+        ? (dto.examCategoryId ?? undefined)
+        : (existing.examCategoryId ?? undefined);
+    const tax = taxonomyChanged
+      ? await this.resolveTaxonomy(instituteId, {
+          subjectId: dto.subjectId ?? existing.subjectId,
+          chapterId: dto.chapterId ?? existing.chapterId,
+          topicId: nextTopicId,
+          examCategoryId: nextExamCategoryId,
+        })
+      : null;
+
     return this.prisma.question.update({
       where: { id },
       data: {
-        subject: dto.subject,
-        chapter: dto.chapter,
-        topic: dto.topic,
+        ...(tax && {
+          subject: tax.subjectName,
+          chapter: tax.chapterName,
+          topic: tax.topicName,
+          subjectId: tax.subjectId,
+          chapterId: tax.chapterId,
+          topicId: tax.topicId,
+          examCategoryId: tax.examCategoryId,
+        }),
         difficulty: dto.difficulty,
         type: dto.type,
         language: dto.language,
-        examType: dto.examType,
         tags: dto.tags,
         statement: dto.statement,
         options: dto.options as unknown as Prisma.InputJsonValue,
@@ -508,17 +645,18 @@ export class QuestionsService {
  * Resolve a parsed DOCX block into a CreateQuestionDto (§2.4), applying import
  * defaults and inferring the type when not stated. Throws with a human reason
  * on missing/invalid fields so the importer can report the row as failed.
+ *
+ * Subject/chapter/exam-category are NOT inferred per-block — they're selected
+ * once for the whole file via `defaults` (importDocx already requires
+ * subjectId/chapterId before parsing starts), since they must resolve to real
+ * taxonomy rows rather than arbitrary text a .docx block happened to contain.
  */
 function resolveDraft(
   parsed: ParsedQuestion,
   defaults: DocxDefaults,
 ): CreateQuestionDto {
-  const subject = (parsed.meta.subject ?? defaults.subject ?? '').trim();
-  const chapter = (parsed.meta.chapter ?? defaults.chapter ?? '').trim();
-  const examType = (parsed.meta.examtype ?? defaults.examType ?? '').trim();
-  if (!subject) throw new Error('Missing subject');
-  if (!chapter) throw new Error('Missing chapter');
-  if (!examType) throw new Error('Missing examType');
+  if (!defaults.subjectId) throw new Error('Missing subject');
+  if (!defaults.chapterId) throw new Error('Missing chapter');
   if (!parsed.answer) throw new Error('Missing answer');
 
   const difficultyRaw = (
@@ -571,13 +709,12 @@ function resolveDraft(
   const negativeMarks = toNumber(parsed.meta.negativemarks);
 
   return {
-    subject,
-    chapter,
-    topic: parsed.meta.topic,
+    subjectId: defaults.subjectId,
+    chapterId: defaults.chapterId,
     difficulty,
     type,
     language: parsed.meta.language,
-    examType,
+    examCategoryId: defaults.examCategoryId,
     tags,
     statement: parsed.statement,
     options,

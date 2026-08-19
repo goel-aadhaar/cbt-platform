@@ -509,6 +509,116 @@ export function archiveBatch(id: string): Promise<BatchRow> {
 }
 
 /* ------------------------------------------------------------------ *
+ * QUESTION TAXONOMY — subject → chapter → topic (§2.4)                *
+ * ------------------------------------------------------------------ */
+
+export interface Subject {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+export interface ChapterRow {
+  id: string;
+  name: string;
+  subjectId: string;
+  isActive: boolean;
+}
+export interface TopicRow {
+  id: string;
+  name: string;
+  chapterId: string;
+  isActive: boolean;
+}
+
+/** GET /subjects — ADMIN or TEACHER (populates the authoring dropdowns). */
+export function listSubjects(): Promise<Subject[]> {
+  return apiFetch<Subject[]>(`/subjects`, auth());
+}
+
+/** POST /subjects — ADMIN. Name must be unique within the institute. */
+export function createSubject(name: string): Promise<Subject> {
+  return apiFetch(`/subjects`, { method: "POST", body: { name }, ...auth() });
+}
+
+/** PATCH /subjects/:id — rename. */
+export function renameSubject(id: string, name: string): Promise<Subject> {
+  return apiFetch(`/subjects/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /subjects/:id — ADMIN. Archives it; chapters keep the reference. */
+export function archiveSubject(id: string): Promise<Subject> {
+  return apiFetch(`/subjects/${id}`, { method: "DELETE", ...auth() });
+}
+
+/** GET /chapters — ADMIN or TEACHER, optionally scoped to a subject. */
+export function listChapters(subjectId?: string): Promise<ChapterRow[]> {
+  const qs = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : "";
+  return apiFetch<ChapterRow[]>(`/chapters${qs}`, auth());
+}
+
+/** POST /chapters — ADMIN. Name must be unique within the subject. */
+export function createChapter(
+  subjectId: string,
+  name: string,
+): Promise<ChapterRow> {
+  return apiFetch(`/chapters`, {
+    method: "POST",
+    body: { subjectId, name },
+    ...auth(),
+  });
+}
+
+/** PATCH /chapters/:id — rename. */
+export function renameChapter(id: string, name: string): Promise<ChapterRow> {
+  return apiFetch(`/chapters/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /chapters/:id — ADMIN. Archives it; topics keep the reference. */
+export function archiveChapter(id: string): Promise<ChapterRow> {
+  return apiFetch(`/chapters/${id}`, { method: "DELETE", ...auth() });
+}
+
+/** GET /topics — ADMIN or TEACHER, optionally scoped to a chapter. */
+export function listTopics(chapterId?: string): Promise<TopicRow[]> {
+  const qs = chapterId ? `?chapterId=${encodeURIComponent(chapterId)}` : "";
+  return apiFetch<TopicRow[]>(`/topics${qs}`, auth());
+}
+
+/** POST /topics — ADMIN. Name must be unique within the chapter. */
+export function createTopic(
+  chapterId: string,
+  name: string,
+): Promise<TopicRow> {
+  return apiFetch(`/topics`, {
+    method: "POST",
+    body: { chapterId, name },
+    ...auth(),
+  });
+}
+
+/** PATCH /topics/:id — rename. */
+export function renameTopic(id: string, name: string): Promise<TopicRow> {
+  return apiFetch(`/topics/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /topics/:id — ADMIN. Archives it; questions keep the reference. */
+export function archiveTopic(id: string): Promise<TopicRow> {
+  return apiFetch(`/topics/${id}`, { method: "DELETE", ...auth() });
+}
+
+/* ------------------------------------------------------------------ *
  * INVITATIONS (how staff + students are actually created)             *
  * ------------------------------------------------------------------ */
 

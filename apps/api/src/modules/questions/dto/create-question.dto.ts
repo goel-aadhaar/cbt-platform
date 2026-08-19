@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -27,17 +28,16 @@ export class QuestionOptionDto {
 }
 
 export class CreateQuestionDto {
-  @IsString()
-  @MinLength(1)
-  subject: string;
+  @IsUUID()
+  subjectId: string;
 
-  @IsString()
-  @MinLength(1)
-  chapter: string;
+  @IsUUID()
+  chapterId: string;
 
+  /** Nullable so an update can explicitly clear it (§ taxonomy). */
   @IsOptional()
-  @IsString()
-  topic?: string;
+  @IsUUID()
+  topicId?: string | null;
 
   @IsEnum(Difficulty)
   difficulty: Difficulty;
@@ -49,9 +49,14 @@ export class CreateQuestionDto {
   @IsString()
   language?: string;
 
-  @IsString()
-  @MinLength(1)
-  examType: string;
+  /**
+   * The Exam Categories catalogue entry this question is suited for (§2.3) —
+   * optional, since a question can exist with no exam type assigned yet.
+   * Nullable so an update can explicitly clear it.
+   */
+  @IsOptional()
+  @IsUUID()
+  examCategoryId?: string | null;
 
   @IsOptional()
   @IsArray()

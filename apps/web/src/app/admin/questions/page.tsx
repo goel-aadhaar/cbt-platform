@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType, SVGProps } from "react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -17,6 +18,7 @@ import {
   DatabaseIcon,
   DownloadIcon,
   FlagIcon,
+  LayersIcon,
   MoreVerticalIcon,
   PlusIcon,
   SlidersIcon,
@@ -125,6 +127,12 @@ export default function QuestionBankPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/admin/question-taxonomy"
+              className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+            >
+              <LayersIcon className="size-4 text-admin-muted" /> Taxonomy
+            </Link>
             <OutlineBtn icon={UploadIcon} onClick={() => setImportOpen(true)}>
               Import
             </OutlineBtn>

@@ -1,7 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import {
+  listChapters,
+  listSubjects,
+  listTopics,
+  type ChapterRow,
+  type Subject,
+  type TopicRow,
+} from "@/lib/admin";
+import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import type {
   Difficulty,
   QuestionFilters,
@@ -18,10 +27,11 @@ const TYPES: QuestionType[] = ["MCQ", "MSQ", "INTEGER"];
  * Shared question-bank filter bar (§2.4). Used by the Question Bank page and by
  * the exam builder's question picker so both filter the same way.
  *
- * Filters are applied SERVER-side (the bank is paginated), but the dropdown
- * options are derived from `facetSource` — a sample of the bank — so an admin
- * picks real subjects/chapters/tags instead of guessing at free text. Chapter
- * and topic options narrow to the selected subject/chapter.
+ * Filters are applied SERVER-side (the bank is paginated). Subject/Chapter/
+ * Topic/Exam options come from the real taxonomy catalogues (§2.4) rather than
+ * being sampled off `facetSource`, so the dropdowns always match what admins
+ * actually manage; only Tag still derives from `facetSource` since tags have
+ * no catalogue of their own.
  */
 export function QuestionFilterBar({
   value,
@@ -31,38 +41,49 @@ export function QuestionFilterBar({
 }: {
   value: QuestionFilters;
   onChange: (next: QuestionFilters) => void;
-  /** Questions used to build the option lists (typically an unfiltered page). */
+  /** Questions used to build the tag option list (typically an unfiltered page). */
   facetSource: QuestionListItem[];
   resultCount?: number;
 }) {
-  const facets = useMemo(() => {
-    const subjects = new Set<string>();
-    const chapters = new Set<string>();
-    const topics = new Set<string>();
-    const examTypes = new Set<string>();
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [chapters, setChapters] = useState<ChapterRow[]>([]);
+  const [topics, setTopics] = useState<TopicRow[]>([]);
+  const [examCategories, setExamCategories] = useState<ExamCategory[]>([]);
+
+  useEffect(() => {
+    listSubjects()
+      .then(setSubjects)
+      .catch(() => setSubjects([]));
+    listExamCategories(true)
+      .then((r) => setExamCategories(r.items))
+      .catch(() => setExamCategories([]));
+  }, []);
+
+  useEffect(() => {
+    if (!value.subjectId) return;
+    listChapters(value.subjectId)
+      .then(setChapters)
+      .catch(() => setChapters([]));
+  }, [value.subjectId]);
+
+  useEffect(() => {
+    if (!value.chapterId) return;
+    listTopics(value.chapterId)
+      .then(setTopics)
+      .catch(() => setTopics([]));
+  }, [value.chapterId]);
+
+  // Stale chapter/topic rows from a previous selection are hidden (rather than
+  // cleared via effect, which would call setState synchronously on every
+  // render) whenever their parent filter is unset.
+  const chapterOptions = value.subjectId ? chapters : [];
+  const topicOptions = value.chapterId ? topics : [];
+
+  const tagFacets = useMemo(() => {
     const tags = new Set<string>();
-    for (const q of facetSource) {
-      if (q.subject) subjects.add(q.subject);
-      if (q.examType) examTypes.add(q.examType);
-      // Narrow chapter/topic to the current subject/chapter selection so the
-      // lists stay meaningful as the admin drills down.
-      if (!value.subject || q.subject === value.subject) {
-        if (q.chapter) chapters.add(q.chapter);
-        if (!value.chapter || q.chapter === value.chapter) {
-          if (q.topic) topics.add(q.topic);
-        }
-      }
-      for (const t of q.tags ?? []) tags.add(t);
-    }
-    const sorted = (s: Set<string>) => [...s].sort();
-    return {
-      subjects: sorted(subjects),
-      chapters: sorted(chapters),
-      topics: sorted(topics),
-      examTypes: sorted(examTypes),
-      tags: sorted(tags),
-    };
-  }, [facetSource, value.subject, value.chapter]);
+    for (const q of facetSource) for (const t of q.tags ?? []) tags.add(t);
+    return [...tags].sort();
+  }, [facetSource]);
 
   const set = (patch: Partial<QuestionFilters>) =>
     onChange({ ...value, ...patch });
@@ -82,26 +103,26 @@ export function QuestionFilterBar({
           />
         </div>
 
-        <Select
+        <IdSelect
           label="Subject"
-          value={value.subject}
-          options={facets.subjects}
+          value={value.subjectId}
+          options={subjects}
           // Changing subject invalidates the narrower selections.
           onChange={(v) =>
-            set({ subject: v, chapter: undefined, topic: undefined })
+            set({ subjectId: v, chapterId: undefined, topicId: undefined })
           }
         />
-        <Select
+        <IdSelect
           label="Chapter"
-          value={value.chapter}
-          options={facets.chapters}
-          onChange={(v) => set({ chapter: v, topic: undefined })}
+          value={value.chapterId}
+          options={chapterOptions}
+          onChange={(v) => set({ chapterId: v, topicId: undefined })}
         />
-        <Select
+        <IdSelect
           label="Topic"
-          value={value.topic}
-          options={facets.topics}
-          onChange={(v) => set({ topic: v })}
+          value={value.topicId}
+          options={topicOptions}
+          onChange={(v) => set({ topicId: v })}
         />
         <Select
           label="Difficulty"
@@ -115,16 +136,16 @@ export function QuestionFilterBar({
           options={TYPES}
           onChange={(v) => set({ type: v as QuestionType | undefined })}
         />
-        <Select
+        <IdSelect
           label="Exam"
-          value={value.examType}
-          options={facets.examTypes}
-          onChange={(v) => set({ examType: v })}
+          value={value.examCategoryId}
+          options={examCategories}
+          onChange={(v) => set({ examCategoryId: v })}
         />
         <Select
           label="Tag"
           value={value.tag}
-          options={facets.tags}
+          options={tagFacets}
           onChange={(v) => set({ tag: v })}
         />
 
@@ -166,6 +187,39 @@ export function QuestionFilterBar({
         </p>
       )}
     </div>
+  );
+}
+
+function IdSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  options: { id: string; name: string }[];
+  onChange: (v: string | undefined) => void;
+}) {
+  return (
+    <select
+      aria-label={label}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      disabled={options.length === 0}
+      className={`h-10 rounded-lg border px-2.5 text-sm outline-none focus:border-admin disabled:opacity-40 ${
+        value
+          ? "border-admin bg-admin/5 font-semibold text-admin"
+          : "border-admin-line bg-white text-admin-ink"
+      }`}
+    >
+      <option value="">{label}: All</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

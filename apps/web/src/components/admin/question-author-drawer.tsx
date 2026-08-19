@@ -1,8 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import {
+  listChapters,
+  listSubjects,
+  listTopics,
+  type ChapterRow,
+  type Subject,
+  type TopicRow,
+} from "@/lib/admin";
 import { ApiError } from "@/lib/api";
+import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   createQuestion,
   type CreateQuestionInput,
@@ -52,12 +61,18 @@ export function QuestionAuthorDrawer({
   onClose: () => void;
   onCreated?: () => void;
 }) {
-  const [subject, setSubject] = useState("");
-  const [chapter, setChapter] = useState("");
-  const [topic, setTopic] = useState("");
+  const [subjects, setSubjects] = useState<Subject[] | null>(null);
+  const [chapters, setChapters] = useState<ChapterRow[] | null>(null);
+  const [topics, setTopics] = useState<TopicRow[] | null>(null);
+  const [examCategories, setExamCategories] = useState<ExamCategory[] | null>(
+    null,
+  );
+  const [subjectId, setSubjectId] = useState("");
+  const [chapterId, setChapterId] = useState("");
+  const [topicId, setTopicId] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>("MEDIUM");
   const [type, setType] = useState<QuestionType>("MCQ");
-  const [examType, setExamType] = useState("");
+  const [examCategoryId, setExamCategoryId] = useState("");
   const [tags, setTags] = useState("");
   const [statement, setStatement] = useState("");
   const [options, setOptions] = useState<OptionRow[]>(emptyOptions());
@@ -73,12 +88,14 @@ export function QuestionAuthorDrawer({
   const [done, setDone] = useState(false);
 
   function reset() {
-    setSubject("");
-    setChapter("");
-    setTopic("");
+    setSubjectId("");
+    setChapterId("");
+    setTopicId("");
+    setChapters(null);
+    setTopics(null);
     setDifficulty("MEDIUM");
     setType("MCQ");
-    setExamType("");
+    setExamCategoryId("");
     setTags("");
     setStatement("");
     setOptions(emptyOptions());
@@ -92,6 +109,46 @@ export function QuestionAuthorDrawer({
     setError(null);
     setDone(false);
     onClose();
+  }
+
+  // Subject and exam-category catalogues load once the drawer opens; chapter
+  // and topic cascade off whichever parent is currently selected.
+  useEffect(() => {
+    if (!open) return;
+    listSubjects()
+      .then(setSubjects)
+      .catch(() => setSubjects([]));
+    listExamCategories(true)
+      .then((r) => setExamCategories(r.items))
+      .catch(() => setExamCategories([]));
+  }, [open]);
+
+  useEffect(() => {
+    if (!subjectId) return;
+    listChapters(subjectId)
+      .then(setChapters)
+      .catch(() => setChapters([]));
+  }, [subjectId]);
+
+  useEffect(() => {
+    if (!chapterId) return;
+    listTopics(chapterId)
+      .then(setTopics)
+      .catch(() => setTopics([]));
+  }, [chapterId]);
+
+  function selectSubject(id: string) {
+    setSubjectId(id);
+    setChapterId("");
+    setTopicId("");
+    setChapters(null);
+    setTopics(null);
+  }
+
+  function selectChapter(id: string) {
+    setChapterId(id);
+    setTopicId("");
+    setTopics(null);
   }
 
   function addOption() {
@@ -110,9 +167,8 @@ export function QuestionAuthorDrawer({
 
   const needsOptions = type !== "INTEGER";
   const valid =
-    subject.trim() &&
-    chapter.trim() &&
-    examType.trim() &&
+    subjectId &&
+    chapterId &&
     statement.trim() &&
     (type === "INTEGER"
       ? intAnswer.trim() !== "" && !Number.isNaN(Number(intAnswer))
@@ -126,12 +182,12 @@ export function QuestionAuthorDrawer({
     setError(null);
     try {
       const input: CreateQuestionInput = {
-        subject: subject.trim(),
-        chapter: chapter.trim(),
-        topic: topic.trim() || undefined,
+        subjectId,
+        chapterId,
+        topicId: topicId || undefined,
         difficulty,
         type,
-        examType: examType.trim(),
+        examCategoryId: examCategoryId || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
@@ -204,33 +260,80 @@ export function QuestionAuthorDrawer({
             <div className="flex flex-col gap-6">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Subject" required>
-                  <input
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
+                  <select
+                    value={subjectId}
+                    onChange={(e) => selectSubject(e.target.value)}
+                    disabled={subjects === null}
                     className={INPUT_CLS}
-                  />
+                  >
+                    <option value="">
+                      {subjects === null ? "Loading…" : "Select a subject"}
+                    </option>
+                    {subjects?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Chapter" required>
-                  <input
-                    value={chapter}
-                    onChange={(e) => setChapter(e.target.value)}
+                  <select
+                    value={chapterId}
+                    onChange={(e) => selectChapter(e.target.value)}
+                    disabled={!subjectId || chapters === null}
                     className={INPUT_CLS}
-                  />
+                  >
+                    <option value="">
+                      {!subjectId
+                        ? "Select a subject first"
+                        : chapters === null
+                          ? "Loading…"
+                          : "Select a chapter"}
+                    </option>
+                    {chapters?.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Topic">
-                  <input
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
+                  <select
+                    value={topicId}
+                    onChange={(e) => setTopicId(e.target.value)}
+                    disabled={!chapterId || topics === null}
                     className={INPUT_CLS}
-                  />
+                  >
+                    <option value="">
+                      {!chapterId
+                        ? "Select a chapter first"
+                        : topics === null
+                          ? "Loading…"
+                          : "None"}
+                    </option>
+                    {topics?.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
-                <Field label="Exam type" required>
-                  <input
-                    value={examType}
-                    onChange={(e) => setExamType(e.target.value)}
-                    placeholder="e.g. JEE, NEET"
+                <Field label="Exam type">
+                  <select
+                    value={examCategoryId}
+                    onChange={(e) => setExamCategoryId(e.target.value)}
+                    disabled={examCategories === null}
                     className={INPUT_CLS}
-                  />
+                  >
+                    <option value="">
+                      {examCategories === null ? "Loading…" : "None"}
+                    </option>
+                    {examCategories?.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
                 <Field label="Difficulty">
                   <select

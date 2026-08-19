@@ -653,7 +653,7 @@ export function ExamBuilderDrawer({
                           {q.inPracticeLibrary && (
                             <Tag tone="practice">★ In practice library</Tag>
                           )}
-                          {q.examType && <Tag>{q.examType}</Tag>}
+                          {q.examCategory && <Tag>{q.examCategory.name}</Tag>}
                           {(q.tags ?? []).map((t) => (
                             <Tag key={t} tone="tag">
                               #{t}
