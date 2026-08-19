@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import { InvitationEmail, MailService, OtpEmail } from './mail.service';
+import {
+  InvitationEmail,
+  MailService,
+  OtpEmail,
+  WelcomeEmail,
+} from './mail.service';
 
 /**
  * Dev mail adapter — logs the message instead of sending.
@@ -28,6 +33,16 @@ export class ConsoleMailService extends MailService {
     this.logger.log(
       `🔐 Login code → ${email.name} <${email.to}> | code: ${email.code} ` +
         `(expires in ${email.expiresInMinutes} min)`,
+    );
+    return Promise.resolve();
+  }
+
+  sendWelcome(email: WelcomeEmail): Promise<void> {
+    this.logger.log(
+      `🎉 Welcome → ${email.name} <${email.to}> as ${email.role}` +
+        (email.institute ? ` @ ${email.institute}` : '') +
+        (email.rollNumber ? ` | roll: ${email.rollNumber}` : '') +
+        ` | sign in: ${email.loginUrl}`,
     );
     return Promise.resolve();
   }

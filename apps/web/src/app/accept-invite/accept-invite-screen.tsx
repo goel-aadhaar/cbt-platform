@@ -7,7 +7,7 @@ import { useState } from "react";
 
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
-import { acceptInvite } from "@/lib/auth";
+import { acceptInvite, type AcceptInviteResult } from "@/lib/auth";
 
 /**
  * Lands here from the link in an invite email (built by the API as
@@ -24,7 +24,7 @@ export function AcceptInviteScreen() {
   const [show, setShow] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [email, setEmail] = useState<string | null>(null);
+  const [result, setResult] = useState<AcceptInviteResult | null>(null);
 
   const mismatch = confirm.length > 0 && password !== confirm;
   const tooShort = password.length > 0 && password.length < 8;
@@ -41,7 +41,7 @@ export function AcceptInviteScreen() {
     setError(null);
     try {
       const res = await acceptInvite(token, password);
-      setEmail(res.email);
+      setResult(res);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -82,17 +82,43 @@ export function AcceptInviteScreen() {
               whoever invited you to resend it.
             </p>
           </>
-        ) : email ? (
+        ) : result ? (
           <>
             <h1 className="text-2xl font-bold tracking-[-0.5px] text-brand">
               Account activated
             </h1>
             <p className="mt-2 text-base leading-6 text-muted">
-              <span className="font-semibold text-ink">{email}</span> is ready
-              to sign in with the password you just set.
+              <span className="font-semibold text-ink">{result.email}</span> is
+              ready to sign in with the password you just set. We&apos;ve also
+              emailed you these details.
             </p>
+
+            {(result.institute || result.rollNumber) && (
+              <dl className="mt-5 rounded border border-line bg-surface p-4 text-sm">
+                {result.institute && (
+                  <div className="flex items-baseline justify-between gap-3 py-1">
+                    <dt className="text-muted">Institute</dt>
+                    <dd className="font-semibold text-ink">
+                      {result.institute.name}{" "}
+                      <span className="font-normal text-subtle">
+                        ({result.institute.slug})
+                      </span>
+                    </dd>
+                  </div>
+                )}
+                {result.rollNumber && (
+                  <div className="flex items-baseline justify-between gap-3 py-1">
+                    <dt className="text-muted">Roll number</dt>
+                    <dd className="font-mono font-semibold text-ink">
+                      {result.rollNumber}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
+
             <Link
-              href="/login"
+              href={result.role === "STUDENT" ? "/login" : "/login?as=staff"}
               className="mt-6 flex w-full items-center justify-center rounded bg-brand px-6 py-3.5 text-sm font-bold uppercase text-white transition-opacity hover:opacity-95"
             >
               Go to sign in

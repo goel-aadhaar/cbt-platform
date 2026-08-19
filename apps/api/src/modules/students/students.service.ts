@@ -254,6 +254,33 @@ export class StudentsService {
     return this.findOne(id);
   }
 
+  /** Undoes a deactivation. Refuses a PENDING/ACTIVE student — there is no
+   * disabled state to lift, so "reactivate" would be a confusing no-op. */
+  async reactivate(id: string) {
+    const owned = await this.getOwned(id);
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: owned.userId },
+      select: { status: true },
+    });
+    if (user.status !== UserStatus.DISABLED) {
+      throw new BadRequestException(
+        'Only a deactivated student can be reactivated',
+      );
+    }
+    await this.prisma.user.update({
+      where: { id: owned.userId },
+      data: { status: UserStatus.ACTIVE },
+    });
+    return this.findOne(id);
+  }
+
+  /** Re-sends the activation email for a student still awaiting one. */
+  async resendInvite(id: string) {
+    const owned = await this.getOwned(id);
+    await this.invitations.resendInvite(owned.userId, this.instituteId());
+    return this.findOne(id);
+  }
+
   private async getOwned(id: string) {
     const student = await this.prisma.student.findFirst({
       where: { id, instituteId: this.instituteId() },

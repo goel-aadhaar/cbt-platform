@@ -32,3 +32,26 @@ export function listStudents(
     { token: getToken() ?? undefined },
   );
 }
+
+const auth = () => ({ token: getToken() ?? undefined });
+
+/** DELETE /students/:id — archives the student (sets them DISABLED). */
+export function deactivateStudent(id: string): Promise<StudentListItem> {
+  return apiFetch(`/students/${id}`, { method: "DELETE", ...auth() });
+}
+
+/** POST /students/:id/reactivate — undoes a deactivation. */
+export function reactivateStudent(id: string): Promise<StudentListItem> {
+  return apiFetch(`/students/${id}/reactivate`, { method: "POST", ...auth() });
+}
+
+/**
+ * POST /students/:id/resend-invite — re-sends the activation email for a
+ * student who is still PENDING, with a fresh token and TTL.
+ */
+export function resendStudentInvite(id: string): Promise<StudentListItem> {
+  return apiFetch(`/students/${id}/resend-invite`, {
+    method: "POST",
+    ...auth(),
+  });
+}

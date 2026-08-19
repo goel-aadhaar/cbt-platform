@@ -17,6 +17,18 @@ export interface OtpEmail {
   expiresInMinutes: number;
 }
 
+export interface WelcomeEmail {
+  to: string;
+  name: string;
+  role: string;
+  /** Institute name, when applicable (absent for superadmin accounts). */
+  institute?: string;
+  /** Present only for a student account. */
+  rollNumber?: string;
+  /** Fully-built sign-in URL (role-appropriate: student vs staff). */
+  loginUrl: string;
+}
+
 /**
  * Mail port (abstract class used as the DI token). Concrete adapters:
  *   - ConsoleMailService — dev: logs the message + invite link / OTP.
@@ -26,4 +38,6 @@ export interface OtpEmail {
 export abstract class MailService {
   abstract sendInvitation(email: InvitationEmail): Promise<void>;
   abstract sendLoginOtp(email: OtpEmail): Promise<void>;
+  /** Sent once, right after the invitee sets their password and activates. */
+  abstract sendWelcome(email: WelcomeEmail): Promise<void>;
 }

@@ -9,12 +9,12 @@ import { useSearchParams } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ImportStudentsModal } from "@/components/admin/import-students-modal";
+import { RowActionsMenu } from "@/components/admin/row-actions-menu";
 import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
-  MoreVerticalIcon,
   PlusIcon,
   SearchIcon,
   SortIcon,
@@ -27,7 +27,13 @@ import {
 import { useIsHydrated } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { listStudents, type StudentListItem } from "@/lib/students";
+import {
+  deactivateStudent,
+  listStudents,
+  reactivateStudent,
+  resendStudentInvite,
+  type StudentListItem,
+} from "@/lib/students";
 
 type Status = "Active" | "Pending" | "Deactivated";
 
@@ -65,6 +71,7 @@ function StudentsPageInner() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
   // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
@@ -99,6 +106,64 @@ function StudentsPageInner() {
       active = false;
     };
   }, [hydrated, router]);
+
+  async function handleDeactivate(row: StudentListItem) {
+    if (
+      !window.confirm(
+        `Delete ${row.name}? This archives them — they can no longer sign in, but their records and results are kept and this can be undone later.`,
+      )
+    ) {
+      return;
+    }
+    setRowBusy(row.id);
+    setError(null);
+    try {
+      const updated = await deactivateStudent(row.id);
+      setRows((prev) =>
+        (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
+      );
+      setNotice(`${row.name} deleted (archived).`);
+    } catch (e: unknown) {
+      setError(
+        e instanceof ApiError ? e.message : "Could not delete the student.",
+      );
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  async function handleReactivate(row: StudentListItem) {
+    setRowBusy(row.id);
+    setError(null);
+    try {
+      const updated = await reactivateStudent(row.id);
+      setRows((prev) =>
+        (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
+      );
+      setNotice(`${row.name} reactivated.`);
+    } catch (e: unknown) {
+      setError(
+        e instanceof ApiError ? e.message : "Could not reactivate the student.",
+      );
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  async function handleResendInvite(row: StudentListItem) {
+    setRowBusy(row.id);
+    setError(null);
+    try {
+      await resendStudentInvite(row.id);
+      setNotice(`Invitation email resent to ${row.email}.`);
+    } catch (e: unknown) {
+      setError(
+        e instanceof ApiError ? e.message : "Could not resend the invitation.",
+      );
+    } finally {
+      setRowBusy(null);
+    }
+  }
 
   const items = rows ?? [];
   const countBy = (s: StudentListItem["status"]) =>
@@ -281,7 +346,10 @@ function StudentsPageInner() {
             {!loading &&
               !error &&
               items.map((r) => (
-                <tr key={r.id} className="hover:bg-admin-bg/50">
+                <tr
+                  key={r.id}
+                  className={`hover:bg-admin-bg/50 ${rowBusy === r.id ? "opacity-50" : ""}`}
+                >
                   <td className="px-4 py-4">
                     <input type="checkbox" className="size-4 accent-admin" />
                   </td>
@@ -315,9 +383,35 @@ function StudentsPageInner() {
                     <StatusPill status={STATUS_LABEL[r.status]} />
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <button className="text-admin-muted hover:text-admin-ink">
-                      <MoreVerticalIcon className="size-4" />
-                    </button>
+                    <RowActionsMenu
+                      actions={
+                        r.status === "DISABLED"
+                          ? [
+                              {
+                                label: "Reactivate student",
+                                onClick: () => void handleReactivate(r),
+                                disabled: rowBusy === r.id,
+                              },
+                            ]
+                          : [
+                              ...(r.status === "PENDING"
+                                ? [
+                                    {
+                                      label: "Resend invite email",
+                                      onClick: () => void handleResendInvite(r),
+                                      disabled: rowBusy === r.id,
+                                    },
+                                  ]
+                                : []),
+                              {
+                                label: "Delete student",
+                                onClick: () => void handleDeactivate(r),
+                                danger: true,
+                                disabled: rowBusy === r.id,
+                              },
+                            ]
+                      }
+                    />
                   </td>
                 </tr>
               ))}

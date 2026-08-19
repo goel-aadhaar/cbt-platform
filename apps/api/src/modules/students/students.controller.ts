@@ -93,4 +93,14 @@ export class StudentsController {
   deactivate(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.deactivate(id);
   }
+
+  @Post(':id/reactivate')
+  reactivate(@Param('id', ParseUUIDPipe) id: string) {
+    return this.students.reactivate(id);
+  }
+
+  @Post(':id/resend-invite')
+  resendInvite(@Param('id', ParseUUIDPipe) id: string) {
+    return this.students.resendInvite(id);
+  }
 }

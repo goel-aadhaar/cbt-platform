@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -28,6 +29,16 @@ export interface InvitedUser {
   rollNumber?: string;
 }
 
+export interface AcceptInviteResult {
+  email: string;
+  name: string;
+  role: Role;
+  /** Absent for a superadmin account. */
+  institute: { name: string; slug: string } | null;
+  /** Present only for a student account. */
+  rollNumber?: string;
+}
+
 interface CreateInvitationParams {
   name: string;
   email: string;
@@ -41,6 +52,8 @@ interface CreateInvitationParams {
 
 @Injectable()
 export class InvitationService {
+  private readonly logger = new Logger(InvitationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
@@ -184,10 +197,14 @@ export class InvitationService {
     return `${prefix}${String(max + 1).padStart(4, '0')}`;
   }
 
-  async accept(token: string, password: string): Promise<{ email: string }> {
+  async accept(token: string, password: string): Promise<AcceptInviteResult> {
     const tokenHash = this.hashToken(token);
     const user = await this.prisma.user.findFirst({
       where: { invitationTokenHash: tokenHash },
+      include: {
+        institute: { select: { name: true, slug: true } },
+        student: { select: { rollNumber: true } },
+      },
     });
     if (
       !user ||
@@ -208,6 +225,77 @@ export class InvitationService {
         invitationExpiresAt: null,
       },
     });
+
+    const role = user.roles[0];
+    const { frontendUrl } = this.config.getOrThrow<AuthConfig>('auth');
+    const loginUrl = `${frontendUrl}/login${role === Role.STUDENT ? '' : '?as=staff'}`;
+
+    // Best-effort: a welcome email failing to send must not undo the
+    // account activation that already succeeded above.
+    await this.mail
+      .sendWelcome({
+        to: user.email,
+        name: user.name,
+        role,
+        institute: user.institute?.name,
+        rollNumber: user.student?.rollNumber,
+        loginUrl,
+      })
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `Welcome email to ${user.email} failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+
+    return {
+      email: user.email,
+      name: user.name,
+      role,
+      institute: user.institute
+        ? { name: user.institute.name, slug: user.institute.slug }
+        : null,
+      rollNumber: user.student?.rollNumber,
+    };
+  }
+
+  /**
+   * Re-send the invite email for a still-PENDING account, refreshing the
+   * token and its TTL. Unlike createInvitation's implicit resurrection
+   * (which only kicks in once the old invite has actually lapsed), this is
+   * an explicit admin action and works on a still-live PENDING invite too.
+   */
+  async resendInvite(
+    userId: string,
+    instituteId: string,
+  ): Promise<{ email: string }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, instituteId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.status !== UserStatus.PENDING) {
+      throw new BadRequestException('Only a pending invitation can be resent');
+    }
+
+    const institute = await this.requireInstitute(instituteId);
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = this.hashToken(rawToken);
+    const { inviteTtlHours, frontendUrl } =
+      this.config.getOrThrow<AuthConfig>('auth');
+    const expiresAt = new Date(Date.now() + inviteTtlHours * 3_600_000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { invitationTokenHash: tokenHash, invitationExpiresAt: expiresAt },
+    });
+
+    await this.mail.sendInvitation({
+      to: user.email,
+      name: user.name,
+      role: user.roles[0],
+      inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
+      institute: institute.name,
+    });
+
     return { email: user.email };
   }
 

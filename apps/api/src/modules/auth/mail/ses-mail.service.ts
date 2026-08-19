@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { AuthConfig } from '../../../config/auth.config';
-import { InvitationEmail, MailService, OtpEmail } from './mail.service';
+import {
+  InvitationEmail,
+  MailService,
+  OtpEmail,
+  WelcomeEmail,
+} from './mail.service';
 
 /**
  * AWS SES mail adapter (§2.6) — the production adapter.
@@ -142,6 +147,53 @@ export class SesMailService extends MailService {
         `Didn't try to sign in? You can ignore this email.\n`,
     });
     this.logger.log(`Login code emailed to ${email.to}`);
+  }
+
+  /**
+   * Sent once, right after the invitee sets their password. Never includes
+   * the password itself — email is not a secure channel and they just chose
+   * it themselves — only the identifiers they need to sign in again.
+   */
+  async sendWelcome(email: WelcomeEmail): Promise<void> {
+    const subject = email.institute
+      ? `Welcome to ${email.institute} on DRSK CBT`
+      : 'Welcome to DRSK CBT';
+    const details = [
+      email.institute
+        ? `<li><strong>Institute:</strong> ${escapeHtml(email.institute)}</li>`
+        : '',
+      email.rollNumber
+        ? `<li><strong>Roll number:</strong> ${escapeHtml(email.rollNumber)}</li>`
+        : '',
+      `<li><strong>Email:</strong> ${escapeHtml(email.to)}</li>`,
+    ].join('');
+    const detailsText = [
+      email.institute ? `Institute: ${email.institute}\n` : '',
+      email.rollNumber ? `Roll number: ${email.rollNumber}\n` : '',
+      `Email: ${email.to}\n`,
+    ].join('');
+
+    await this.send({
+      to: email.to,
+      subject,
+      html: layout(`
+        <p>Hi ${escapeHtml(email.name)},</p>
+        <p>Thanks for accepting your invitation — your account is now active.</p>
+        <ul style="padding-left:18px;color:#111827;">${details}</ul>
+        <p style="margin: 28px 0;">
+          <a href="${email.loginUrl}" style="${buttonStyle}">Sign in</a>
+        </p>
+        <p style="color:#6b7280;font-size:13px;">
+          If the button doesn't work, copy this link into your browser:<br />
+          <a href="${email.loginUrl}">${email.loginUrl}</a>
+        </p>
+      `),
+      text:
+        `Hi ${email.name},\n\n` +
+        `Thanks for accepting your invitation — your account is now active.\n\n` +
+        detailsText +
+        `\nSign in: ${email.loginUrl}\n`,
+    });
   }
 }
 

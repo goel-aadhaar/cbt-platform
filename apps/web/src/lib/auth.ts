@@ -99,17 +99,28 @@ export function platformLogin(input: StaffLoginInput): Promise<OtpChallenge> {
   });
 }
 
+export interface AcceptInviteResult {
+  email: string;
+  name: string;
+  role: "SUPERADMIN" | "ADMIN" | "TEACHER" | "STUDENT";
+  /** Absent for a superadmin account. */
+  institute: { name: string; slug: string } | null;
+  /** Present only for a student account. */
+  rollNumber?: string;
+}
+
 /**
  * POST /invitations/accept — redeems an invite token (from the emailed
  * accept-invite link) for a password, activating the account. Works for any
  * invited role — admin, teacher, or student — the token alone decides who.
- * No session is issued; the invitee signs in normally afterwards.
+ * No session is issued; the invitee signs in normally afterwards. The
+ * backend also fires a "welcome" email with the same details in parallel.
  */
 export function acceptInvite(
   token: string,
   password: string,
-): Promise<{ email: string }> {
-  return apiFetch<{ email: string }>("/invitations/accept", {
+): Promise<AcceptInviteResult> {
+  return apiFetch<AcceptInviteResult>("/invitations/accept", {
     method: "POST",
     body: { token, password },
   });
