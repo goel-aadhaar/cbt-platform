@@ -17,6 +17,7 @@ import {
   FileTextIcon,
   GraduationCapIcon,
   GridIcon,
+  LayersIcon,
   LogOutIcon,
   TemplateIcon,
   UploadIcon,
@@ -33,6 +34,11 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: GridIcon },
+  {
+    label: "Organization",
+    href: "/admin/organization",
+    icon: LayersIcon,
+  },
   { label: "Students", href: "/admin/students", icon: UsersIcon },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
   {

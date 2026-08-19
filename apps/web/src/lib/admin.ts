@@ -399,27 +399,52 @@ export function assignBatch(
 }
 
 /* ------------------------------------------------------------------ *
- * ORG STRUCTURE (pickers)                                             *
+ * ORG STRUCTURE — program → class → batch (§2.11)                     *
  * ------------------------------------------------------------------ */
 
 export interface Program {
   id: string;
   name: string;
+  isActive: boolean;
 }
 export interface ClassRow {
   id: string;
   name: string;
   programId: string;
+  isActive: boolean;
 }
 export interface BatchRow {
   id: string;
   name: string;
   classId: string;
+  isActive: boolean;
 }
 
 /** GET /programs — ADMIN. */
 export function listPrograms(): Promise<Program[]> {
   return apiFetch<Program[]>(`/programs`, auth());
+}
+
+/** POST /programs — ADMIN. Name must be unique within the institute. */
+export function createProgram(name: string): Promise<Program> {
+  return apiFetch(`/programs`, { method: "POST", body: { name }, ...auth() });
+}
+
+/** PATCH /programs/:id — rename. */
+export function renameProgram(id: string, name: string): Promise<Program> {
+  return apiFetch(`/programs/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/**
+ * DELETE /programs/:id — ADMIN. Archives it (isActive: false); this is not a
+ * hard delete, so classes already under it keep the reference.
+ */
+export function archiveProgram(id: string): Promise<Program> {
+  return apiFetch(`/programs/${id}`, { method: "DELETE", ...auth() });
 }
 
 /** GET /classes — ADMIN, optionally scoped to a program. */
@@ -428,10 +453,59 @@ export function listClasses(programId?: string): Promise<ClassRow[]> {
   return apiFetch<ClassRow[]>(`/classes${qs}`, auth());
 }
 
+/** POST /classes — ADMIN. Name must be unique within the program. */
+export function createClass(
+  programId: string,
+  name: string,
+): Promise<ClassRow> {
+  return apiFetch(`/classes`, {
+    method: "POST",
+    body: { programId, name },
+    ...auth(),
+  });
+}
+
+/** PATCH /classes/:id — rename. */
+export function renameClass(id: string, name: string): Promise<ClassRow> {
+  return apiFetch(`/classes/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /classes/:id — ADMIN. Archives it; batches keep the reference. */
+export function archiveClass(id: string): Promise<ClassRow> {
+  return apiFetch(`/classes/${id}`, { method: "DELETE", ...auth() });
+}
+
 /** GET /batches — ADMIN, optionally scoped to a class. */
 export function listBatches(classId?: string): Promise<BatchRow[]> {
   const qs = classId ? `?classId=${encodeURIComponent(classId)}` : "";
   return apiFetch<BatchRow[]>(`/batches${qs}`, auth());
+}
+
+/** POST /batches — ADMIN. Name must be unique within the class. */
+export function createBatch(classId: string, name: string): Promise<BatchRow> {
+  return apiFetch(`/batches`, {
+    method: "POST",
+    body: { classId, name },
+    ...auth(),
+  });
+}
+
+/** PATCH /batches/:id — rename. */
+export function renameBatch(id: string, name: string): Promise<BatchRow> {
+  return apiFetch(`/batches/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /batches/:id — ADMIN. Archives it; enrolled students keep the reference. */
+export function archiveBatch(id: string): Promise<BatchRow> {
+  return apiFetch(`/batches/${id}`, { method: "DELETE", ...auth() });
 }
 
 /* ------------------------------------------------------------------ *
