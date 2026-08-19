@@ -52,9 +52,33 @@ model Batch {
   examBatches ExamBatch[]
   announcements Announcement[]
   results     Result[]
+  teacherBatches TeacherBatch[]
 
   @@unique([classId, name])
   @@index([instituteId])
   @@index([classId])
   @@map("batches")
+}
+
+/// Assigns a teacher (a User with role TEACHER) to a batch — the set of
+/// batches whose students/exams/results/monitoring that teacher may see. Not
+/// a contract requirement (the original agreement never distinguishes ADMIN
+/// from TEACHER, see staff.service.ts) — a product decision to scope teacher
+/// visibility once ADMIN/TEACHER were split. Mirrors ExamBatch (exam.prisma).
+model TeacherBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  teacherId   String   @map("teacher_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  teacher   User      @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, batchId])
+  @@index([teacherId])
+  @@index([batchId])
+  @@index([instituteId])
+  @@map("teacher_batches")
 }

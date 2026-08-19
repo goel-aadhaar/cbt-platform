@@ -10,6 +10,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { UserStatus } from '../auth/auth.types';
 import { ImportsService } from '../imports/imports.service';
 import { InvitationService } from '../auth/invitation/invitation.service';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryStudentsDto } from './dto/query-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
@@ -37,6 +38,7 @@ export class StudentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
     private readonly invitations: InvitationService,
     private readonly imports: ImportsService,
   ) {}
@@ -151,9 +153,24 @@ export class StudentsService {
    * serialise the entire roll into a single response.
    */
   async findAll(query: QueryStudentsDto) {
+    const scope = await this.teacherScope.myBatchIds();
+    // Intersect the caller's own batch filter (if any) with their teacher
+    // scope (if any) rather than letting both conditions collide on the same
+    // field — a batch outside scope yields an empty page, not a 500.
+    const effectiveBatchIds =
+      scope === null
+        ? query.batchId
+          ? [query.batchId]
+          : undefined
+        : query.batchId
+          ? scope.includes(query.batchId)
+            ? [query.batchId]
+            : []
+          : scope;
+
     const where = {
       instituteId: this.instituteId(),
-      ...(query.batchId ? { batchId: query.batchId } : {}),
+      ...(effectiveBatchIds && { batchId: { in: effectiveBatchIds } }),
     };
     const take = Math.min(query.limit ?? 50, 200);
     const skip = query.offset ?? 0;
@@ -192,8 +209,13 @@ export class StudentsService {
   }
 
   async findOne(id: string) {
+    const scope = await this.teacherScope.myBatchIds();
     const s = await this.prisma.student.findFirst({
-      where: { id, instituteId: this.instituteId() },
+      where: {
+        id,
+        instituteId: this.instituteId(),
+        ...(scope && { batchId: { in: scope } }),
+      },
       select: {
         id: true,
         rollNumber: true,

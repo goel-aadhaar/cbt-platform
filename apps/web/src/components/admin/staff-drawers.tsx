@@ -1,38 +1,61 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { inviteAdmin, inviteTeacher, type StaffRow } from "@/lib/admin";
+import {
+  deactivateStaff,
+  getStaffBatches,
+  inviteAdmin,
+  inviteTeacher,
+  listBatches,
+  reactivateStaff,
+  resendStaffInvite,
+  setStaffBatches,
+  updateStaff,
+  type BatchRow,
+  type StaffRow,
+} from "@/lib/admin";
 
 import { CheckIcon, ImageIcon, UserPlusIcon, XIcon } from "./icons";
 
 /* ------------------------------ Add Staff ------------------------------ */
 
 /**
- * Add-staff drawer, wired to POST /invitations/teacher and, when
- * "Administrator" is picked, POST /invitations/admin.
- *
- * Both invite endpoints accept only `{name, email}` from an admin caller —
- * the institute is always the caller's own — and subject/batch assignments
- * have no backing field yet, so those inputs are marked as post-activation
- * steps rather than pretending to save. They only apply to a Teacher invite,
- * so they're hidden once Administrator is selected.
+ * Add-staff drawer, wired to POST /invitations/teacher (with optional
+ * `batchIds`) or POST /invitations/admin, depending on which page opened it —
+ * there's no in-drawer role toggle any more since Teachers and Administrators
+ * are now separate pages (§2.4 admin console split), so "Add Staff" from
+ * either page unambiguously means "invite into this role".
  */
 export function AddStaffDrawer({
   open,
+  role,
   onClose,
   onInvited,
 }: {
   open: boolean;
+  role: "TEACHER" | "ADMIN";
   onClose: () => void;
-  onInvited?: (name: string, role: "TEACHER" | "ADMIN") => void;
+  onInvited?: (name: string) => void;
 }) {
   const [invite, setInvite] = useState(true);
-  const [role, setRole] = useState<"TEACHER" | "ADMIN">("TEACHER");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [batches, setBatches] = useState<BatchRow[]>([]);
+  const [batchIds, setBatchIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || role !== "TEACHER") return;
+    let cancelled = false;
+    listBatches()
+      .then((b) => !cancelled && setBatches(b))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, role]);
 
   const valid = name.trim().length >= 2 && /\S+@\S+\.\S+/.test(email);
 
@@ -44,12 +67,12 @@ export function AddStaffDrawer({
       if (role === "ADMIN") {
         await inviteAdmin(body);
       } else {
-        await inviteTeacher(body);
+        await inviteTeacher({ ...body, batchIds });
       }
-      onInvited?.(name.trim(), role);
+      onInvited?.(name.trim());
       setName("");
       setEmail("");
-      setRole("TEACHER");
+      setBatchIds([]);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send the invite.");
@@ -62,7 +85,7 @@ export function AddStaffDrawer({
 
   return (
     <DrawerShell
-      title="Add New Staff"
+      title={role === "ADMIN" ? "Add Administrator" : "Add Teacher"}
       onClose={onClose}
       width="max-w-[480px]"
       footer={
@@ -115,53 +138,32 @@ export function AddStaffDrawer({
         />
       </Field>
 
-      <SectionLabel>Role &amp; Assignments</SectionLabel>
-      <Field label="Role">
-        <div className="flex gap-2">
-          {(["TEACHER", "ADMIN"] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRole(r)}
-              className={`flex-1 rounded-lg border px-3 py-2.5 text-sm font-semibold transition-colors ${
-                role === r
-                  ? "border-admin bg-admin/10 text-admin"
-                  : "border-admin-line text-admin-muted hover:bg-admin-bg"
-              }`}
-            >
-              {r === "TEACHER" ? "Teacher" : "Administrator"}
-            </button>
-          ))}
-        </div>
-        <span className="mt-1 text-xs text-admin-subtle">
-          {role === "ADMIN"
-            ? "Invited into your own institute, with the same administrator access you have."
-            : "Can author questions and exams, and read student reports."}
-        </span>
-      </Field>
       {role === "TEACHER" && (
         <>
+          <SectionLabel>Assignments</SectionLabel>
           <Field label="Subject(s)">
             <input
               disabled
               placeholder="Not set on invite"
-              title="Subject assignment isn't tracked yet — the teacher's authored subjects are derived from the questions they write."
+              title="A teacher's subjects are derived from the questions they write, not set here."
               className={`${inputCls} bg-admin-surface text-admin-subtle disabled:cursor-not-allowed`}
             />
-            <span className="mt-1 text-xs text-admin-subtle">
-              Not sent with this invite — a teacher&apos;s subjects are derived
-              from what they author, once they start.
-            </span>
           </Field>
           <Field label="Batch(es)">
-            <input
-              disabled
-              placeholder="Not set on invite"
-              title="Batch assignment for staff isn't implemented yet."
-              className={`${inputCls} bg-admin-surface text-admin-subtle disabled:cursor-not-allowed`}
+            <BatchChecklist
+              batches={batches}
+              selected={batchIds}
+              onToggle={(id) =>
+                setBatchIds((prev) =>
+                  prev.includes(id)
+                    ? prev.filter((b) => b !== id)
+                    : [...prev, id],
+                )
+              }
             />
             <span className="mt-1 text-xs text-admin-subtle">
-              Not sent with this invite.
+              What this teacher may see across exams, students and results. Can
+              be changed any time from their profile.
             </span>
           </Field>
         </>
@@ -202,13 +204,46 @@ export function StaffDetailsDrawer({
   open,
   onClose,
   staff,
+  onChanged,
 }: {
   open: boolean;
   onClose: () => void;
   /** The roster row that was clicked — already-loaded data, no extra fetch. */
   staff: StaffRow | null;
+  /** Fired after any successful mutation, so the parent list can refetch. */
+  onChanged?: () => void;
 }) {
   const [tab, setTab] = useState(0);
+  const [name, setName] = useState(staff?.name ?? "");
+  const [allBatches, setAllBatches] = useState<BatchRow[]>([]);
+  const [assignedBatchIds, setAssignedBatchIds] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const isTeacher = staff?.roles.includes("TEACHER") ?? false;
+
+  useEffect(() => {
+    if (!open || !staff || !isTeacher) return;
+    let cancelled = false;
+    Promise.all([listBatches(), getStaffBatches(staff.id)])
+      .then(([all, mine]) => {
+        if (cancelled) return;
+        setAllBatches(all);
+        setAssignedBatchIds(mine.map((b) => b.id));
+      })
+      .catch(
+        (e: unknown) =>
+          !cancelled &&
+          setError(e instanceof Error ? e.message : "Could not load batches."),
+      );
+    return () => {
+      cancelled = true;
+    };
+    // staff.id is the real dependency; re-run whenever a different row opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, staff?.id, isTeacher]);
+
   if (!open || !staff) return null;
 
   const isAdmin = staff.roles.includes("ADMIN");
@@ -223,6 +258,83 @@ export function StaffDetailsDrawer({
       : staff.status === "PENDING"
         ? "Invited"
         : "Deactivated";
+
+  async function saveChanges() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (tab === 1 && isTeacher) {
+        await setStaffBatches(staff!.id, assignedBatchIds);
+        setNotice("Batch assignment saved.");
+      } else if (name.trim().length >= 2 && name.trim() !== staff!.name) {
+        await updateStaff(staff!.id, { name: name.trim() });
+        setNotice("Saved.");
+      }
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save changes.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeactivate() {
+    if (
+      !window.confirm(
+        `Deactivate ${staff!.name}? They will no longer be able to sign in.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await deactivateStaff(staff!.id);
+      onChanged?.();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not deactivate.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReactivate() {
+    setBusy(true);
+    setError(null);
+    try {
+      await reactivateStaff(staff!.id);
+      onChanged?.();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reactivate.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResendInvite() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await resendStaffInvite(staff!.id);
+      setNotice(`Invitation email resent to ${staff!.email}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resend the invite.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const tabs = [
+    "Profile Details",
+    ...(isTeacher ? ["Assignments"] : []),
+    "Login History",
+  ];
+  const assignmentsTabIndex = isTeacher ? 1 : -1;
+  const loginTabIndex = isTeacher ? 2 : 1;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end [font-family:var(--font-hanken)]">
@@ -267,7 +379,7 @@ export function StaffDetailsDrawer({
             </button>
           </div>
           <div className="mt-4 flex gap-6">
-            {["Profile Details", "Assignments", "Login History"].map((t, i) => (
+            {tabs.map((t, i) => (
               <button
                 key={t}
                 onClick={() => setTab(i)}
@@ -285,9 +397,9 @@ export function StaffDetailsDrawer({
               <Card title="Contact">
                 <Field label="Full Name">
                   <input
-                    defaultValue={staff.name}
-                    disabled
-                    className={`${inputCls} bg-admin-surface text-admin-muted`}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className={inputCls}
                   />
                 </Field>
                 <Field label="Email Address">
@@ -350,41 +462,86 @@ export function StaffDetailsDrawer({
                 )}
               </Card>
             </div>
-          ) : tab === 1 ? (
-            <p className="py-10 text-center text-admin-muted">
-              Batch and program assignments are not tracked per staff member
-              yet.
-            </p>
-          ) : (
+          ) : tab === assignmentsTabIndex ? (
+            <Card title="Batches">
+              {allBatches.length === 0 ? (
+                <p className="py-4 text-center text-sm text-admin-muted">
+                  No batches exist yet in this institute.
+                </p>
+              ) : (
+                <BatchChecklist
+                  batches={allBatches}
+                  selected={assignedBatchIds}
+                  onToggle={(id) =>
+                    setAssignedBatchIds((prev) =>
+                      prev.includes(id)
+                        ? prev.filter((b) => b !== id)
+                        : [...prev, id],
+                    )
+                  }
+                />
+              )}
+              <p className="mt-2 text-xs text-admin-subtle">
+                What this teacher may see across exams, students and results.
+                Save Changes below to apply.
+              </p>
+            </Card>
+          ) : tab === loginTabIndex ? (
             <p className="py-10 text-center text-admin-muted">
               {staff.lastLoginAt
                 ? `Last signed in ${new Date(staff.lastLoginAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}.`
                 : "Has not signed in yet."}
+            </p>
+          ) : null}
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-4 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p className="mt-4 rounded-lg border border-admin/30 bg-admin/5 px-3 py-2 text-sm font-semibold text-admin">
+              {notice}
             </p>
           )}
         </div>
 
         <footer className="flex items-center justify-between border-t border-admin-line/60 bg-white px-8 py-5">
           <div className="flex gap-3">
-            <button
-              disabled
-              title="No staff-status endpoint yet"
-              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-danger/40 bg-white px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30"
-            >
-              Deactivate Staff
-            </button>
-            <button
-              disabled
-              title="No staff-archive endpoint yet"
-              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
-            >
-              Archive
-            </button>
+            {staff.status === "DISABLED" ? (
+              <button
+                onClick={() => void handleReactivate()}
+                disabled={busy}
+                className="rounded-lg border border-admin/40 bg-white px-4 py-2.5 text-sm font-semibold text-admin hover:bg-admin/5 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reactivate Staff
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleDeactivate()}
+                disabled={busy}
+                className="rounded-lg border border-danger/40 bg-white px-4 py-2.5 text-sm font-semibold text-danger hover:bg-danger-soft/30 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Deactivate Staff
+              </button>
+            )}
+            {staff.status === "PENDING" && (
+              <button
+                onClick={() => void handleResendInvite()}
+                disabled={busy}
+                className="rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Resend Invite
+              </button>
+            )}
           </div>
           <button
-            disabled
-            title="No staff-update endpoint yet"
-            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+            onClick={() => void saveChanges()}
+            disabled={busy}
+            className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save Changes
           </button>
@@ -395,6 +552,42 @@ export function StaffDetailsDrawer({
 }
 
 /* ------------------------------- shared ------------------------------- */
+
+function BatchChecklist({
+  batches,
+  selected,
+  onToggle,
+}: {
+  batches: BatchRow[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  if (batches.length === 0) {
+    return (
+      <p className="text-xs text-admin-subtle">
+        No batches exist yet in this institute.
+      </p>
+    );
+  }
+  return (
+    <div className="flex max-h-40 flex-col gap-1 overflow-auto rounded-lg border border-admin-line bg-white p-2">
+      {batches.map((b) => (
+        <label
+          key={b.id}
+          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-admin-ink hover:bg-admin-bg"
+        >
+          <input
+            type="checkbox"
+            checked={selected.includes(b.id)}
+            onChange={() => onToggle(b.id)}
+            className="size-4 accent-admin"
+          />
+          {b.name}
+        </label>
+      ))}
+    </div>
+  );
+}
 
 const inputCls =
   "w-full rounded-lg border border-admin-line bg-white px-3.5 py-3 text-sm text-admin-ink outline-none placeholder:text-admin-subtle focus:border-admin";

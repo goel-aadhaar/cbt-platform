@@ -16,6 +16,7 @@ import { MailService } from './mail/mail.service';
 import { SesMailService } from './mail/ses-mail.service';
 import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
+import { TeacherScopeService } from './tenant/teacher-scope.service';
 import { TenantContextInterceptor } from './tenant/tenant-context.interceptor';
 import { TenantContextService } from './tenant/tenant-context.service';
 
@@ -57,6 +58,7 @@ import { TenantContextService } from './tenant/tenant-context.service';
     PasswordService,
     OtpService,
     TenantContextService,
+    TeacherScopeService,
     ConsoleMailService,
     SesMailService,
     // Mail port (§2.6): SES is selected the moment a verified sender is
@@ -80,6 +82,7 @@ import { TenantContextService } from './tenant/tenant-context.service';
     PasswordService,
     MailService,
     TenantContextService,
+    TeacherScopeService,
     InvitationService,
     JwtModule,
   ],

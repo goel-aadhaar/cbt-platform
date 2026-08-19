@@ -3,15 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
 import type { ComponentType, SVGProps } from "react";
 
 import {
   BellIcon,
-  ChevronDownIcon,
   HelpCircleIcon,
   LogOutIcon,
-  PlusIcon,
   SearchIcon,
   ShieldCheckIcon,
 } from "@/components/admin/icons";
@@ -24,25 +21,17 @@ export interface StaffNavItem {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
-export interface StaffQuickAction {
-  label: string;
-  href: string;
-  hint: string;
-}
-
 /**
  * Shared chrome for every staff console — admin, teacher and superadmin.
  *
  * One component rather than three copies, because the three consoles have to
  * stay visually identical and a copy only stays in step until someone edits it.
- * Everything role-specific arrives as props: the nav, the workspace label and
- * the quick-create menu.
+ * Everything role-specific arrives as props: the nav and the workspace label.
  */
 export function StaffShell({
   title,
   nav,
   workspace,
-  quickActions = [],
   searchPlaceholder = "Search…",
   profileHref,
   children,
@@ -51,7 +40,6 @@ export function StaffShell({
   nav: StaffNavItem[];
   /** Sub-heading under the user's name, e.g. "Institute workspace". */
   workspace: string;
-  quickActions?: StaffQuickAction[];
   searchPlaceholder?: string;
   /** Where this console's profile lives. */
   profileHref: string;
@@ -63,7 +51,6 @@ export function StaffShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <StaffTopbar
           title={title}
-          quickActions={quickActions}
           searchPlaceholder={searchPlaceholder}
           profileHref={profileHref}
         />
@@ -178,27 +165,14 @@ function StaffSidebar({
 
 function StaffTopbar({
   title,
-  quickActions,
   searchPlaceholder,
   profileHref,
 }: {
   title: string;
-  quickActions: StaffQuickAction[];
   searchPlaceholder: string;
   profileHref: string;
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuthUser();
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [menuOpen]);
 
   return (
     <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
@@ -214,45 +188,6 @@ function StaffTopbar({
       </div>
 
       <div className="ml-auto flex items-center gap-3">
-        {quickActions.length > 0 && (
-          <div className="relative" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              className="flex items-center gap-2 rounded-full bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-            >
-              <PlusIcon className="size-4" />
-              Quick Create
-              <ChevronDownIcon className="size-4" />
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-admin-line/60 bg-white py-1 shadow-lg"
-              >
-                {quickActions.map((a) => (
-                  <Link
-                    key={a.href}
-                    href={a.href}
-                    role="menuitem"
-                    onClick={() => setMenuOpen(false)}
-                    className="block px-4 py-2.5 hover:bg-admin-bg"
-                  >
-                    <span className="block text-sm font-semibold text-admin-ink">
-                      {a.label}
-                    </span>
-                    <span className="block text-xs text-admin-muted">
-                      {a.hint}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         <div className="flex items-center gap-1 text-admin-muted">
           <IconButton label={roleLabel(user?.role)}>
             <ShieldCheckIcon className="size-5" />

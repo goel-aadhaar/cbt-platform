@@ -25,6 +25,7 @@ import {
   UserXIcon,
 } from "@/components/admin/icons";
 import { useIsHydrated } from "@/hooks/use-auth";
+import { listBatches, type BatchRow } from "@/lib/admin";
 import { ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import {
@@ -72,6 +73,14 @@ function StudentsPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [batchId, setBatchId] = useState("");
+  const [batches, setBatches] = useState<BatchRow[]>([]);
+
+  useEffect(() => {
+    listBatches()
+      .then(setBatches)
+      .catch(() => undefined);
+  }, []);
 
   // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
@@ -81,7 +90,7 @@ function StudentsPageInner() {
       return;
     }
     let active = true;
-    listStudents({ limit: 200 })
+    listStudents({ limit: 200, batchId: batchId || undefined })
       .then((res) => {
         if (!active) return;
         setRows(res.items);
@@ -105,7 +114,7 @@ function StudentsPageInner() {
     return () => {
       active = false;
     };
-  }, [hydrated, router]);
+  }, [hydrated, router, batchId]);
 
   async function handleDeactivate(row: StudentListItem) {
     if (
@@ -285,7 +294,21 @@ function StudentsPageInner() {
             className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
           />
         </div>
-        <FilterBtn>Batch</FilterBtn>
+        <select
+          value={batchId}
+          onChange={(e) => {
+            setLoading(true);
+            setBatchId(e.target.value);
+          }}
+          className="h-10 rounded-lg border border-admin-line bg-white px-3 text-sm text-admin-ink outline-none focus:border-admin"
+        >
+          <option value="">All batches</option>
+          {batches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
         <FilterBtn>Class</FilterBtn>
         <FilterBtn>Program</FilterBtn>
         <FilterBtn>Status</FilterBtn>

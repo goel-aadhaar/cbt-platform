@@ -84,6 +84,7 @@ model User {
   announcements     Announcement[]
   importRuns        ImportRun[]
   mediaUploaded     Media[]
+  teacherBatches    TeacherBatch[]
 
   @@index([instituteId])
   /// GIN, because staff listings ask "has this role" against an array.

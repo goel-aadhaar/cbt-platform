@@ -25,6 +25,7 @@ model Institute {
   examSections  ExamSection[]
   examQuestions ExamQuestion[]
   examBatches   ExamBatch[]
+  teacherBatches TeacherBatch[]
   attempts         Attempt[]
   practiceSessions PracticeSession[]
   announcements    Announcement[]

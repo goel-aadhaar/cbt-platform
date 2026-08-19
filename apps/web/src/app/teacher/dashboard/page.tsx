@@ -15,6 +15,7 @@ import {
   StatusPill,
 } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
+import { getMyBatches } from "@/lib/admin";
 import { getUserSnapshot } from "@/lib/auth";
 import { examDisplayStatus, listExams, type ExamListItem } from "@/lib/exams";
 import { listQuestions } from "@/lib/questions";
@@ -25,6 +26,7 @@ interface Snapshot {
   questions: number;
   myQuestions: number;
   students: number;
+  batches: { id: string; name: string }[];
 }
 
 export default function TeacherDashboardPage() {
@@ -39,14 +41,16 @@ export default function TeacherDashboardPage() {
       listQuestions({ limit: 1 }),
       listQuestions({ limit: 1, mine: true }),
       listStudents({ limit: 1 }),
+      getMyBatches(),
     ])
-      .then(([exams, all, mine, students]) => {
+      .then(([exams, all, mine, students, batches]) => {
         if (cancelled) return;
         setData({
           exams,
           questions: all.total,
           myQuestions: mine.total,
           students: students.total,
+          batches,
         });
       })
       .catch((e: unknown) => {
@@ -213,6 +217,33 @@ export default function TeacherDashboardPage() {
             ].filter((i) => i.value > 0)}
             empty="Nothing authored yet"
           />
+        </Panel>
+      </div>
+
+      <div className="mt-6">
+        <Panel
+          title="My Batches"
+          subtitle="What you may see across exams, students and results"
+        >
+          {data === null ? (
+            <div className="h-8 w-48 animate-pulse rounded-lg bg-admin-line/15" />
+          ) : data.batches.length === 0 ? (
+            <p className="text-sm text-admin-muted">
+              You have not been assigned to a batch yet — ask an administrator
+              to assign one from the Teachers page.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {data.batches.map((b) => (
+                <span
+                  key={b.id}
+                  className="rounded-full bg-admin-mint/40 px-3 py-1.5 text-sm font-medium text-admin"
+                >
+                  {b.name}
+                </span>
+              ))}
+            </div>
+          )}
         </Panel>
       </div>
     </TeacherShell>

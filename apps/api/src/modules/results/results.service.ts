@@ -16,6 +16,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { toCsv, withBom } from '../../common/csv/to-csv';
 import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
 import {
@@ -60,6 +61,7 @@ export class ResultsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
   ) {}
 
   private instituteId(): string {
@@ -340,11 +342,7 @@ export class ResultsService {
    */
   async listQuestionScoring(examId: string) {
     const instituteId = this.instituteId();
-    const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, instituteId },
-      select: { id: true },
-    });
-    if (!exam) throw new NotFoundException('Exam not found');
+    const { batchIds } = await this.requireExam(examId);
 
     const [rows, attempts] = await Promise.all([
       this.prisma.examQuestion.findMany({
@@ -366,11 +364,15 @@ export class ResultsService {
           },
         },
       }),
+      // Scoped to the caller's batches when TEACHER (§ batch-scoped teacher
+      // access) — hit rate must never implicitly include another batch's
+      // candidates, even anonymized.
       this.prisma.attempt.findMany({
         where: {
           examId,
           instituteId,
           status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] },
+          ...(batchIds && { student: { batchId: { in: batchIds } } }),
         },
         select: { responses: { select: { questionId: true, answer: true } } },
       }),
@@ -527,9 +529,13 @@ export class ResultsService {
   }
 
   async listForExam(examId: string) {
-    await this.requireExam(examId);
+    const { batchIds } = await this.requireExam(examId);
     return this.prisma.result.findMany({
-      where: { examId, instituteId: this.instituteId() },
+      where: {
+        examId,
+        instituteId: this.instituteId(),
+        ...(batchIds && { batchId: { in: batchIds } }),
+      },
       orderBy: { overallRank: 'asc' },
       select: {
         id: true,
@@ -556,14 +562,14 @@ export class ResultsService {
    */
   private async buildResultSheet(examId: string) {
     const instituteId = this.instituteId();
-    const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, instituteId },
-      select: { title: true },
-    });
-    if (!exam) throw new NotFoundException('Exam not found');
+    const { title, batchIds } = await this.requireExam(examId);
 
     const results = await this.prisma.result.findMany({
-      where: { examId, instituteId },
+      where: {
+        examId,
+        instituteId,
+        ...(batchIds && { batchId: { in: batchIds } }),
+      },
       orderBy: [{ overallRank: 'asc' }, { totalScore: 'desc' }],
       select: {
         overallRank: true,
@@ -617,11 +623,11 @@ export class ResultsService {
     ]);
 
     const slug =
-      exam.title
+      title
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'exam';
-    return { title: exam.title, slug, headers, rows };
+    return { title, slug, headers, rows };
   }
 
   /** Ranked result sheet as CSV (§2.14). */
@@ -928,12 +934,33 @@ export class ResultsService {
     };
   }
 
-  private async requireExam(examId: string) {
+  /**
+   * Confirms the exam exists AND is visible to the caller, returning the
+   * batch scope so callers don't re-derive it: a TEACHER may see an exam they
+   * authored, or one assigned to at least one of their batches (mirrors
+   * ExamsService.visibilityWhere — kept local rather than shared to avoid a
+   * cross-module dependency for one identical OR-clause).
+   */
+  private async requireExam(
+    examId: string,
+  ): Promise<{ id: string; title: string; batchIds: string[] | null }> {
+    const ctx = this.tenant.get();
+    const instituteId = this.instituteId();
+    const batchIds = await this.teacherScope.myBatchIds();
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, instituteId: this.instituteId() },
-      select: { id: true },
+      where: {
+        id: examId,
+        instituteId,
+        ...(batchIds && {
+          OR: [
+            { createdById: ctx?.userId },
+            { batches: { some: { batchId: { in: batchIds } } } },
+          ],
+        }),
+      },
+      select: { id: true, title: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
-    return exam;
+    return { id: exam.id, title: exam.title, batchIds };
   }
 }

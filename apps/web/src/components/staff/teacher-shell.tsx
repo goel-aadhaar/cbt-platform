@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ActivityIcon,
   BarChartIcon,
   ClipboardIcon,
   DatabaseIcon,
@@ -14,8 +15,10 @@ import { StaffShell, type StaffNavItem } from "./staff-shell";
 
 /**
  * Teacher nav. Deliberately shorter than the admin's: a teacher authors and
- * reports, so anything they cannot act on (imports, staff, live monitoring,
- * publishing) is absent rather than present-and-refused.
+ * reports, so anything they cannot act on (imports, staff, publishing) is
+ * absent rather than present-and-refused. Live Monitoring IS present — a
+ * teacher may invigilate their own assigned batches (§ batch-scoped teacher
+ * access), just not the whole institute's.
  */
 const NAV: StaffNavItem[] = [
   { label: "Dashboard", href: "/teacher/dashboard", icon: GridIcon },
@@ -23,6 +26,11 @@ const NAV: StaffNavItem[] = [
   { label: "My Exams", href: "/teacher/exams", icon: ClipboardIcon },
   { label: "Student Reports", href: "/teacher/reports", icon: BarChartIcon },
   { label: "Students", href: "/teacher/students", icon: UsersIcon },
+  {
+    label: "Live Monitoring",
+    href: "/teacher/monitoring",
+    icon: ActivityIcon,
+  },
   { label: "My Profile", href: "/teacher/profile", icon: UserIcon },
 ];
 
@@ -54,18 +62,6 @@ export function TeacherShell({
       profileHref="/teacher/profile"
       workspace="Teacher workspace"
       searchPlaceholder="Search questions, exams…"
-      quickActions={[
-        {
-          label: "New question",
-          href: "/teacher/questions?new=1",
-          hint: "Add to the question bank",
-        },
-        {
-          label: "New exam",
-          href: "/teacher/exams?new=1",
-          hint: "Build a paper and send for approval",
-        },
-      ]}
     >
       {children}
     </StaffShell>

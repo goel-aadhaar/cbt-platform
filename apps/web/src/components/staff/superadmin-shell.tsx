@@ -44,13 +44,6 @@ export function SuperadminShell({
       profileHref="/superadmin/profile"
       workspace="Platform owner"
       searchPlaceholder="Search institutes…"
-      quickActions={[
-        {
-          label: "New institute",
-          href: "/superadmin/tenants?new=1",
-          hint: "Add a tenant",
-        },
-      ]}
     >
       {children}
     </StaffShell>

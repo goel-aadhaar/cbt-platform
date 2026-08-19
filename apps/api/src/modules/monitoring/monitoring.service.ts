@@ -6,6 +6,7 @@ import {
 
 import { ResponseStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { MonitorQueryDto } from './dto/monitor-query.dto';
 
@@ -20,6 +21,7 @@ export class MonitoringService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
   ) {}
 
   private instituteId(): string {
@@ -31,9 +33,20 @@ export class MonitoringService {
   }
 
   async getExamMonitor(examId: string, query: MonitorQueryDto) {
+    const ctx = this.tenant.get();
     const instituteId = this.instituteId();
+    const scope = await this.teacherScope.myBatchIds();
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, instituteId },
+      where: {
+        id: examId,
+        instituteId,
+        ...(scope && {
+          OR: [
+            { createdById: ctx?.userId },
+            { batches: { some: { batchId: { in: scope } } } },
+          ],
+        }),
+      },
       select: {
         id: true,
         title: true,
@@ -48,14 +61,16 @@ export class MonitoringService {
       where: { examId },
     });
 
-    // Candidates = every student in the exam's assigned batches.
+    // Candidates = every student in the exam's assigned batches, further
+    // narrowed to the caller's own batches when acting as TEACHER.
     const examBatches = await this.prisma.examBatch.findMany({
       where: { examId, instituteId },
       select: { batchId: true },
     });
     const batchIds = examBatches
       .map((b) => b.batchId)
-      .filter((id) => !query.batchId || id === query.batchId);
+      .filter((id) => !query.batchId || id === query.batchId)
+      .filter((id) => scope === null || scope.includes(id));
 
     const students = batchIds.length
       ? await this.prisma.student.findMany({

@@ -19,7 +19,7 @@ import {
   GridIcon,
   LayersIcon,
   LogOutIcon,
-  TemplateIcon,
+  ShieldCheckIcon,
   UploadIcon,
   UserIcon,
   UsersIcon,
@@ -41,11 +41,6 @@ const NAV: NavItem[] = [
   },
   { label: "Students", href: "/admin/students", icon: UsersIcon },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
-  {
-    label: "Exam Categories",
-    href: "/admin/exam-categories",
-    icon: TemplateIcon,
-  },
   { label: "Question Bank", href: "/admin/questions", icon: DatabaseIcon },
   { label: "Results", href: "/admin/results", icon: BarChartIcon },
   { label: "Reports", href: "/admin/reports", icon: FileTextIcon },
@@ -53,6 +48,11 @@ const NAV: NavItem[] = [
   { label: "Announcements", href: "/admin/announcements", icon: BellIcon },
   { label: "Imports", href: "/admin/imports", icon: UploadIcon },
   { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
+  {
+    label: "Administrators",
+    href: "/admin/administrators",
+    icon: ShieldCheckIcon,
+  },
   { label: "My Profile", href: "/admin/profile", icon: UserIcon },
 ];
 

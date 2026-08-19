@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsEmail,
   IsOptional,
   IsString,
@@ -27,7 +28,11 @@ export class InviteAdminDto {
   instituteId?: string;
 }
 
-/** Admin invites a teacher (into the admin's own institute). */
+/**
+ * Admin invites a teacher (into the admin's own institute). `batchIds` is
+ * optional — a teacher can be invited with no assignment yet and given one
+ * later via `PUT /staff/:id/batches`.
+ */
 export class InviteTeacherDto {
   @IsString()
   @MinLength(2)
@@ -35,6 +40,11 @@ export class InviteTeacherDto {
 
   @IsEmail()
   email: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  batchIds?: string[];
 }
 
 /**

@@ -7,6 +7,7 @@ import {
 import { AttemptStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { isCorrect } from '../results/scoring';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 
 interface SectionScore {
@@ -30,6 +31,7 @@ export class AnalyticsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
   ) {}
 
   private instituteId(): string {
@@ -40,17 +42,32 @@ export class AnalyticsService {
     return id;
   }
 
-  /** Aggregate analytics for an exam (admin). */
+  /** Aggregate analytics for an exam (admin, or a teacher for their batches). */
   async getExamAnalytics(examId: string) {
+    const ctx = this.tenant.get();
     const instituteId = this.instituteId();
+    const batchIds = await this.teacherScope.myBatchIds();
     const exam = await this.prisma.exam.findFirst({
-      where: { id: examId, instituteId },
+      where: {
+        id: examId,
+        instituteId,
+        ...(batchIds && {
+          OR: [
+            { createdById: ctx?.userId },
+            { batches: { some: { batchId: { in: batchIds } } } },
+          ],
+        }),
+      },
       select: { id: true, title: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
 
     const results = await this.prisma.result.findMany({
-      where: { examId, instituteId },
+      where: {
+        examId,
+        instituteId,
+        ...(batchIds && { batchId: { in: batchIds } }),
+      },
       select: {
         totalScore: true,
         maxScore: true,
@@ -124,12 +141,16 @@ export class AnalyticsService {
       percentileAverage: n ? round(percentileSum / n) : 0,
       distribution,
       sections,
-      questions: await this.itemAnalysis(examId, instituteId),
+      questions: await this.itemAnalysis(examId, instituteId, batchIds),
     };
   }
 
   /** Per-question correctness across all evaluated attempts (item analysis). */
-  private async itemAnalysis(examId: string, instituteId: string) {
+  private async itemAnalysis(
+    examId: string,
+    instituteId: string,
+    batchIds: string[] | null,
+  ) {
     const exam = await this.prisma.exam.findFirst({
       where: { id: examId, instituteId },
       select: {
@@ -158,6 +179,7 @@ export class AnalyticsService {
         status: {
           in: [AttemptStatus.SUBMITTED, AttemptStatus.AUTO_SUBMITTED],
         },
+        ...(batchIds && { student: { batchId: { in: batchIds } } }),
       },
       select: { responses: { select: { questionId: true, answer: true } } },
     });
@@ -189,11 +211,17 @@ export class AnalyticsService {
     });
   }
 
-  /** A student's exam history (admin) — held and published results. */
+  /** A student's exam history (admin, or a teacher for their own batches) —
+   * held and published results. */
   async getStudentHistory(studentId: string) {
     const instituteId = this.instituteId();
+    const batchIds = await this.teacherScope.myBatchIds();
     const student = await this.prisma.student.findFirst({
-      where: { id: studentId, instituteId },
+      where: {
+        id: studentId,
+        instituteId,
+        ...(batchIds && { batchId: { in: batchIds } }),
+      },
       select: {
         id: true,
         rollNumber: true,

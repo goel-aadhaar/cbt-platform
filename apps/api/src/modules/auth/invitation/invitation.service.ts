@@ -48,6 +48,7 @@ interface CreateInvitationParams {
   instituteName: string;
   invitedById: string;
   student?: { rollNumber: string; batchId: string };
+  teacherBatchIds?: string[];
 }
 
 @Injectable()
@@ -99,9 +100,21 @@ export class InvitationService {
   async inviteTeacher(
     inviterInstituteId: string | null,
     invitedById: string,
-    params: { name: string; email: string },
+    params: { name: string; email: string; batchIds?: string[] },
   ): Promise<InvitedUser> {
     const institute = await this.requireInstitute(inviterInstituteId);
+
+    if (params.batchIds?.length) {
+      const found = await this.prisma.batch.count({
+        where: { id: { in: params.batchIds }, instituteId: institute.id },
+      });
+      if (found !== params.batchIds.length) {
+        throw new BadRequestException(
+          'One or more batches were not found in your institute',
+        );
+      }
+    }
+
     return this.createInvitation({
       name: params.name,
       email: params.email,
@@ -109,6 +122,7 @@ export class InvitationService {
       instituteId: institute.id,
       instituteName: institute.name,
       invitedById,
+      teacherBatchIds: params.batchIds,
     });
   }
 
@@ -358,6 +372,21 @@ export class InvitationService {
             rollNumber: params.student.rollNumber,
           },
         });
+      }
+      if (params.teacherBatchIds) {
+        // Clear-then-create rather than a diff: keeps a resurrected invite
+        // (same email, lapsed PENDING invite reusing `existing.id`) idempotent
+        // even if it carries a different batch set than the stale invite did.
+        await tx.teacherBatch.deleteMany({ where: { teacherId: created.id } });
+        if (params.teacherBatchIds.length) {
+          await tx.teacherBatch.createMany({
+            data: params.teacherBatchIds.map((batchId) => ({
+              teacherId: created.id,
+              batchId,
+              instituteId: params.instituteId,
+            })),
+          });
+        }
       }
       return created;
     });

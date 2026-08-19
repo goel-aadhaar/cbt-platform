@@ -10,11 +10,11 @@ import { StaffRosterView } from "@/components/admin/staff-roster-view";
  * Create menu) forces a client bail-out, which Next requires to sit behind a
  * Suspense boundary or the production prerender of this route fails.
  */
-export default function TeachersPage() {
+export default function AdministratorsPage() {
   return (
-    <AdminShell title="Teachers">
+    <AdminShell title="Administrators">
       <Suspense fallback={null}>
-        <StaffRosterView role="TEACHER" />
+        <StaffRosterView role="ADMIN" />
       </Suspense>
     </AdminShell>
   );

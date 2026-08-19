@@ -21,11 +21,12 @@ export interface Paginated<T> {
 
 /** GET /students — admin-only, tenant-scoped roster (paginated). */
 export function listStudents(
-  params: { limit?: number; offset?: number } = {},
+  params: { limit?: number; offset?: number; batchId?: string } = {},
 ): Promise<Paginated<StudentListItem>> {
   const q = new URLSearchParams();
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
+  if (params.batchId) q.set("batchId", params.batchId);
   const qs = q.toString();
   return apiFetch<Paginated<StudentListItem>>(
     `/students${qs ? `?${qs}` : ""}`,

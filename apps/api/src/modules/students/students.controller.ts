@@ -4,6 +4,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -95,11 +97,13 @@ export class StudentsController {
   }
 
   @Post(':id/reactivate')
+  @HttpCode(HttpStatus.OK)
   reactivate(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.reactivate(id);
   }
 
   @Post(':id/resend-invite')
+  @HttpCode(HttpStatus.OK)
   resendInvite(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.resendInvite(id);
   }

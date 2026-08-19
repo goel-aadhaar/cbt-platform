@@ -527,10 +527,14 @@ export function inviteStudent(body: {
   return apiFetch(`/invitations/student`, { method: "POST", body, ...auth() });
 }
 
-/** POST /invitations/teacher — ADMIN. */
+/**
+ * POST /invitations/teacher — ADMIN. `batchIds` is optional — a teacher can
+ * be invited unassigned and given batches later via `setStaffBatches`.
+ */
 export function inviteTeacher(body: {
   name: string;
   email: string;
+  batchIds?: string[];
 }): Promise<{ id?: string; email?: string } & Record<string, unknown>> {
   return apiFetch(`/invitations/teacher`, { method: "POST", body, ...auth() });
 }
@@ -560,6 +564,9 @@ export interface StaffRow {
   joinedAt: string;
   /** Derived from the subjects this teacher authors questions in. */
   subjects: string[];
+  /** Batches this teacher may see (§ batch-scoped teacher access). Always
+   * empty for an ADMIN row — admins are never batch-restricted. */
+  batches: { id: string; name: string }[];
   questionsAuthored: number;
   examsAuthored: number;
   lastLoginAt: string | null;
@@ -571,6 +578,8 @@ export function listStaff(
     role?: "ADMIN" | "TEACHER";
     status?: StaffRow["status"];
     search?: string;
+    /** Restrict to teachers assigned to this batch. Meaningless for ADMIN. */
+    batchId?: string;
     limit?: number;
   } = {},
 ): Promise<{
@@ -583,8 +592,67 @@ export function listStaff(
   if (q.role) params.set("role", q.role);
   if (q.status) params.set("status", q.status);
   if (q.search) params.set("search", q.search);
+  if (q.batchId) params.set("batchId", q.batchId);
   params.set("limit", String(q.limit ?? 200));
   return apiFetch(`/staff?${params}`, auth());
+}
+
+/** GET /staff/:id — ADMIN. */
+export function fetchStaff(id: string): Promise<StaffRow> {
+  return apiFetch(`/staff/${id}`, auth());
+}
+
+/** PATCH /staff/:id — ADMIN. */
+export function updateStaff(
+  id: string,
+  body: { name?: string },
+): Promise<StaffRow> {
+  return apiFetch(`/staff/${id}`, { method: "PATCH", body, ...auth() });
+}
+
+/** DELETE /staff/:id — ADMIN. Archives the account (sets it DISABLED). */
+export function deactivateStaff(id: string): Promise<StaffRow> {
+  return apiFetch(`/staff/${id}`, { method: "DELETE", ...auth() });
+}
+
+/** POST /staff/:id/reactivate — ADMIN. Undoes a deactivation. */
+export function reactivateStaff(id: string): Promise<StaffRow> {
+  return apiFetch(`/staff/${id}/reactivate`, { method: "POST", ...auth() });
+}
+
+/** POST /staff/:id/resend-invite — ADMIN. Re-sends a still-pending invite. */
+export function resendStaffInvite(id: string): Promise<StaffRow> {
+  return apiFetch(`/staff/${id}/resend-invite`, {
+    method: "POST",
+    ...auth(),
+  });
+}
+
+/** GET /staff/:id/batches — ADMIN. One teacher's current assignment. */
+export function getStaffBatches(
+  id: string,
+): Promise<{ id: string; name: string }[]> {
+  return apiFetch(`/staff/${id}/batches`, auth());
+}
+
+/**
+ * PUT /staff/:id/batches — ADMIN. Full-replace: `batchIds` becomes the
+ * teacher's complete assignment.
+ */
+export function setStaffBatches(
+  id: string,
+  batchIds: string[],
+): Promise<{ id: string; name: string }[]> {
+  return apiFetch(`/staff/${id}/batches`, {
+    method: "PUT",
+    body: { batchIds },
+    ...auth(),
+  });
+}
+
+/** GET /staff/me/batches — TEACHER. The caller's own assignment. */
+export function getMyBatches(): Promise<{ id: string; name: string }[]> {
+  return apiFetch(`/staff/me/batches`, auth());
 }
 
 /* ------------------------------------------------------------------ *

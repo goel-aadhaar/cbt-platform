@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  Min,
+} from 'class-validator';
 
 import { Role, UserStatus } from '../../../generated/prisma/enums';
 
@@ -19,6 +27,11 @@ export class QueryStaffDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  /** Restrict to teachers assigned to this batch. Meaningless for role=ADMIN. */
+  @IsOptional()
+  @IsUUID()
+  batchId?: string;
 
   @IsOptional()
   @Type(() => Number)

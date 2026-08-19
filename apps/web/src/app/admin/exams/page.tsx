@@ -13,7 +13,6 @@ import {
   FileTextIcon,
   PlusCircleIcon,
   RadioIcon,
-  TemplateIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { approveExam, rejectExam, startExamNow } from "@/lib/admin";
@@ -114,7 +113,6 @@ export default function ExamsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <OutlineBtn icon={TemplateIcon}>Exam Templates</OutlineBtn>
             <OutlineBtn icon={CalendarIcon}>Exam Calendar</OutlineBtn>
             {/* Authoring is a teacher's job (§2.3) — an administrator who
                 wrote the paper would be approving their own work. The link
@@ -129,7 +127,7 @@ export default function ExamsPage() {
         </div>
 
         {/* Stat cards (live counts) */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <ExamStat
             icon={FileTextIcon}
             tint="bg-admin-surface text-admin-muted"

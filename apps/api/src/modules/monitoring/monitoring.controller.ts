@@ -8,7 +8,7 @@ import { MonitoringService } from './monitoring.service';
 
 @ApiTags('monitoring')
 @ApiBearerAuth()
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.TEACHER)
 @Controller({ path: 'exams', version: '1' })
 export class MonitoringController {
   constructor(private readonly monitoring: MonitoringService) {}

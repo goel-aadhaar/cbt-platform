@@ -8,6 +8,8 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '../auth/auth.types';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamCategoriesService } from '../exam-categories/exam-categories.service';
 import { CreateExamDto } from './dto/create-exam.dto';
@@ -91,6 +93,7 @@ export class ExamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
     private readonly categories: ExamCategoriesService,
   ) {}
 
@@ -100,6 +103,25 @@ export class ExamsService {
       throw new ForbiddenException('No institute in the current context');
     }
     return { userId: ctx.userId, instituteId: ctx.instituteId };
+  }
+
+  /**
+   * Read-visibility filter (§ batch-scoped teacher access): a TEACHER sees an
+   * exam they authored, or one assigned to at least one of their batches. An
+   * ADMIN/SUPERADMIN session is unrestricted (`myBatchIds()` returns null).
+   */
+  private async visibilityWhere(): Promise<Prisma.ExamWhereInput> {
+    const { userId, instituteId } = this.ctx();
+    const batchIds = await this.teacherScope.myBatchIds();
+    return {
+      instituteId,
+      ...(batchIds && {
+        OR: [
+          { createdById: userId },
+          { batches: { some: { batchId: { in: batchIds } } } },
+        ],
+      }),
+    };
   }
 
   async create(dto: CreateExamDto) {
@@ -140,9 +162,9 @@ export class ExamsService {
     });
   }
 
-  findAll() {
+  async findAll() {
     return this.prisma.exam.findMany({
-      where: { instituteId: this.ctx().instituteId },
+      where: await this.visibilityWhere(),
       orderBy: { createdAt: 'desc' },
       select: {
         ...examSelect,
@@ -153,7 +175,7 @@ export class ExamsService {
 
   async findOne(id: string) {
     const exam = await this.prisma.exam.findFirst({
-      where: { id, instituteId: this.ctx().instituteId },
+      where: { id, ...(await this.visibilityWhere()) },
       select: examDetailSelect,
     });
     if (!exam) throw new NotFoundException('Exam not found');
@@ -412,11 +434,19 @@ export class ExamsService {
    * The paper must actually be assembled — an empty shell wastes a review pass.
    */
   async submitForReview(examId: string, reviewerId: string) {
-    const { instituteId } = this.ctx();
+    const ctx = this.ctx();
+    const { instituteId } = ctx;
+    // A teacher may only submit their OWN draft — this repo has no other
+    // check preventing one teacher from touching another's work-in-progress.
+    const isTeacher = this.tenant.get()?.role === Role.TEACHER;
 
     const [exam, reviewer] = await Promise.all([
       this.prisma.exam.findFirst({
-        where: { id: examId, instituteId },
+        where: {
+          id: examId,
+          instituteId,
+          ...(isTeacher ? { createdById: ctx.userId } : {}),
+        },
         select: {
           id: true,
           status: true,
@@ -633,9 +663,23 @@ export class ExamsService {
     });
   }
 
+  /**
+   * Mutation-side ownership check. Deliberately NARROWER than
+   * `visibilityWhere()` (which also admits batch-assigned exams a teacher
+   * didn't author) — every route this backs (`update`/`addSection`/
+   * `addQuestion` via `getDraft`; `assignBatch`/`schedule`/etc. via a
+   * TEACHER-unreachable ADMIN-only route) is a WRITE, so a teacher may only
+   * ever reach their own exam here, never a colleague's.
+   */
   private async getOwned(id: string) {
+    const ctx = this.ctx();
+    const isTeacher = this.tenant.get()?.role === Role.TEACHER;
     const exam = await this.prisma.exam.findFirst({
-      where: { id, instituteId: this.ctx().instituteId },
+      where: {
+        id,
+        instituteId: ctx.instituteId,
+        ...(isTeacher ? { createdById: ctx.userId } : {}),
+      },
     });
     if (!exam) throw new NotFoundException('Exam not found');
     return exam;
