@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { AuthedImage } from "@/components/authed-image";
 import { AuthGate } from "@/components/auth-gate";
 import { ExamSidebar } from "@/components/exam/exam-sidebar";
 import {
@@ -42,7 +43,6 @@ import {
   type AttemptState,
 } from "@/lib/student";
 import { formatDuration } from "@/lib/exam-data";
-import { mediaSrc } from "@/lib/media";
 
 // keep the type alias around for the existing sidebar import
 import type { QuestionStatus, Subject } from "@/lib/exam-data";
@@ -673,10 +673,9 @@ function ExamRunner({
               {q.media.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3">
                   {q.media.map((m) => (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
+                    <AuthedImage
                       key={m.key}
-                      src={mediaSrc(m.url)}
+                      url={m.url}
                       alt="Question diagram"
                       className="max-h-80 max-w-full rounded border border-line bg-white object-contain"
                     />

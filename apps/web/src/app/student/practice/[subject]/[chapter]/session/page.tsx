@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
+import { AuthedImage } from "@/components/authed-image";
 import { StudentShell, type Crumb } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
@@ -13,7 +14,6 @@ import {
   XCircleIcon,
 } from "@/components/student/icons";
 import { ProgressBar } from "@/components/student/practice-bits";
-import { mediaSrc } from "@/lib/media";
 import { usePracticeFacets } from "@/hooks/use-practice";
 import {
   answerInSession,
@@ -304,10 +304,9 @@ function PracticeSessionInner() {
           {(q.media ?? []).length > 0 && (
             <div className="mt-4 flex flex-wrap gap-3">
               {(q.media ?? []).map((m) => (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
+                <AuthedImage
                   key={m.key}
-                  src={mediaSrc(m.url)}
+                  url={m.url}
                   alt="Question diagram"
                   className="max-h-72 max-w-full rounded-lg border border-admin-line/60 bg-white object-contain"
                 />

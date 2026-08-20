@@ -40,6 +40,7 @@ export interface ExamDetail {
   instructions: string | null;
   status: string;
   durationMinutes: number;
+  passingMarks: number | null;
   resultPolicy: string;
   programId: string | null;
   category: { id: string; name: string } | null;
@@ -66,6 +67,9 @@ export interface ExamDetail {
         type: string;
         statement: string;
         marks: number;
+        difficulty: "EASY" | "MEDIUM" | "HARD";
+        topicId: string | null;
+        mediaKeys: string[];
       };
     }[];
   }[];
@@ -367,11 +371,17 @@ export function scheduleExam(
 export interface CreateExamInput {
   title: string;
   durationMinutes: number;
+  /** Minimum total marks to pass, shown on results. Omit for no pass/fail line. */
+  passingMarks?: number;
   instructions?: string;
   calculatorEnabled?: boolean;
   fullscreenRequired?: boolean;
   maxViolations?: number;
   programId?: string;
+  /** The catalogue entry this paper belongs to (§2.3) — was already sent by
+   * every caller via a conditional spread, which TS's excess-property check
+   * doesn't see through; declaring it here just makes that honest. */
+  categoryId?: string;
   resultPolicy?: "IMMEDIATE" | "ON_PUBLISH" | "BATCH_WISE";
 }
 
@@ -380,6 +390,22 @@ export function createExam(
   body: CreateExamInput,
 ): Promise<{ id: string; title: string; status: string }> {
   return apiFetch(`/exams`, { method: "POST", body, ...auth() });
+}
+
+/**
+ * POST /exams/:id/clone — TEACHER only (authoring is the teacher's job, same
+ * as create). Copies config, sections and question layout into a fresh
+ * DRAFT; batches, schedule and publish state are not carried over.
+ */
+export function cloneExam(
+  examId: string,
+  title?: string,
+): Promise<{ id: string; title: string; status: string }> {
+  return apiFetch(`/exams/${examId}/clone`, {
+    method: "POST",
+    body: title ? { title } : {},
+    ...auth(),
+  });
 }
 
 /** POST /exams/:id/sections */

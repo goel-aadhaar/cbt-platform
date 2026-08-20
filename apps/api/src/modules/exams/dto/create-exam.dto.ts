@@ -20,6 +20,12 @@ export class CreateExamDto {
   @Min(1)
   durationMinutes: number;
 
+  /** Minimum total marks to pass, shown on results. Omit for no pass/fail line. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  passingMarks?: number;
+
   @IsOptional()
   @IsString()
   instructions?: string;

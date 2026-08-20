@@ -6,16 +6,21 @@ import type { ComponentType, SVGProps } from "react";
 import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { ExamCalendarModal } from "@/components/admin/exam-calendar-modal";
 import { ExamReviewDrawer } from "@/components/admin/exam-review-drawer";
 import { ExamScheduleModal } from "@/components/admin/exam-schedule-modal";
+import { ExamStatusPill } from "@/components/admin/exam-status-pill";
 import {
   AlertTriangleIcon,
   CalendarIcon,
   CheckCircleIcon,
+  ClipboardIcon,
   FileTextIcon,
   PlusCircleIcon,
   RadioIcon,
 } from "@/components/admin/icons";
+import { InstructionTemplatesModal } from "@/components/admin/instruction-templates-modal";
+import { RejectExamModal } from "@/components/admin/reject-exam-modal";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { approveExam, rejectExam } from "@/lib/admin";
 import {
@@ -46,31 +51,46 @@ export default function ExamsPage() {
   const [tab, setTab] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [scheduling, setScheduling] = useState<{
     id: string;
     title: string;
     status: "APPROVED" | "PUBLISHED";
   } | null>(null);
 
-  /** Run an approval-workflow transition, then re-read the list. */
-  async function runAction(action: "approve" | "reject", exam: ExamListItem) {
+  /** Approve straight from the list — no confirmation here (unlike the
+   * review workspace's), since the admin is acting on a row they can already see. */
+  async function approveFromList(exam: ExamListItem) {
     setBusy(exam.id);
     setNotice(null);
     try {
-      if (action === "approve") {
-        await approveExam(exam.id);
-        setNotice(`"${exam.title}" approved — it is now a qualified test.`);
-      } else {
-        const reason = window.prompt(
-          `Send "${exam.title}" back to ${exam.createdBy?.name ?? "its author"}. Reason (optional):`,
-        );
-        if (reason === null) return; // cancelled
-        await rejectExam(exam.id, reason || undefined);
-        setNotice(`"${exam.title}" sent back to the author.`);
-      }
+      await approveExam(exam.id);
+      setNotice(`"${exam.title}" approved — it is now a qualified test.`);
       setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const [rejectingExam, setRejectingExam] = useState<ExamListItem | null>(null);
+  const [rejectError, setRejectError] = useState<string | null>(null);
+
+  async function rejectFromList(
+    exam: ExamListItem,
+    reason: string | undefined,
+  ) {
+    setBusy(exam.id);
+    setRejectError(null);
+    try {
+      await rejectExam(exam.id, reason);
+      setRejectingExam(null);
+      setNotice(`"${exam.title}" sent back to the author.`);
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (err) {
+      setRejectError(err instanceof Error ? err.message : "Action failed.");
     } finally {
       setBusy(null);
     }
@@ -113,7 +133,18 @@ export default function ExamsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <OutlineBtn icon={CalendarIcon}>Exam Calendar</OutlineBtn>
+            <OutlineBtn
+              icon={ClipboardIcon}
+              onClick={() => setTemplatesOpen(true)}
+            >
+              Instruction Templates
+            </OutlineBtn>
+            <OutlineBtn
+              icon={CalendarIcon}
+              onClick={() => setCalendarOpen(true)}
+            >
+              Exam Calendar
+            </OutlineBtn>
             {/* Authoring is a teacher's job (§2.3) — an administrator who
                 wrote the paper would be approving their own work. The link
                 leads to the catalogue that names every paper instead. */}
@@ -230,7 +261,8 @@ export default function ExamsPage() {
                         e={e}
                         s={s}
                         busy={busy !== null}
-                        onAction={runAction}
+                        onApprove={() => void approveFromList(e)}
+                        onReject={() => setRejectingExam(e)}
                         onOpen={() => setReviewingId(e.id)}
                         onSchedule={(status) =>
                           setScheduling({ id: e.id, title: e.title, status })
@@ -289,6 +321,19 @@ export default function ExamsPage() {
         </div>
       </div>
 
+      <InstructionTemplatesModal
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+      />
+      <ExamCalendarModal
+        open={calendarOpen}
+        onClose={() => setCalendarOpen(false)}
+        exams={exams}
+        onOpenExam={(examId) => {
+          setCalendarOpen(false);
+          setReviewingId(examId);
+        }}
+      />
       <ExamReviewDrawer
         key={reviewingId ?? "none"}
         open={reviewingId !== null}
@@ -319,6 +364,16 @@ export default function ExamsPage() {
           setTimeout(() => window.location.reload(), 1000);
         }}
       />
+      {rejectingExam && (
+        <RejectExamModal
+          examTitle={rejectingExam.title}
+          authorName={rejectingExam.createdBy?.name ?? "its author"}
+          busy={busy !== null}
+          error={rejectError}
+          onCancel={() => setRejectingExam(null)}
+          onConfirm={(reason) => void rejectFromList(rejectingExam, reason)}
+        />
+      )}
     </AdminShell>
   );
 }
@@ -327,14 +382,16 @@ function ExamRow({
   e,
   s,
   busy,
-  onAction,
+  onApprove,
+  onReject,
   onOpen,
   onSchedule,
 }: {
   e: ExamListItem;
   s: ExamDisplayStatus;
   busy: boolean;
-  onAction: (a: "approve" | "reject", e: ExamListItem) => void;
+  onApprove: () => void;
+  onReject: () => void;
   onOpen: () => void;
   onSchedule: (status: "APPROVED" | "PUBLISHED") => void;
 }) {
@@ -388,14 +445,14 @@ function ExamRow({
             <>
               <button
                 disabled={busy}
-                onClick={() => onAction("reject", e)}
+                onClick={onReject}
                 className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-danger hover:bg-danger-soft/30 disabled:opacity-50"
               >
                 Reject
               </button>
               <button
                 disabled={busy}
-                onClick={() => onAction("approve", e)}
+                onClick={onApprove}
                 className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-50"
               >
                 Approve
@@ -423,30 +480,6 @@ function ExamRow({
         </div>
       </td>
     </tr>
-  );
-}
-
-function ExamStatusPill({ status }: { status: ExamDisplayStatus }) {
-  const map: Record<ExamDisplayStatus, string> = {
-    LIVE: "bg-danger/10 text-danger",
-    SCHEDULED: "bg-[#e7edff] text-[#3d5afe]",
-    DRAFT: "bg-admin-surface text-admin-muted",
-    REVIEW: "bg-warn/15 text-warn",
-    APPROVED: "bg-admin/10 text-admin",
-    COMPLETED: "bg-admin-mint/50 text-admin",
-    PUBLISHED: "bg-admin-mint/50 text-admin",
-    ARCHIVED: "bg-admin-surface text-admin-muted",
-  };
-  const label = status === "APPROVED" ? "QUALIFIED" : status;
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${map[status]}`}
-    >
-      {status === "LIVE" && (
-        <span className="size-1.5 rounded-full bg-danger" />
-      )}
-      {label}
-    </span>
   );
 }
 
@@ -490,12 +523,17 @@ function ExamStat({
 function OutlineBtn({
   icon: Icon,
   children,
+  onClick,
 }: {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
   children: React.ReactNode;
+  onClick?: () => void;
 }) {
   return (
-    <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg">
+    <button
+      onClick={onClick}
+      className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+    >
       <Icon className="size-4 text-admin-muted" />
       {children}
     </button>

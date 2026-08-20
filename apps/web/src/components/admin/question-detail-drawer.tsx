@@ -10,8 +10,9 @@ import {
   type QuestionDetail,
 } from "@/lib/questions";
 
-import { CheckCircleIcon, PlusIcon, XIcon } from "./icons";
+import { PlusIcon, XIcon } from "./icons";
 import { MediaPicker } from "./media-picker";
+import { QuestionPreview } from "./question-preview";
 
 const STATUS_LABEL: Record<QuestionDetail["status"], string> = {
   DRAFT: "Draft",
@@ -26,15 +27,6 @@ const STATUS_TONE: Record<QuestionDetail["status"], string> = {
   APPROVED: "bg-admin-mint/50 text-admin",
   ARCHIVED: "bg-admin-surface text-admin-muted",
 };
-
-/** Which of an INTEGER/MCQ/MSQ answerKey a given option key matches. */
-function isCorrectOption(
-  answerKey: QuestionDetail["answerKey"],
-  optionKey: string,
-): boolean {
-  if (Array.isArray(answerKey)) return answerKey.includes(optionKey);
-  return String(answerKey) === optionKey;
-}
 
 /**
  * Question review drawer (Figma 114:13872) — opened from the Question Bank
@@ -277,114 +269,21 @@ export function QuestionDetailDrawer({
                 )}
               </section>
 
-              {/* Meta chips */}
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  `Sub: ${question.subject}`,
-                  `Ch: ${question.chapter}`,
-                  question.topic ? `Topic: ${question.topic}` : null,
-                  `Type: ${
-                    question.type === "MCQ"
-                      ? "Single Choice"
-                      : question.type === "MSQ"
-                        ? "Multi-select"
-                        : "Numeric"
-                  }`,
-                  `Diff: ${question.difficulty[0]}${question.difficulty.slice(1).toLowerCase()}`,
-                  `Marks: +${question.marks} / -${question.negativeMarks}`,
-                ]
-                  .filter((m): m is string => Boolean(m))
-                  .map((m) => (
+              {question.tags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {question.tags.map((tag) => (
                     <span
-                      key={m}
-                      className="rounded-lg bg-admin-surface px-3 py-1.5 text-sm text-admin-muted"
+                      key={tag}
+                      className="flex items-center gap-1 rounded-full bg-admin-mint/40 px-3 py-1 text-xs font-semibold text-admin"
                     >
-                      {m}
+                      <PlusIcon className="size-3" />
+                      {tag}
                     </span>
                   ))}
-                {question.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="flex items-center gap-1 rounded-full bg-admin-mint/40 px-3 py-1 text-xs font-semibold text-admin"
-                  >
-                    <PlusIcon className="size-3" />
-                    {tag}
-                  </span>
-                ))}
-              </div>
-
-              {/* Stem */}
-              <section className="rounded-xl border border-admin-line/60 p-5">
-                <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                  Question Stem
-                </p>
-                <p className="mt-3 whitespace-pre-wrap text-admin-ink">
-                  {question.statement}
-                </p>
-              </section>
-
-              {/* Options (MCQ / MSQ) or the numeric answer (INTEGER) */}
-              {question.type === "INTEGER" ? (
-                <section>
-                  <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                    Correct Answer
-                  </p>
-                  <div className="mt-3 flex items-center gap-3 rounded-xl border border-admin/40 bg-admin-mint/15 p-4">
-                    <CheckCircleIcon className="size-5 shrink-0 text-admin" />
-                    <p className="font-semibold text-admin-ink">
-                      {String(question.answerKey)}
-                    </p>
-                  </div>
-                </section>
-              ) : (
-                question.options && (
-                  <section>
-                    <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                      Options
-                    </p>
-                    <div className="mt-3 flex flex-col gap-2">
-                      {question.options.map((o) => {
-                        const correct = isCorrectOption(
-                          question.answerKey,
-                          o.key,
-                        );
-                        return (
-                          <div
-                            key={o.key}
-                            className={`flex items-start gap-3 rounded-xl border p-4 ${
-                              correct
-                                ? "border-admin/40 bg-admin-mint/15"
-                                : "border-admin-line/60"
-                            }`}
-                          >
-                            {correct ? (
-                              <CheckCircleIcon className="mt-0.5 size-5 shrink-0 text-admin" />
-                            ) : (
-                              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-admin-surface text-xs font-bold text-admin-muted">
-                                {o.key}
-                              </span>
-                            )}
-                            <p className="font-semibold text-admin-ink">
-                              {o.text}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                )
+                </div>
               )}
 
-              {question.explanation && (
-                <section className="rounded-xl border border-admin-line/60 p-5">
-                  <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
-                    Explanation
-                  </p>
-                  <p className="mt-3 whitespace-pre-wrap text-admin-ink">
-                    {question.explanation}
-                  </p>
-                </section>
-              )}
+              <QuestionPreview question={question} />
             </div>
           )}
         </div>

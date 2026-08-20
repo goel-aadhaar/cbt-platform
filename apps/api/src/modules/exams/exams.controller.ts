@@ -21,6 +21,8 @@ import {
   CloneExamDto,
   CreateSectionDto,
   RejectExamDto,
+  ReorderQuestionsDto,
+  ReorderSectionsDto,
   ScheduleExamDto,
   SubmitExamDto,
 } from './dto/exam-parts.dto';
@@ -84,6 +86,24 @@ export class ExamsController {
     @Body() dto: AddQuestionDto,
   ) {
     return this.exams.addQuestion(id, sectionId, dto);
+  }
+
+  /** Drag-and-drop reordering (§ exam authoring) — DRAFT exams only. */
+  @Patch(':id/sections/reorder')
+  reorderSections(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderSectionsDto,
+  ) {
+    return this.exams.reorderSections(id, dto);
+  }
+
+  @Patch(':id/sections/:sectionId/questions/reorder')
+  reorderQuestions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sectionId', ParseUUIDPipe) sectionId: string,
+    @Body() dto: ReorderQuestionsDto,
+  ) {
+    return this.exams.reorderQuestions(id, sectionId, dto);
   }
 
   /**

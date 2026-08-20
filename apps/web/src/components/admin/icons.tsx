@@ -432,3 +432,28 @@ export const LayersIcon = (p: P) => (
     <polyline points="2 12 12 17 22 12" />
   </Base>
 );
+
+export const GripVerticalIcon = (p: P) => (
+  <Base {...p}>
+    <circle cx="9" cy="6" r="1" />
+    <circle cx="9" cy="12" r="1" />
+    <circle cx="9" cy="18" r="1" />
+    <circle cx="15" cy="6" r="1" />
+    <circle cx="15" cy="12" r="1" />
+    <circle cx="15" cy="18" r="1" />
+  </Base>
+);
+
+export const EyeIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
+    <circle cx="12" cy="12" r="3" />
+  </Base>
+);
+
+export const CopyStackIcon = (p: P) => (
+  <Base {...p}>
+    <rect x="8" y="8" width="13" height="13" rx="2" />
+    <path d="M4 16V4a2 2 0 0 1 2-2h12" />
+  </Base>
+);

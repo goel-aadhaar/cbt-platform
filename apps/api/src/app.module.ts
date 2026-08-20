@@ -27,6 +27,7 @@ import { ClassesModule } from './modules/classes/classes.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { ExamCategoriesModule } from './modules/exam-categories/exam-categories.module';
 import { InstitutesModule } from './modules/institutes/institutes.module';
+import { InstructionTemplatesModule } from './modules/instruction-templates/instruction-templates.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { ProgramsModule } from './modules/programs/programs.module';
@@ -84,6 +85,7 @@ import { StudentsModule } from './modules/students/students.module';
     HealthModule,
     ExamCategoriesModule,
     InstitutesModule,
+    InstructionTemplatesModule,
     PlatformModule,
     ProgramsModule,
     ClassesModule,

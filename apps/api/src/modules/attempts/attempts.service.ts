@@ -130,6 +130,7 @@ export class AttemptsService {
       select: {
         id: true,
         title: true,
+        instructions: true,
         durationMinutes: true,
         startAt: true,
         endAt: true,
@@ -157,6 +158,7 @@ export class AttemptsService {
       select: {
         id: true,
         title: true,
+        instructions: true,
         durationMinutes: true,
         startAt: true,
         endAt: true,
@@ -167,6 +169,7 @@ export class AttemptsService {
       items: exams.map((e) => ({
         id: e.id,
         title: e.title,
+        instructions: e.instructions,
         durationMinutes: e.durationMinutes,
         startAt: e.startAt,
         endAt: e.endAt,

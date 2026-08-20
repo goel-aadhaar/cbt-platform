@@ -103,6 +103,9 @@ export async function startAttempt(examId: string): Promise<AttemptState> {
 export interface AvailableExam {
   id: string;
   title: string;
+  /** Set by the teacher who authored the paper — shown on the pre-exam
+   * instructions screen (rendered as HTML, sanitized server-side). */
+  instructions: string | null;
   durationMinutes: number;
   startAt: string;
   endAt: string;

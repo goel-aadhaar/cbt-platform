@@ -18,6 +18,8 @@ import {
   AddQuestionDto,
   AssignBatchDto,
   CreateSectionDto,
+  ReorderQuestionsDto,
+  ReorderSectionsDto,
   ScheduleExamDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
@@ -28,6 +30,7 @@ const examSelect = {
   title: true,
   instructions: true,
   durationMinutes: true,
+  passingMarks: true,
   calculatorEnabled: true,
   fullscreenRequired: true,
   maxViolations: true,
@@ -72,6 +75,9 @@ const examDetailSelect = {
               type: true,
               statement: true,
               marks: true,
+              difficulty: true,
+              topicId: true,
+              mediaKeys: true,
             },
           },
         },
@@ -150,6 +156,7 @@ export class ExamsService {
         instituteId,
         title: dto.title,
         durationMinutes: dto.durationMinutes,
+        passingMarks: dto.passingMarks,
         instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled ?? false,
         fullscreenRequired: dto.fullscreenRequired ?? true,
@@ -190,6 +197,7 @@ export class ExamsService {
       data: {
         title: dto.title,
         durationMinutes: dto.durationMinutes,
+        passingMarks: dto.passingMarks,
         instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled,
         fullscreenRequired: dto.fullscreenRequired,
@@ -213,6 +221,7 @@ export class ExamsService {
         title: true,
         instructions: true,
         durationMinutes: true,
+        passingMarks: true,
         calculatorEnabled: true,
         fullscreenRequired: true,
         maxViolations: true,
@@ -242,6 +251,7 @@ export class ExamsService {
           title: title?.trim() || `${source.title} (Copy)`,
           instructions: source.instructions,
           durationMinutes: source.durationMinutes,
+          passingMarks: source.passingMarks,
           calculatorEnabled: source.calculatorEnabled,
           fullscreenRequired: source.fullscreenRequired,
           maxViolations: source.maxViolations,
@@ -335,6 +345,111 @@ export class ExamsService {
         instituteId: exam.instituteId,
         order,
       },
+      select: {
+        id: true,
+        order: true,
+        question: { select: { id: true, subject: true, statement: true } },
+      },
+    });
+  }
+
+  /**
+   * Drag-and-drop reordering (§ exam authoring). `sectionIds` must be exactly
+   * the sections already in this exam, just in the new order — a partial or
+   * foreign list is rejected rather than silently reshuffling only some rows.
+   *
+   * The two-pass bump-then-set avoids transient collisions with the
+   * `@@unique([examId, order])` constraint: writing final positions directly
+   * could momentarily ask two sections to hold the same `order` mid-swap.
+   */
+  async reorderSections(examId: string, dto: ReorderSectionsDto) {
+    await this.getDraft(examId);
+    const existing = await this.prisma.examSection.findMany({
+      where: { examId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((s) => s.id));
+    const requestedIds = new Set(dto.sectionIds);
+    if (
+      dto.sectionIds.length !== existing.length ||
+      existingIds.size !== requestedIds.size ||
+      ![...existingIds].every((id) => requestedIds.has(id))
+    ) {
+      throw new BadRequestException(
+        'sectionIds must list exactly the sections currently in this exam',
+      );
+    }
+
+    const offset = dto.sectionIds.length + 1000;
+    await this.prisma.$transaction([
+      ...dto.sectionIds.map((id, i) =>
+        this.prisma.examSection.update({
+          where: { id },
+          data: { order: offset + i },
+        }),
+      ),
+      ...dto.sectionIds.map((id, i) =>
+        this.prisma.examSection.update({ where: { id }, data: { order: i } }),
+      ),
+    ]);
+
+    return this.prisma.examSection.findMany({
+      where: { examId },
+      orderBy: { order: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        order: true,
+        marksCorrect: true,
+        marksWrong: true,
+      },
+    });
+  }
+
+  /** Same reorder shape as `reorderSections`, scoped to one section's questions. */
+  async reorderQuestions(
+    examId: string,
+    sectionId: string,
+    dto: ReorderQuestionsDto,
+  ) {
+    await this.getDraft(examId);
+    const section = await this.prisma.examSection.findFirst({
+      where: { id: sectionId, examId },
+    });
+    if (!section) throw new NotFoundException('Section not found');
+
+    const existing = await this.prisma.examQuestion.findMany({
+      where: { sectionId },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((q) => q.id));
+    const requestedIds = new Set(dto.examQuestionIds);
+    if (
+      dto.examQuestionIds.length !== existing.length ||
+      existingIds.size !== requestedIds.size ||
+      ![...existingIds].every((id) => requestedIds.has(id))
+    ) {
+      throw new BadRequestException(
+        'examQuestionIds must list exactly the questions currently in this section',
+      );
+    }
+
+    const offset = dto.examQuestionIds.length + 1000;
+    await this.prisma.$transaction([
+      ...dto.examQuestionIds.map((id, i) =>
+        this.prisma.examQuestion.update({
+          where: { id },
+          data: { order: offset + i },
+        }),
+      ),
+      ...dto.examQuestionIds.map((id, i) =>
+        this.prisma.examQuestion.update({ where: { id }, data: { order: i } }),
+      ),
+    ]);
+
+    return this.prisma.examQuestion.findMany({
+      where: { sectionId },
+      orderBy: { order: 'asc' },
       select: {
         id: true,
         order: true,

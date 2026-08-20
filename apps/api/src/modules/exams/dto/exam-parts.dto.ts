@@ -1,4 +1,5 @@
 import {
+  ArrayMinSize,
   IsISO8601,
   IsNumber,
   IsOptional,
@@ -62,4 +63,17 @@ export class RejectExamDto {
   @IsString()
   @MaxLength(500)
   reason?: string;
+}
+
+/** Drag-and-drop reordering (§ exam authoring) — the full new order, by id. */
+export class ReorderSectionsDto {
+  @IsUUID('4', { each: true })
+  @ArrayMinSize(1)
+  sectionIds!: string[];
+}
+
+export class ReorderQuestionsDto {
+  @IsUUID('4', { each: true })
+  @ArrayMinSize(1)
+  examQuestionIds!: string[];
 }

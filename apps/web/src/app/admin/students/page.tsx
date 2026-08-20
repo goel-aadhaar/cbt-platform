@@ -75,6 +75,13 @@ function StudentsPageInner() {
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [batchId, setBatchId] = useState("");
   const [batches, setBatches] = useState<BatchRow[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  async function copyRollNumber(id: string, rollNumber: string) {
+    await navigator.clipboard.writeText(rollNumber);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1500);
+  }
 
   useEffect(() => {
     listBatches()
@@ -388,12 +395,21 @@ function StudentsPageInner() {
                     </div>
                   </td>
                   <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyRollNumber(r.id, r.rollNumber)}
+                      title="Copy roll number"
+                      className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-admin-bg"
+                    >
                       <span className="font-mono text-xs text-admin-ink">
                         {r.rollNumber}
                       </span>
-                      <CopyIcon className="size-3.5 text-admin-subtle" />
-                    </div>
+                      {copiedId === r.id ? (
+                        <CheckIcon className="size-3.5 text-admin" />
+                      ) : (
+                        <CopyIcon className="size-3.5 text-admin-subtle" />
+                      )}
+                    </button>
                   </td>
                   <td className="px-4 py-4">
                     <p className="text-admin-ink">{r.batch?.name ?? "—"}</p>

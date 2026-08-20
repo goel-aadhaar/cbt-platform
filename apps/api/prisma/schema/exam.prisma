@@ -28,6 +28,30 @@ enum ExamQuestionScoring {
   MANUAL
 }
 
+/// Reusable candidate-facing instructions text an admin authors once — "Standard
+/// NEET Rules", "JEE Advanced Rules" — that a teacher can drop into an exam's
+/// `instructions` while authoring (a one-time copy, not a live link: editing a
+/// template afterwards never changes exams that already used it). Tenant-scoped.
+model InstructionTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  name        String
+  /// HTML, sanitized on write with the same `sanitizeRichText()` boundary as
+  /// `Exam.instructions` — authored with the same Tiptap editor.
+  content     String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("InstructionTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@unique([instituteId, name])
+  @@index([instituteId])
+  @@map("instruction_templates")
+}
+
 /// A kind of examination an institute runs — "JEE Mock Test", "Physics Practice
 /// Test". Administrators define the catalogue; teachers pick one when authoring
 /// a paper, and on approval the paper is numbered within its category so
@@ -70,6 +94,9 @@ model Exam {
   title             String
   instructions      String?
   durationMinutes   Int          @map("duration_minutes")
+  /// Minimum total marks to pass, shown on results. Optional — a paper with no
+  /// pass/fail line (e.g. a diagnostic test) simply omits it.
+  passingMarks      Int?         @map("passing_marks")
   calculatorEnabled Boolean      @default(false) @map("calculator_enabled")
   /// Proctoring (§2.2 anti-malpractice). The client enforces full screen and
   /// reports violations; `maxViolations` > 0 auto-submits + flags the attempt

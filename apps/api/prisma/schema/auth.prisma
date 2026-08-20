@@ -79,6 +79,7 @@ model User {
   questionsAddedToPractice Question[] @relation("QuestionPracticeAddedBy")
   examsCreated      Exam[]     @relation("ExamCreatedBy")
   examCategoriesCreated ExamCategory[] @relation("ExamCategoryCreatedBy")
+  instructionTemplatesCreated InstructionTemplate[] @relation("InstructionTemplateCreatedBy")
   examsToReview     Exam[]     @relation("ExamReviewer")
   examsApproved     Exam[]     @relation("ExamApprovedBy")
   announcements     Announcement[]

@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
@@ -41,6 +42,18 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.use(compression());
+  // Every response here is per-tenant/per-user (auth guards decide WHAT comes
+  // back, but the HTTP layer never says so): responses carry an ETag but no
+  // Cache-Control, and `Vary` never includes Authorization, so a browser is
+  // free to cache a GET by URL alone and replay it for a completely different
+  // user/tenant who later hits the same URL from the same profile — a real
+  // cross-tenant leak on any shared device/browser profile. `no-store` on
+  // every response (not just a Vary fix) is the safe default for an API with
+  // no genuinely public, cacheable routes.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.enableCors({
     origin:
       config.corsOrigins.length > 0

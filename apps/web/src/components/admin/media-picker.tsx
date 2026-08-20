@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { AuthedImage } from "@/components/authed-image";
 import { ApiError } from "@/lib/api";
 import {
   deleteMedia,
   formatBytes,
   listMedia,
-  mediaSrc,
   uploadMedia,
   type MediaItem,
 } from "@/lib/media";
@@ -208,11 +208,8 @@ export function MediaPicker({
                       : "border-admin-line hover:border-admin/50"
                   } disabled:opacity-50`}
                 >
-                  {/* Library thumbnails are tenant images of unknown dimensions;
-                      a plain img keeps this simple and avoids remote-loader config. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={mediaSrc(m.url)}
+                  <AuthedImage
+                    url={m.url}
                     alt={m.altText ?? m.fileName}
                     className="size-full object-cover"
                   />

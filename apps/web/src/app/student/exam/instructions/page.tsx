@@ -6,18 +6,15 @@ import { Suspense, useState } from "react";
 import { ArrowRightIcon, TimerIcon } from "@/components/student/icons";
 import { useAvailableExams } from "@/hooks/use-available-exams";
 
-const RULES: React.ReactNode[] = [
-  <>
-    Total duration of the examination is <strong>3 hours</strong> (180 minutes).
-    The timer will begin immediately upon starting the exam.
-  </>,
-  <>
-    Each correct answer carries <Chip>+4 marks</Chip>.
-  </>,
-  <>
-    There is a negative marking of <Chip>-1 mark</Chip> for every incorrect
-    answer. Unattempted questions will not affect your score.
-  </>,
+/**
+ * Genuinely exam-agnostic platform behavior (true for every exam on this
+ * platform) — anything exam-SPECIFIC (marking scheme, allowed materials,
+ * section rules) belongs in the teacher's own `instructions`, rendered below
+ * these, not fabricated here. Previously this whole screen was hardcoded
+ * placeholder text (a fake "3 hours" / "+4/-1 marks") that ignored the real
+ * exam entirely — that generic content used to live in this same array.
+ */
+const PLATFORM_RULES: React.ReactNode[] = [
   <>
     You can navigate freely between sections and individual questions using the
     question palette provided in the side panel during the exam.
@@ -47,7 +44,7 @@ function ExamInstructionsInner() {
   const examId = params.get("examId");
   const [agreed, setAgreed] = useState(false);
   const { items } = useAvailableExams();
-  const examTitle = items.find((e) => e.id === examId)?.title ?? "";
+  const exam = items.find((e) => e.id === examId);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-admin-bg px-4 py-4 [font-family:var(--font-hanken)] text-admin-ink [@media(min-height:900px)]:py-10">
@@ -58,25 +55,58 @@ function ExamInstructionsInner() {
             <TimerIcon className="size-7" />
           </span>
           <h1 className="mx-auto mt-4 max-w-md text-3xl font-bold tracking-tight text-admin-ink">
-            Instructions{examTitle ? `: ${examTitle}` : ""}
+            Instructions{exam?.title ? `: ${exam.title}` : ""}
           </h1>
           <p className="mx-auto mt-2 max-w-md text-sm text-admin-muted">
             Please read the following rules carefully before commencing your
             examination. Adherence to these guidelines is strictly monitored.
           </p>
+          {exam && (
+            <p className="mx-auto mt-3 max-w-md text-sm font-semibold text-admin-ink">
+              Duration: {exam.durationMinutes} minutes
+            </p>
+          )}
         </div>
 
-        {/* Rules */}
-        <ol className="space-y-3 px-8 py-5 [@media(min-height:900px)]:space-y-5 [@media(min-height:900px)]:py-8">
-          {RULES.map((rule, i) => (
-            <li key={i} className="flex gap-4">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-admin-line text-sm font-semibold text-admin-muted">
-                {i + 1}
-              </span>
-              <p className="text-sm leading-relaxed text-admin-ink">{rule}</p>
-            </li>
-          ))}
-        </ol>
+        <div className="max-h-[55vh] overflow-auto px-8 py-5 [@media(min-height:900px)]:py-8">
+          {/* The teacher's own instructions for this exam (§2.3) — sanitized
+              server-side (apps/api/src/common/html/sanitize-html.ts), same
+              render treatment as the in-exam "Instructions" button. */}
+          <section className="mb-6">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-admin-muted">
+              Exam Instructions
+            </p>
+            {exam?.instructions ? (
+              <div
+                className="whitespace-pre-line rounded-xl border border-admin-line/40 bg-admin-bg/40 p-4 text-sm leading-relaxed text-admin-ink [&_a]:text-admin [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-admin-line [&_blockquote]:pl-3 [&_blockquote]:text-admin-muted [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+                dangerouslySetInnerHTML={{ __html: exam.instructions }}
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-admin-line/60 p-4 text-sm text-admin-muted">
+                No special instructions were set for this exam.
+              </p>
+            )}
+          </section>
+
+          {/* Platform rules */}
+          <section>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-admin-muted">
+              Platform Rules
+            </p>
+            <ol className="space-y-3 [@media(min-height:900px)]:space-y-5">
+              {PLATFORM_RULES.map((rule, i) => (
+                <li key={i} className="flex gap-4">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-admin-line text-sm font-semibold text-admin-muted">
+                    {i + 1}
+                  </span>
+                  <p className="text-sm leading-relaxed text-admin-ink">
+                    {rule}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </div>
 
         {/* Footer */}
         <div className="flex flex-col items-center justify-between gap-4 border-t border-admin-line/40 px-8 py-6 sm:flex-row">
@@ -103,13 +133,5 @@ function ExamInstructionsInner() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Chip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded bg-admin-bg px-1.5 py-0.5 text-[0.85em] font-semibold text-admin-ink [font-family:var(--font-courier-prime)]">
-      {children}
-    </span>
   );
 }

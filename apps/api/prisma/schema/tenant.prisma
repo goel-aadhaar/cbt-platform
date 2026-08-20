@@ -25,6 +25,7 @@ model Institute {
   topics        Topic[]
   exams         Exam[]
   examCategories ExamCategory[]
+  instructionTemplates InstructionTemplate[]
   examSections  ExamSection[]
   examQuestions ExamQuestion[]
   examBatches   ExamBatch[]

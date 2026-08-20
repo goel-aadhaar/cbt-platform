@@ -52,8 +52,14 @@ export class MediaController {
   /**
    * Stream a stored image. Only used when the storage backend has no direct
    * URL (local disk); with S3/CDN the browser fetches the CDN instead.
+   *
+   * Widened to STUDENT (the class-level gate is ADMIN/TEACHER only) — a
+   * candidate needs to load a diagram attached to a question during an exam
+   * or practice session. Tenant isolation still comes from `MediaService.read()`
+   * scoping the lookup to the caller's institute, not from this role check.
    */
   @Get('file/:key')
+  @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
   async file(@Param('key') key: string): Promise<StreamableFile> {
     const row = await this.media.read(decodeURIComponent(key));
     return new StreamableFile(row.body, {

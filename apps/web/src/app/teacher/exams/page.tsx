@@ -3,10 +3,11 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { PlusIcon } from "@/components/admin/icons";
+import { CopyStackIcon, PlusIcon } from "@/components/admin/icons";
 import { ExamBuilderDrawer } from "@/components/admin/exam-builder-drawer";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
+import { cloneExam } from "@/lib/admin";
 import { getUserSnapshot } from "@/lib/auth";
 import {
   examDisplayStatus,
@@ -31,6 +32,7 @@ function ExamsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [building, setBuilding] = useState(params.get("new") === "1");
   const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -50,6 +52,22 @@ function ExamsScreen() {
   const visible = (exams ?? []).filter(
     (e) => scope === "all" || e.createdBy?.id === me?.id,
   );
+
+  async function duplicate(e: ExamListItem) {
+    setDuplicatingId(e.id);
+    setError(null);
+    try {
+      const created = await cloneExam(e.id);
+      setNotice(`"${created.title}" created as a new draft.`);
+      await load();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not duplicate the exam.",
+      );
+    } finally {
+      setDuplicatingId(null);
+    }
+  }
 
   return (
     <TeacherShell title="My Exams">
@@ -146,17 +164,29 @@ function ExamsScreen() {
                         </p>
                       )}
                     </div>
-                    <StatusPill
-                      tone={
-                        status === "REVIEW"
-                          ? "warn"
-                          : status === "DRAFT" || status === "ARCHIVED"
-                            ? "muted"
-                            : "good"
-                      }
-                    >
-                      {status === "REVIEW" ? "Awaiting approval" : status}
-                    </StatusPill>
+                    <div className="flex items-center gap-2">
+                      <StatusPill
+                        tone={
+                          status === "REVIEW"
+                            ? "warn"
+                            : status === "DRAFT" || status === "ARCHIVED"
+                              ? "muted"
+                              : "good"
+                        }
+                      >
+                        {status === "REVIEW" ? "Awaiting approval" : status}
+                      </StatusPill>
+                      <button
+                        type="button"
+                        onClick={() => void duplicate(e)}
+                        disabled={duplicatingId === e.id}
+                        title="Duplicate this exam as a new draft"
+                        className="flex items-center gap-1.5 rounded-lg border border-admin-line px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg disabled:opacity-50"
+                      >
+                        <CopyStackIcon className="size-3.5" />
+                        {duplicatingId === e.id ? "Duplicating…" : "Duplicate"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* The approval trail: who has it, and what came back. */}
