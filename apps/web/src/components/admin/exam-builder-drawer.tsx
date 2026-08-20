@@ -27,6 +27,7 @@ import {
 
 import { CheckIcon, PlusIcon, XIcon } from "./icons";
 import { QuestionFilterBar } from "./question-filters";
+import { isRichTextEmpty, RichTextEditor } from "./rich-text-editor";
 
 const ADMIN_STEPS = [
   "Basic Info",
@@ -238,7 +239,7 @@ export function ExamBuilderDrawer({
         maxViolations,
         calculatorEnabled,
         fullscreenRequired,
-        ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+        ...(isRichTextEmpty(instructions) ? {} : { instructions }),
         ...(programId ? { programId } : {}),
         ...(categoryId ? { categoryId } : {}),
       });
@@ -461,12 +462,10 @@ export function ExamBuilderDrawer({
                 </Field>
               )}
               <Field label="Instructions">
-                <textarea
-                  rows={3}
+                <RichTextEditor
                   value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
+                  onChange={setInstructions}
                   placeholder="Shown to candidates before they start."
-                  className={`${inputCls} resize-none`}
                 />
               </Field>
               <div className="flex gap-6">

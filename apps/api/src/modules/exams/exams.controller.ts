@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -132,6 +133,17 @@ export class ExamsController {
     return this.exams.assignBatch(id, dto);
   }
 
+  /** Drop a batch assignment — used when rescheduling changes who sits it. */
+  @Delete(':id/batches/:batchId')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  unassignBatch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('batchId', ParseUUIDPipe) batchId: string,
+  ) {
+    return this.exams.unassignBatch(id, batchId);
+  }
+
   @Patch(':id/schedule')
   @Roles(Role.ADMIN)
   schedule(
@@ -143,12 +155,14 @@ export class ExamsController {
 
   @Post(':id/publish')
   @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
   publish(@Param('id', ParseUUIDPipe) id: string) {
     return this.exams.publish(id);
   }
 
   @Post(':id/unpublish')
   @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
   unpublish(@Param('id', ParseUUIDPipe) id: string) {
     return this.exams.unpublish(id);
   }

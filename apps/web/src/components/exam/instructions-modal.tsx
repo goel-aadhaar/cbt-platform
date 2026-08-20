@@ -46,9 +46,16 @@ export function InstructionsModal({
 
         <div className="max-h-[60vh] overflow-auto px-6 py-5">
           {instructions ? (
-            <p className="whitespace-pre-wrap text-sm text-ink">
-              {instructions}
-            </p>
+            // Server-sanitized HTML (apps/api/src/common/html/sanitize-html.ts)
+            // — this is the one place it's rendered, so this is the one place
+            // that needs to know it's HTML rather than plain text.
+            <div
+              // whitespace-pre-line keeps pre-Tiptap exams (plain text with
+              // real newlines, no <p>/<br> tags) readable; it's a no-op for
+              // block-tag HTML, which doesn't rely on raw whitespace anyway.
+              className="whitespace-pre-line text-sm text-ink [&_a]:text-info [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-muted [&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5"
+              dangerouslySetInnerHTML={{ __html: instructions }}
+            />
           ) : (
             <p className="text-sm text-muted">
               No special instructions were set for this exam.

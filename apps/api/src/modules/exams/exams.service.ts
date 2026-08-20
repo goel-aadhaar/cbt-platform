@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { sanitizeRichText } from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { Role } from '../auth/auth.types';
@@ -149,7 +150,7 @@ export class ExamsService {
         instituteId,
         title: dto.title,
         durationMinutes: dto.durationMinutes,
-        instructions: dto.instructions,
+        instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled ?? false,
         fullscreenRequired: dto.fullscreenRequired ?? true,
         maxViolations: dto.maxViolations ?? 0,
@@ -189,7 +190,7 @@ export class ExamsService {
       data: {
         title: dto.title,
         durationMinutes: dto.durationMinutes,
-        instructions: dto.instructions,
+        instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled,
         fullscreenRequired: dto.fullscreenRequired,
         maxViolations: dto.maxViolations,
@@ -357,6 +358,13 @@ export class ExamsService {
       data: { examId, batchId: dto.batchId, instituteId: exam.instituteId },
       select: { id: true, batch: { select: { id: true, name: true } } },
     });
+  }
+
+  /** Drop a batch assignment — the counterpart `assignBatch` never had (§ reschedule). */
+  async unassignBatch(examId: string, batchId: string) {
+    await this.getOwned(examId);
+    await this.prisma.examBatch.deleteMany({ where: { examId, batchId } });
+    return { id: examId, batchId };
   }
 
   async schedule(examId: string, dto: ScheduleExamDto) {

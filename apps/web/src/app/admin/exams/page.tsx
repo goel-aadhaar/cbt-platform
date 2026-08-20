@@ -6,6 +6,8 @@ import type { ComponentType, SVGProps } from "react";
 import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { ExamReviewDrawer } from "@/components/admin/exam-review-drawer";
+import { ExamScheduleModal } from "@/components/admin/exam-schedule-modal";
 import {
   AlertTriangleIcon,
   CalendarIcon,
@@ -15,7 +17,7 @@ import {
   RadioIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
-import { approveExam, rejectExam, startExamNow } from "@/lib/admin";
+import { approveExam, rejectExam } from "@/lib/admin";
 import {
   type ExamDisplayStatus,
   type ExamListItem,
@@ -43,30 +45,28 @@ export default function ExamsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [scheduling, setScheduling] = useState<{
+    id: string;
+    title: string;
+    status: "APPROVED" | "PUBLISHED";
+  } | null>(null);
 
   /** Run an approval-workflow transition, then re-read the list. */
-  async function runAction(
-    action: "approve" | "reject" | "start",
-    exam: ExamListItem,
-  ) {
+  async function runAction(action: "approve" | "reject", exam: ExamListItem) {
     setBusy(exam.id);
     setNotice(null);
     try {
       if (action === "approve") {
         await approveExam(exam.id);
         setNotice(`"${exam.title}" approved — it is now a qualified test.`);
-      } else if (action === "reject") {
+      } else {
         const reason = window.prompt(
           `Send "${exam.title}" back to ${exam.createdBy?.name ?? "its author"}. Reason (optional):`,
         );
         if (reason === null) return; // cancelled
         await rejectExam(exam.id, reason || undefined);
         setNotice(`"${exam.title}" sent back to the author.`);
-      } else {
-        const res = await startExamNow(exam.id);
-        setNotice(
-          `"${exam.title}" is live until ${new Date(res.endAt).toLocaleTimeString()}.`,
-        );
       }
       setTimeout(() => window.location.reload(), 1000);
     } catch (err) {
@@ -231,6 +231,10 @@ export default function ExamsPage() {
                         s={s}
                         busy={busy !== null}
                         onAction={runAction}
+                        onOpen={() => setReviewingId(e.id)}
+                        onSchedule={(status) =>
+                          setScheduling({ id: e.id, title: e.title, status })
+                        }
                       />
                     ))}
                 </tbody>
@@ -284,6 +288,37 @@ export default function ExamsPage() {
           </div>
         </div>
       </div>
+
+      <ExamReviewDrawer
+        key={reviewingId ?? "none"}
+        open={reviewingId !== null}
+        onClose={() => setReviewingId(null)}
+        examId={reviewingId ?? undefined}
+        onActioned={(action) => {
+          setNotice(
+            action === "approve"
+              ? "Exam approved — it is now a qualified test."
+              : "Exam sent back to the author.",
+          );
+          setTimeout(() => window.location.reload(), 1000);
+        }}
+      />
+      <ExamScheduleModal
+        key={scheduling?.id ?? "none"}
+        open={scheduling !== null}
+        onClose={() => setScheduling(null)}
+        examId={scheduling?.id}
+        examTitle={scheduling?.title}
+        examStatus={scheduling?.status}
+        onScheduled={() => {
+          setNotice(
+            scheduling?.status === "APPROVED"
+              ? `"${scheduling.title}" scheduled and published.`
+              : `"${scheduling?.title}" rescheduled.`,
+          );
+          setTimeout(() => window.location.reload(), 1000);
+        }}
+      />
     </AdminShell>
   );
 }
@@ -293,11 +328,15 @@ function ExamRow({
   s,
   busy,
   onAction,
+  onOpen,
+  onSchedule,
 }: {
   e: ExamListItem;
   s: ExamDisplayStatus;
   busy: boolean;
-  onAction: (a: "approve" | "reject" | "start", e: ExamListItem) => void;
+  onAction: (a: "approve" | "reject", e: ExamListItem) => void;
+  onOpen: () => void;
+  onSchedule: (status: "APPROVED" | "PUBLISHED") => void;
 }) {
   const code = `EX-${e.id.slice(0, 5).toUpperCase()}`;
   return (
@@ -306,15 +345,21 @@ function ExamRow({
         <input type="checkbox" className="size-4 accent-admin" />
       </td>
       <td className="px-4 py-4">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="flex items-center gap-3 text-left"
+        >
           <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-admin-mint/40 text-admin">
             <FileTextIcon className="size-4" />
           </span>
           <div>
-            <p className="font-bold text-admin-ink">{e.title}</p>
+            <p className="font-bold text-admin-ink hover:underline">
+              {e.title}
+            </p>
             <p className="font-mono text-xs text-admin-subtle">ID: {code}</p>
           </div>
-        </div>
+        </button>
       </td>
       <td className="px-4 py-4 text-admin-ink">{e._count.batches}</td>
       <td className="px-4 py-4">
@@ -360,15 +405,19 @@ function ExamRow({
           {s === "APPROVED" && (
             <button
               disabled={busy}
-              onClick={() => onAction("start", e)}
-              title={
-                e._count.batches === 0
-                  ? "Assign a batch before starting"
-                  : "Opens the window now"
-              }
+              onClick={() => onSchedule("APPROVED")}
               className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-50"
             >
-              Start Now
+              Schedule Exam
+            </button>
+          )}
+          {s === "SCHEDULED" && (
+            <button
+              disabled={busy}
+              onClick={() => onSchedule("PUBLISHED")}
+              className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+            >
+              Reschedule
             </button>
           )}
         </div>

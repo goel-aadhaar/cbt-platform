@@ -37,12 +37,40 @@ export function listExamResults(examId: string): Promise<ExamResultRow[]> {
 export interface ExamDetail {
   id: string;
   title: string;
+  instructions: string | null;
   status: string;
   durationMinutes: number;
+  resultPolicy: string;
+  programId: string | null;
+  category: { id: string; name: string } | null;
   startAt: string | null;
   endAt: string | null;
-  sections: { id: string; name: string; questions: unknown[] }[];
+  submittedAt: string | null;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  createdBy: { id: string; name: string } | null;
+  reviewer: { id: string; name: string } | null;
+  approvedBy: { id: string; name: string } | null;
+  sections: {
+    id: string;
+    name: string;
+    order: number;
+    marksCorrect: number;
+    marksWrong: number;
+    questions: {
+      id: string;
+      order: number;
+      question: {
+        id: string;
+        subject: string;
+        type: string;
+        statement: string;
+        marks: number;
+      };
+    }[];
+  }[];
   batches: { id: string; batch: { id: string; name: string } }[];
+  _count: { sections: number; questions: number; batches: number };
 }
 
 /** GET /exams/:id — includes sections and assigned batches. */
@@ -313,13 +341,6 @@ export function rejectExam(
   });
 }
 
-/** POST /exams/:id/start — ADMIN. Opens the window now and goes live. */
-export function startExamNow(
-  examId: string,
-): Promise<{ id: string; status: string; startAt: string; endAt: string }> {
-  return apiFetch(`/exams/${examId}/start`, { method: "POST", ...auth() });
-}
-
 /** Admins of this institute — the reviewer picker for exam submission. */
 export function listAdmins(): Promise<StaffRow[]> {
   return listStaff({ role: "ADMIN", status: "ACTIVE", limit: 200 }).then(
@@ -394,6 +415,17 @@ export function assignBatch(
   return apiFetch(`/exams/${examId}/batches`, {
     method: "POST",
     body: { batchId },
+    ...auth(),
+  });
+}
+
+/** DELETE /exams/:id/batches/:batchId — drop an assignment (§ reschedule). */
+export function unassignBatch(
+  examId: string,
+  batchId: string,
+): Promise<{ id: string; batchId: string }> {
+  return apiFetch(`/exams/${examId}/batches/${batchId}`, {
+    method: "DELETE",
     ...auth(),
   });
 }
