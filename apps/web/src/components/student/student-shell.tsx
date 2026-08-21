@@ -1,7 +1,9 @@
 import Link from "next/link";
 
+import { StudentContextChips } from "./student-context-chips";
+import { StudentSettingsMenu } from "./student-settings-menu";
 import { StudentSidebar } from "./student-sidebar";
-import { BellIcon, SettingsIcon } from "./icons";
+import { BellIcon } from "./icons";
 
 /**
  * One step in the breadcrumb trail. A bare string is a label with nowhere to
@@ -75,19 +77,24 @@ export function StudentShell({
 
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden items-center gap-2 md:flex">
-              <ContextChip>NEET</ContextChip>
-              <ContextChip>Class 12</ContextChip>
-              <ContextChip>Batch A</ContextChip>
+              <StudentContextChips />
             </div>
-            <IconButton label="Notifications">
-              <span className="relative">
-                <BellIcon className="size-5" />
-                <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-[#ba1a1a] ring-2 ring-white" />
-              </span>
-            </IconButton>
-            <IconButton label="Settings">
-              <SettingsIcon className="size-5" />
-            </IconButton>
+            {/*
+              The red dot used to be painted unconditionally, so every candidate
+              was told they had something unread from the moment they signed in.
+              Nothing records whether an announcement has been read — there is
+              no read-state anywhere in the schema — so the badge could only
+              ever have been a decoration that lied. The bell now simply goes
+              where its contents live.
+            */}
+            <Link
+              href="/student/updates"
+              aria-label="Updates and announcements"
+              className="flex size-9 items-center justify-center rounded-full text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
+            >
+              <BellIcon className="size-5" />
+            </Link>
+            <StudentSettingsMenu />
           </div>
         </header>
         <main className="flex-1 overflow-auto px-6 py-6 lg:px-8">
@@ -95,31 +102,5 @@ export function StudentShell({
         </main>
       </div>
     </div>
-  );
-}
-
-function ContextChip({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full border border-admin-line bg-admin-bg px-3 py-1 text-xs font-semibold text-admin-muted">
-      {children}
-    </span>
-  );
-}
-
-function IconButton({
-  children,
-  label,
-}: {
-  children: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className="flex size-9 items-center justify-center rounded-full text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
-    >
-      {children}
-    </button>
   );
 }

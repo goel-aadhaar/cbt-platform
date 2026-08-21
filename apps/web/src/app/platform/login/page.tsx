@@ -52,7 +52,16 @@ export default function PlatformLoginPage() {
     } catch (err) {
       setError(
         err instanceof ApiError
-          ? err.status === 401
+          ? // A 401 is usually the server's deliberately vague "Invalid
+            // credentials", which is worth expanding here: on this door it can
+            // equally mean the account is real but holds no SUPERADMIN role.
+            //
+            // It is NOT the only 401, though. A locked-out account says so in
+            // as many words, and replacing that with the credentials line sends
+            // someone hunting for a typo through a lockout they only have to
+            // wait out. Anything the server bothered to phrase differently is
+            // something it decided was safe to say, so pass it through.
+            err.status === 401 && /invalid credentials/i.test(err.message)
             ? "Invalid credentials, or this is not a platform account."
             : err.message
           : err instanceof Error

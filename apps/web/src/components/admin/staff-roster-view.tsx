@@ -29,6 +29,8 @@ import {
   UserXIcon,
 } from "./icons";
 
+import { useBatchPaths } from "./academic-cascade";
+
 const TAB_DEFS: { label: string; status?: StaffRow["status"] }[] = [
   { label: "All Staff" },
   { label: "Invitations", status: "PENDING" },
@@ -69,6 +71,7 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
   const [error, setError] = useState<string | null>(null);
   const [detailsStaff, setDetailsStaff] = useState<StaffRow | null>(null);
   const [batchId, setBatchId] = useState("");
+  const { path: batchPath } = useBatchPaths(true);
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
@@ -310,7 +313,7 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
               <option value="">All batches</option>
               {batches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  {batchPath(b)}
                 </option>
               ))}
             </select>

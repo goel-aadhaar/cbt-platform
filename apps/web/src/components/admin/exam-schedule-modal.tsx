@@ -14,6 +14,8 @@ import {
 
 import { XIcon } from "./icons";
 
+import { useBatchPaths } from "./academic-cascade";
+
 /**
  * Assign batches + pick a window for an APPROVED exam ("Schedule Exam"), or
  * change either for one already PUBLISHED-but-not-yet-live ("Reschedule") —
@@ -44,6 +46,7 @@ export function ExamScheduleModal({
   // the effect body.
   const [allBatches, setAllBatches] = useState<BatchRow[] | null>(null);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const { path: batchPath } = useBatchPaths(open);
   const [initialIds, setInitialIds] = useState<string[]>([]);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -161,7 +164,7 @@ export function ExamScheduleModal({
                         onChange={() => toggle(b.id)}
                         className="size-4 accent-admin"
                       />
-                      {b.name}
+                      {batchPath(b)}
                     </label>
                   ))}
                   {(allBatches ?? []).length === 0 && (

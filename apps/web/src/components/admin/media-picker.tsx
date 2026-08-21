@@ -15,13 +15,27 @@ import {
 /**
  * Attach images to a question (§2.7).
  *
- * Shows the tenant's library and an upload control, and reports the SELECTED
- * KEYS back — questions reference media by key, never by URL, so moving the
- * bucket or putting a CDN in front never invalidates a question.
+ * Reports the SELECTED KEYS back — questions reference media by key, never by
+ * URL, so moving the bucket or putting a CDN in front never invalidates a
+ * question.
  *
- * Library items can also be permanently deleted from here. The backend
- * refuses (409) while a question still has the image attached; re-sending
- * with confirm asks it to delete anyway.
+ * ## What this shows by default, and why it changed
+ *
+ * It used to open straight onto the institute's entire image library. That is
+ * a shared pool, so the diagram uploaded for one question appeared in the
+ * editor of every other question — attached ones ringed and ticked, the rest
+ * merely available. Read quickly, and read by someone who has just uploaded a
+ * figure, that is indistinguishable from the image having been attached
+ * everywhere, and it was reported as exactly that.
+ *
+ * So the default view is now only what is on THIS question, which is almost
+ * always nothing or one figure. Reuse is still supported — a diagram genuinely
+ * does get shared between parts of the same problem — but it is now something
+ * you ask for by opening the library, rather than the first thing you see.
+ *
+ * Library items can also be permanently deleted from here, inside the library
+ * view where that belongs. The backend refuses (409) while a question still
+ * has the image attached; re-sending with confirm asks it to delete anyway.
  */
 export function MediaPicker({
   selected,
@@ -39,7 +53,28 @@ export function MediaPicker({
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * The attached images, in the order the question carries them.
+   *
+   * Resolved against the library where possible, so the real filename and alt
+   * text are available for the tooltip. A key with no library row still
+   * renders: the bytes are addressed by key, and showing a broken thumbnail is
+   * more honest than silently dropping an image the question claims to have.
+   */
+  const attached = selected.map(
+    (key) =>
+      (items ?? []).find((m) => m.key === key) ?? {
+        id: key,
+        key,
+        url: `/media/file/${encodeURIComponent(key)}`,
+        fileName: key.split("/").pop() ?? key,
+        size: 0,
+        altText: null,
+      },
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -104,13 +139,17 @@ export function MediaPicker({
   }
 
   return (
-    <div>
+    // Named as a group so the upload control, this question's images and the
+    // library read as one region rather than three loose controls in the form.
+    <div role="group" aria-label="Images and diagrams">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs font-bold uppercase text-admin-muted">
           Images &amp; diagrams
         </span>
         <span className="text-xs text-admin-muted">
-          {selected.length} attached
+          {selected.length === 0
+            ? "No image on this question"
+            : `${selected.length} attached`}
           {storage === "local-filesystem" && (
             <span
               className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700"
@@ -174,9 +213,43 @@ export function MediaPicker({
             Uploading…
           </span>
         )}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setLibraryOpen((o) => !o)}
+          aria-expanded={libraryOpen}
+          className="shrink-0 rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+        >
+          {libraryOpen ? "Hide library" : "Choose from library"}
+        </button>
       </div>
 
-      {items === null ? (
+      {/* This question's own images. */}
+      {attached.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {attached.map((m) => (
+            <div key={m.key} className="group relative size-24">
+              <AuthedImage
+                url={m.url}
+                alt={m.altText ?? m.fileName}
+                className="size-full rounded-lg border-2 border-admin object-cover"
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(m.key)}
+                aria-label={`Remove ${m.fileName} from this question`}
+                title="Remove from this question"
+                className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-admin-ink text-xs font-bold text-white hover:bg-red-600 disabled:opacity-50"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!libraryOpen ? null : items === null ? (
         <div className="mt-3 grid grid-cols-4 gap-2">
           {[0, 1, 2, 3].map((i) => (
             <div
@@ -187,7 +260,8 @@ export function MediaPicker({
         </div>
       ) : items.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-admin-line p-4 text-center text-xs text-admin-muted">
-          No images yet. Upload one to attach it to this question.
+          Nothing in the library yet. Upload a file above to attach it to this
+          question.
         </p>
       ) : (
         <div className="mt-3 grid grid-cols-4 gap-2">

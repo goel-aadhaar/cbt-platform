@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   downloadStudentTemplate,
   importStudentRoster,
-  listBatches,
-  type BatchRow,
   type ImportSummary,
 } from "@/lib/admin";
+
+import { Picker, useAcademicCascade } from "./academic-cascade";
 
 import {
   CloudUploadIcon,
@@ -45,26 +45,25 @@ export function ImportStudentsModal({
   onClose: () => void;
   onImported?: (summary: ImportSummary) => void;
 }) {
-  const [batches, setBatches] = useState<BatchRow[]>([]);
-  const [batchId, setBatchId] = useState("");
+  /**
+   * Programme -> class -> batch, narrowed one step at a time.
+   *
+   * A flat list of every batch in the institute was ambiguous to the point of
+   * being unusable: batch names are only unique *within a class* and class
+   * names only within a programme, so "23b1" or "Batch A" can appear several
+   * times over with nothing to tell them apart. Picking the wrong one enrols a
+   * whole roster into another programme's cohort, and the mistake only surfaces
+   * later, when those candidates see the wrong exams.
+   *
+   * Only `batchId` is submitted, so the API contract is unchanged.
+   */
+  const org = useAcademicCascade(open);
+  const batchId = org.batchId;
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    listBatches()
-      .then((b) => !cancelled && setBatches(b))
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Could not load batches."),
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   /**
    * The template comes from the API rather than being built here, so its
@@ -243,23 +242,31 @@ export function ImportStudentsModal({
             </div>
           ) : (
             <>
-              <label className="mb-4 flex flex-col gap-1.5">
-                <span className="text-sm font-semibold text-admin-ink">
-                  Target batch<span className="ml-0.5 text-danger">*</span>
-                </span>
-                <select
-                  value={batchId}
-                  onChange={(e) => setBatchId(e.target.value)}
-                  className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
-                >
-                  <option value="">Select batch</option>
-                  {batches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="mb-4 grid gap-3 sm:grid-cols-3">
+                <Picker
+                  label="Programme"
+                  value={org.programId}
+                  onChange={org.pickProgram}
+                  options={org.programs}
+                  placeholder={org.programPlaceholder}
+                />
+                <Picker
+                  label="Class"
+                  value={org.classId}
+                  onChange={org.pickClass}
+                  options={org.classes}
+                  disabled={!org.programId}
+                  placeholder={org.classPlaceholder}
+                />
+                <Picker
+                  label="Batch"
+                  value={org.batchId}
+                  onChange={org.setBatchId}
+                  options={org.batches}
+                  disabled={!org.classId}
+                  placeholder={org.batchPlaceholder}
+                />
+              </div>
 
               <button
                 type="button"

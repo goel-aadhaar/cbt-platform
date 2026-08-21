@@ -14,6 +14,8 @@ import {
 
 import { KeyIcon, UserIcon, XIcon } from "./icons";
 
+import { useBatchPaths } from "./academic-cascade";
+
 /**
  * Right-side drawer for enrolling a new student (Figma 9:3758), wired to
  * POST /invitations/student.
@@ -76,6 +78,7 @@ export function AddStudentDrawer({
     () => (classId ? batches.filter((b) => b.classId === classId) : batches),
     [batches, classId],
   );
+  const { path: batchPath } = useBatchPaths(open);
 
   const valid =
     name.trim().length >= 2 && /\S+@\S+\.\S+/.test(email) && batchId !== "";
@@ -207,9 +210,12 @@ export function AddStudentDrawer({
               className={inputCls}
             >
               <option value="">Select Batch</option>
+              {/* Programme and class above are optional filters, so this list
+                  is the whole institute until they are used. The full path
+                  keeps it unambiguous either way. */}
               {visibleBatches.map((b) => (
                 <option key={b.id} value={b.id}>
-                  {b.name}
+                  {batchPath(b)}
                 </option>
               ))}
             </select>

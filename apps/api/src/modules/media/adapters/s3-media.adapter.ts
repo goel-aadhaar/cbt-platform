@@ -132,9 +132,33 @@ export class S3MediaAdapter extends MediaStoragePort implements OnModuleInit {
     );
   }
 
+  /**
+   * Where the browser should fetch this object — or `null` to say "through the
+   * API", which is the default and the safe answer.
+   *
+   * This used to return `https://{bucket}.s3.{region}.amazonaws.com/{key}`
+   * whenever a bucket was configured, and that quietly changed how media was
+   * protected the moment anyone switched storage on. A raw bucket URL only
+   * resolves if the object is public-read, so the deployment had exactly two
+   * outcomes, both wrong: a correctly-private bucket meant every question
+   * diagram 403'd for every candidate, and opening the bucket up to fix that
+   * put every exam figure on the open internet. Neither honours
+   * `assertReadableByCaller`, which is what stops one tenant reading another's
+   * media and stops a candidate pulling a figure from a paper they were never
+   * assigned.
+   *
+   * Returning null routes reads back through `GET /media/file/:key`, which
+   * authenticates, checks the tenant, and streams the bytes. S3 becomes the
+   * store rather than the front door.
+   *
+   * `MEDIA_CDN_URL` remains an explicit opt-out: setting it says an operator
+   * has put a distribution in front and has taken responsibility for
+   * restricting it (origin access control plus signed URLs or cookies). It is
+   * deliberately not inferred from the bucket name — that inference is what
+   * caused the problem.
+   */
   publicUrl(key: string): string | null {
     if (this.cdnUrl) return `${this.cdnUrl.replace(/\/$/, '')}/${key}`;
-    if (!this.bucket) return null;
-    return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${key}`;
+    return null;
   }
 }

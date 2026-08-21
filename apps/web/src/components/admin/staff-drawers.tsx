@@ -18,6 +18,8 @@ import {
 
 import { CheckIcon, ImageIcon, UserPlusIcon, XIcon } from "./icons";
 
+import { useBatchPaths } from "./academic-cascade";
+
 /* ------------------------------ Add Staff ------------------------------ */
 
 /**
@@ -607,6 +609,12 @@ export function StaffDetailsDrawer({
 
 /* ------------------------------- shared ------------------------------- */
 
+/**
+ * A teacher is routinely assigned several batches across two classes, so this
+ * stays a checkbox list rather than becoming a cascade — narrowing would turn
+ * one pass into several. The full path on each row is what removes the
+ * ambiguity instead.
+ */
 function BatchChecklist({
   batches,
   selected,
@@ -616,6 +624,7 @@ function BatchChecklist({
   selected: string[];
   onToggle: (id: string) => void;
 }) {
+  const { path } = useBatchPaths(true);
   if (batches.length === 0) {
     return (
       <p className="text-xs text-admin-subtle">
@@ -636,7 +645,7 @@ function BatchChecklist({
             onChange={() => onToggle(b.id)}
             className="size-4 accent-admin"
           />
-          {b.name}
+          {path(b)}
         </label>
       ))}
     </div>

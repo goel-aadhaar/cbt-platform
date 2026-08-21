@@ -36,28 +36,6 @@ interface Batch {
   dark?: boolean;
 }
 
-const INITIAL_BATCHES: Batch[] = [
-  {
-    id: "A",
-    name: "Morning Batch A",
-    meta: "142 Students • Processed 2h ago",
-    on: true,
-  },
-  {
-    id: "B",
-    name: "Evening Batch B",
-    meta: "98 Students • Processed 4h ago",
-    on: false,
-  },
-  {
-    id: "S",
-    name: "Special Intensive Batch",
-    meta: "45 Students • Processed 1d ago",
-    on: true,
-    dark: true,
-  },
-];
-
 export function PublishResultsModal({
   open,
   onClose,
@@ -72,7 +50,17 @@ export function PublishResultsModal({
   examTitle?: string;
   onPublished?: (count: number) => void;
 }) {
-  const [batches, setBatches] = useState<Batch[]>(INITIAL_BATCHES);
+  /**
+   * Empty until the exam's real batch assignments arrive.
+   *
+   * This used to open on three invented rows — "Morning Batch A · 142 Students
+   * · Processed 2h ago" and friends — swapped for the real ones a moment later.
+   * On a screen whose one button releases marks to candidates, an administrator
+   * should never be shown a roster that does not exist, however briefly, and
+   * certainly not one carrying a student count. Empty also fails safe: the
+   * publish button is disabled while nothing is selected.
+   */
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Total evaluated results for this exam — real count, shown in the footer. */
@@ -172,6 +160,11 @@ export function PublishResultsModal({
             Select Batches
           </p>
           <div className="mt-3 flex flex-col gap-3">
+            {batches.length === 0 && !error && (
+              <p className="rounded-xl border border-dashed border-admin-line p-6 text-center text-sm text-admin-muted">
+                Loading this exam&rsquo;s batches&hellip;
+              </p>
+            )}
             {batches.map((b) => (
               <div
                 key={b.id}
@@ -180,7 +173,9 @@ export function PublishResultsModal({
                 <span
                   className={`flex size-9 items-center justify-center rounded-full text-sm font-bold ${b.dark ? "bg-admin text-white" : "bg-admin-mint/40 text-admin"}`}
                 >
-                  {b.id}
+                  {/* The id is a uuid — an initial is what belongs in a
+                      36px circle. */}
+                  {b.name.charAt(0).toUpperCase()}
                 </span>
                 <div className="flex-1">
                   <p className="font-bold text-admin-ink">{b.name}</p>

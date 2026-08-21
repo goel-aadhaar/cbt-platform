@@ -17,6 +17,8 @@ import {
 } from "@/lib/announcements";
 import { listBatches, type BatchRow } from "@/lib/admin";
 
+import { useBatchPaths } from "@/components/admin/academic-cascade";
+
 const CATEGORIES: AnnouncementCategory[] = [
   "GENERAL",
   "EXAM",
@@ -272,6 +274,7 @@ function Composer({
     editing?.category ?? "GENERAL",
   );
   const [batchId, setBatchId] = useState(editing?.batchId ?? "");
+  const { path: batchPath } = useBatchPaths(true);
   const [pinned, setPinned] = useState(editing?.pinned ?? false);
   // <input type="datetime-local"> wants `YYYY-MM-DDTHH:mm`, not an ISO string.
   const [expiresAt, setExpiresAt] = useState(
@@ -376,7 +379,7 @@ function Composer({
             <option value="">All students</option>
             {batches.map((b) => (
               <option key={b.id} value={b.id}>
-                Batch: {b.name}
+                {batchPath(b)}
               </option>
             ))}
           </select>

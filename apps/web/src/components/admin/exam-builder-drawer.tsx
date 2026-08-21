@@ -56,6 +56,8 @@ import { QuestionPreviewModal } from "./question-preview-modal";
 import { isRichTextEmpty, RichTextEditor } from "./rich-text-editor";
 import { useQuestionPreview } from "./use-question-preview";
 
+import { useBatchPaths } from "./academic-cascade";
+
 const ADMIN_STEPS = [
   "Basic Info",
   "Sections",
@@ -137,6 +139,7 @@ export function ExamBuilderDrawer({
 
   // Step 4
   const [batchIds, setBatchIds] = useState<string[]>([]);
+  const { path: batchPath } = useBatchPaths(open);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
   const [publishNow, setPublishNow] = useState(true);
@@ -948,7 +951,7 @@ export function ExamBuilderDrawer({
                         }
                         className="size-4 accent-admin"
                       />
-                      {b.name}
+                      {batchPath(b)}
                     </label>
                   ))}
                   {batches.length === 0 && (
