@@ -1,6 +1,6 @@
 {
   "total": 28,
-  "failed": 1,
+  "failed": 0,
   "results": [
     {
       "uat": "XLSX-T-students",
@@ -24,19 +24,19 @@
       "uat": "XLSX-S-2",
       "name": "the three valid rows are imported",
       "pass": true,
-      "detail": "3 imported: ['UATXL 46ff2c One', 'UATXL 46ff2c Two', 'UATXL 46ff2c Three']"
+      "detail": "3 imported: ['UATXL bbae2c One', 'UATXL bbae2c Two', 'UATXL bbae2c Three']"
     },
     {
       "uat": "XLSX-S-3",
       "name": "the blank-name and duplicate rows fail without stopping the file",
       "pass": true,
-      "detail": "[{\"row\": 5, \"email\": \"no-name@example.com\", \"reason\": \"Missing name\"}, {\"row\": 6, \"email\": \"uatxl-46ff2c-1@example.com\", \"reason\": \"Duplicate email in file\"}]"
+      "detail": "[{\"row\": 5, \"email\": \"no-name@example.com\", \"reason\": \"Missing name\"}, {\"row\": 6, \"email\": \"uatxl-bbae2c-1@example.com\", \"reason\": \"Duplicate email in file\"}]"
     },
     {
       "uat": "XLSX-S-4",
       "name": "roll numbers are server-generated, never taken from the sheet",
       "pass": true,
-      "detail": "rolls=['2610000082', '2610000083', '2610000084']"
+      "detail": "rolls=['2610000088', '2610000089', '2610000090']"
     },
     {
       "uat": "XLSX-S-5",
@@ -72,7 +72,7 @@
       "uat": "XLSX-Q-4",
       "name": "the answerless row is reported rather than dropped",
       "pass": true,
-      "detail": "[{\"index\": 5, \"statement\": \"UATXL 46ff2c broken: no answer given\", \"reason\": \"Missing answer\"}]"
+      "detail": "[{\"index\": 5, \"statement\": \"UATXL bbae2c broken: no answer given\", \"reason\": \"Missing answer\"}]"
     },
     {
       "uat": "XLSX-Q-5",
@@ -114,7 +114,7 @@
       "uat": "XLSX-R-1",
       "name": "a title row above the headers does not break the import",
       "pass": true,
-      "detail": "status=201 [{\"row\": 4, \"name\": \"UATRW 92e535 Good\", \"email\": \"uatrw-92e535-ok@example.com\", \"rollNumber\": \"2610000085\"}]"
+      "detail": "status=201 [{\"row\": 4, \"name\": \"UATRW 3dfaf6 Good\", \"email\": \"uatrw-3dfaf6-ok@example.com\", \"rollNumber\": \"2610000091\"}]"
     },
     {
       "uat": "XLSX-R-2",
@@ -126,7 +126,7 @@
       "uat": "XLSX-R-3",
       "name": "\"Full Name\" / \"E-Mail\" headers are understood",
       "pass": true,
-      "detail": "status=201 {\"batchId\": \"f7a29c55-4a41-4749-916f-4afed3ebcb56\", \"batch\": \"JEE-A\", \"total\": 1, \"imported\": [{\"row\": 2, \"name\": \"UATRW 92e535 Al"
+      "detail": "status=201 {\"batchId\": \"f7a29c55-4a41-4749-916f-4afed3ebcb56\", \"batch\": \"JEE-A\", \"total\": 1, \"imported\": [{\"row\": 2, \"name\": \"UATRW 3dfaf6 Al"
     },
     {
       "uat": "XLSX-R-9",
@@ -167,8 +167,8 @@
     {
       "uat": "XLSX-R-10",
       "name": "an MCQ given two answers is refused, not imported with one silently dropped",
-      "pass": false,
-      "detail": "status=201 []"
+      "pass": true,
+      "detail": "status=201 [{\"index\": 2, \"statement\": \"UATRW 3dfaf6 mcq with two answers\", \"reason\": \"An MCQ takes one answer, but \\\"A,C\\\" gives 2. Use type MSQ for multiple cor"
     }
   ]
 }

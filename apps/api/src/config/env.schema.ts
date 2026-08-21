@@ -61,19 +61,52 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Placeholder used by the shipped production env templates
+ * (`deploy/.env.*.production`) for values only the operator can supply.
+ *
+ * Most of them are caught anyway because the schema rejects them — `CHANGE_ME`
+ * is not a URL, an email, or a Postgres connection string. But the settings the
+ * schema treats as optional (`CORS_ORIGINS`, `AWS_S3_BUCKET`) would sail
+ * through and fail much later and much less clearly: an unfilled bucket name
+ * selects the S3 adapter and then 404s on the first question diagram, and an
+ * unfilled origin list blocks every request from a browser that has already
+ * loaded the app. Catching the marker itself closes that gap for any variable,
+ * including ones added later.
+ */
+const PLACEHOLDER = 'CHANGE_ME';
+
 export function validateEnv(config: Record<string, unknown>): Env {
   const result = envSchema.safeParse(config);
 
-  if (!result.success) {
-    const details = result.error.issues
-      .map((issue) => {
+  const issues = result.success
+    ? []
+    : result.error.issues.map((issue) => {
         const path = issue.path.join('.') || '(root)';
         return `  • ${path}: ${issue.message}`;
-      })
-      .join('\n');
+      });
 
-    throw new Error(`\n❌ Invalid environment variables:\n${details}\n`);
+  /**
+   * Only in production: development and test copies are routinely part-filled,
+   * and refusing to start over a placeholder there would be obstructive.
+   */
+  if (config.NODE_ENV === 'production') {
+    for (const [key, value] of Object.entries(config)) {
+      if (typeof value === 'string' && value.includes(PLACEHOLDER)) {
+        issues.push(
+          `  • ${key}: still set to ${PLACEHOLDER} — fill it in before deploying`,
+        );
+      }
+    }
   }
 
+  if (issues.length > 0) {
+    throw new Error(
+      `\n❌ Invalid environment variables:\n${issues.join('\n')}\n`,
+    );
+  }
+
+  // Unreachable unless the schema passed, but narrows the type for TypeScript.
+  if (!result.success) throw new Error('Invalid environment variables');
   return result.data;
 }

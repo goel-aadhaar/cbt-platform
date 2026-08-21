@@ -98,12 +98,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
       requestId,
     };
 
-    // 5xx = server fault (log with the exception + stack); 4xx = client error (warn).
+    // 5xx = server fault, 4xx = client error (warn).
+    //
+    // Not every 5xx is a crash. A deliberately thrown HttpException in that
+    // range — ServiceUnavailableException when the mail provider refuses a
+    // sign-in code, say — is a declared outcome the code already handled and
+    // already logged with the real cause. Labelling it "Unhandled exception"
+    // and attaching a stack that points at the throw site rather than the
+    // cause sends whoever is reading the log looking for a crash that never
+    // happened. Both still log at error: a 503 needs attention either way.
     if (statusCode >= 500) {
-      this.logger.error(
-        { err: exception, requestId, path },
-        'Unhandled exception',
-      );
+      if (exception instanceof HttpException) {
+        this.logger.error(
+          { statusCode, requestId, path },
+          Array.isArray(message) ? message.join('; ') : message,
+        );
+      } else {
+        this.logger.error(
+          { err: exception, requestId, path },
+          'Unhandled exception',
+        );
+      }
     } else {
       this.logger.warn(
         { statusCode, requestId, path },

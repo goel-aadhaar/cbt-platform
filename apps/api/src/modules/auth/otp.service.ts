@@ -1,6 +1,11 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import type { AuthConfig } from '../../config/auth.config';
@@ -97,12 +102,45 @@ export class OtpService {
       });
     });
 
-    await this.mail.sendLoginOtp({
-      to: params.email,
-      name: params.name,
-      code,
-      expiresInMinutes: TTL_MINUTES,
-    });
+    try {
+      await this.mail.sendLoginOtp({
+        to: params.email,
+        name: params.name,
+        code,
+        expiresInMinutes: TTL_MINUTES,
+      });
+    } catch (err) {
+      /**
+       * Undeliverable code — a failure of the mail provider, not of the
+       * credentials, which have already been verified by this point.
+       *
+       * This used to escape as an unhandled 500 "Internal server error",
+       * which is both alarming and useless: the operator cannot tell it from a
+       * crash, and the person signing in has no idea whether to retry, check
+       * their password, or call someone. The usual cause is entirely
+       * diagnosable — an SES account still in the sandbox refuses any
+       * recipient that has not itself been verified.
+       *
+       * The challenge is consumed on the way out. A code nobody received can
+       * never be redeemed, so leaving it live would only keep a dead row
+       * around and let a later attempt look, briefly, like it might work.
+       */
+      await this.prisma.otpChallenge.updateMany({
+        where: { id: challenge.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      this.logger.error(
+        `Could not deliver a sign-in code to ${params.email} — ` +
+          'sign-in is blocked until mail delivery works. ' +
+          `Provider said: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new ServiceUnavailableException(
+        'We could not send your sign-in code. This is a mail-delivery problem ' +
+          'on our side — your password was accepted. Please contact your ' +
+          'administrator.',
+      );
+    }
 
     return { challengeId: challenge.id, expiresAt: challenge.expiresAt };
   }
