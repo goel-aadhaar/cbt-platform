@@ -19,19 +19,46 @@ export interface Paginated<T> {
   offset: number;
 }
 
-/** GET /students — admin-only, tenant-scoped roster (paginated). */
+/** Roster orderings the API accepts. Mirrors StudentSort on the server. */
+export type StudentSort =
+  "roll_asc" | "roll_desc" | "name_asc" | "name_desc" | "newest" | "oldest";
+
+export interface StudentRoster extends Paginated<StudentListItem> {
+  /**
+   * Status tallies over the WHOLE filtered set, not just the returned page —
+   * the roster cards and tabs must stay correct past the 200-row page cap.
+   */
+  counts: { all: number; active: number; disabled: number; pending: number };
+}
+
+export interface StudentQuery {
+  limit?: number;
+  offset?: number;
+  batchId?: string;
+  classId?: string;
+  programId?: string;
+  status?: StudentListItem["status"];
+  search?: string;
+  sort?: StudentSort;
+}
+
+/** GET /students — admin-only, tenant-scoped roster (paginated + filtered). */
 export function listStudents(
-  params: { limit?: number; offset?: number; batchId?: string } = {},
-): Promise<Paginated<StudentListItem>> {
+  params: StudentQuery = {},
+): Promise<StudentRoster> {
   const q = new URLSearchParams();
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
   if (params.batchId) q.set("batchId", params.batchId);
+  if (params.classId) q.set("classId", params.classId);
+  if (params.programId) q.set("programId", params.programId);
+  if (params.status) q.set("status", params.status);
+  if (params.search?.trim()) q.set("search", params.search.trim());
+  if (params.sort) q.set("sort", params.sort);
   const qs = q.toString();
-  return apiFetch<Paginated<StudentListItem>>(
-    `/students${qs ? `?${qs}` : ""}`,
-    { token: getToken() ?? undefined },
-  );
+  return apiFetch<StudentRoster>(`/students${qs ? `?${qs}` : ""}`, {
+    token: getToken() ?? undefined,
+  });
 }
 
 const auth = () => ({ token: getToken() ?? undefined });

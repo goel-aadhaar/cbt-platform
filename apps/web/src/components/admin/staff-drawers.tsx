@@ -220,6 +220,13 @@ export function StaffDetailsDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Roles were display-only: the account's roles were fixed at invitation time
+  // with no promote, demote or grant anywhere in the product.
+  const [roles, setRoles] = useState<("TEACHER" | "ADMIN")[]>(
+    (staff?.roles ?? []).filter(
+      (r): r is "TEACHER" | "ADMIN" => r === "TEACHER" || r === "ADMIN",
+    ),
+  );
 
   const isTeacher = staff?.roles.includes("TEACHER") ?? false;
 
@@ -267,9 +274,22 @@ export function StaffDetailsDrawer({
       if (tab === 1 && isTeacher) {
         await setStaffBatches(staff!.id, assignedBatchIds);
         setNotice("Batch assignment saved.");
-      } else if (name.trim().length >= 2 && name.trim() !== staff!.name) {
-        await updateStaff(staff!.id, { name: name.trim() });
-        setNotice("Saved.");
+      } else {
+        const nameChanged =
+          name.trim().length >= 2 && name.trim() !== staff!.name;
+        const rolesChanged =
+          [...roles].sort().join() !== [...staff!.roles].sort().join();
+        if (nameChanged || rolesChanged) {
+          await updateStaff(staff!.id, {
+            ...(nameChanged ? { name: name.trim() } : {}),
+            ...(rolesChanged ? { roles } : {}),
+          });
+          setNotice(
+            rolesChanged
+              ? "Saved. Their role takes effect on their next request — an open session using a removed role is ended."
+              : "Saved.",
+          );
+        }
       }
       onChanged?.();
     } catch (e) {
@@ -413,11 +433,45 @@ export function StaffDetailsDrawer({
               <Card title="Activity">
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Role">
-                    <input
-                      defaultValue={roleLabel}
-                      disabled
-                      className={`${inputCls} bg-admin-surface text-admin-muted`}
-                    />
+                    {/*
+                      An account may hold both roles at once — the session picks
+                      one at sign-in — so this is two checkboxes rather than a
+                      single-choice select. At least one must remain, and the
+                      API refuses a self-demotion or removing the institute's
+                      last administrator.
+                    */}
+                    <div className="flex flex-col gap-2 pt-1">
+                      {(["TEACHER", "ADMIN"] as const).map((r) => {
+                        const checked = roles.includes(r);
+                        const lastOne = checked && roles.length === 1;
+                        return (
+                          <label
+                            key={r}
+                            className="flex items-center gap-2 text-sm text-admin-ink"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={lastOne}
+                              onChange={(e) =>
+                                setRoles((prev) =>
+                                  e.target.checked
+                                    ? [...prev, r]
+                                    : prev.filter((x) => x !== r),
+                                )
+                              }
+                              className="size-4 accent-admin disabled:opacity-40"
+                            />
+                            {r === "ADMIN" ? "Administrator" : "Teacher"}
+                            {lastOne && (
+                              <span className="text-xs text-admin-muted">
+                                (an account needs at least one role)
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </Field>
                   <Field label="Joined">
                     <input

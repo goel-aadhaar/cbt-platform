@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { HealthCheck, HealthCheckService } from '@nestjs/terminus';
 
 import { Public } from '../auth/decorators/public.decorator';
+import { AuditHealthIndicator } from './audit.health';
 import { DatabaseHealthIndicator } from './database.health';
 
 @ApiTags('health')
@@ -12,6 +13,7 @@ export class HealthController {
   constructor(
     private readonly health: HealthCheckService,
     private readonly database: DatabaseHealthIndicator,
+    private readonly auditTrail: AuditHealthIndicator,
   ) {}
 
   /** Liveness — is the process up and serving HTTP? (no dependency checks) */
@@ -25,6 +27,11 @@ export class HealthController {
   @Get('ready')
   @HealthCheck()
   readiness() {
-    return this.health.check([() => this.database.isHealthy('database')]);
+    return this.health.check([
+      () => this.database.isHealthy('database'),
+      // A silently broken audit trail is a compliance failure, so it belongs
+      // in readiness rather than only in the logs.
+      () => this.auditTrail.isHealthy('auditTrail'),
+    ]);
   }
 }

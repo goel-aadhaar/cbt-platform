@@ -9,6 +9,8 @@ import { AnalyticsService } from './analytics.service';
 import { DashboardController } from './dashboard.controller';
 import { DashboardService } from './dashboard.service';
 import { MyHistoryController } from './my-history.controller';
+import { SearchController } from './search.controller';
+import { SearchService } from './search.service';
 
 @Module({
   imports: [AuthModule], // for TenantContextService
@@ -17,7 +19,8 @@ import { MyHistoryController } from './my-history.controller';
     StudentHistoryController,
     MyHistoryController,
     DashboardController,
+    SearchController,
   ],
-  providers: [AnalyticsService, DashboardService],
+  providers: [AnalyticsService, DashboardService, SearchService],
 })
 export class AnalyticsModule {}

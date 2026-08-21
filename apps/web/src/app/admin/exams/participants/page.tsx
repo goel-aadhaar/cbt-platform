@@ -11,15 +11,13 @@ import {
   CheckCircleIcon,
   ClockIcon,
   DownloadIcon,
-  FilterIcon,
-  MoreVerticalIcon,
-  PlusIcon,
   SortIcon,
   UserCheckIcon,
   UsersIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
 import {
+  downloadAttendanceCsv,
   downloadResultsExport,
   fetchExamMonitor,
   listExamResults,
@@ -30,6 +28,26 @@ import { examDisplayStatus, listExams } from "@/lib/exams";
 
 type Eligibility = "ELIGIBLE" | "FLAGGED";
 type Attempt = "In Progress" | "COMPLETED" | "NOT STARTED" | "EVALUATING";
+
+type SortKey = "roll" | "name" | "score-desc" | "score-asc";
+
+/**
+ * `score` is a display string ("42 / 60", or a dash before evaluation), so
+ * sorting by it needs the leading number back. Anything unscored sorts to the
+ * bottom either way rather than counting as zero — a candidate who has not
+ * been evaluated has not scored nothing, they have no score yet.
+ */
+function scoreOf(row: Row): number | null {
+  const n = Number.parseFloat(row.score);
+  return Number.isFinite(n) ? n : null;
+}
+
+const SORTS: Record<SortKey, (a: Row, b: Row) => number> = {
+  roll: (a, b) => a.roll.localeCompare(b.roll, undefined, { numeric: true }),
+  name: (a, b) => a.name.localeCompare(b.name),
+  "score-desc": (a, b) => (scoreOf(b) ?? -Infinity) - (scoreOf(a) ?? -Infinity),
+  "score-asc": (a, b) => (scoreOf(a) ?? Infinity) - (scoreOf(b) ?? Infinity),
+};
 
 interface Row {
   name: string;
@@ -111,6 +129,7 @@ export default function ParticipantsPage() {
 
 function ParticipantsInner() {
   const [tab, setTab] = useState(0);
+  const [sort, setSort] = useState<SortKey>("roll");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const params = useSearchParams();
@@ -136,14 +155,18 @@ function ParticipantsInner() {
   }, [monitor]);
 
   const visible = useMemo(() => {
-    if (tab === 1) return rows.filter((r) => r.status === "In Progress");
-    if (tab === 2)
-      return rows.filter(
-        (r) => r.status === "COMPLETED" || r.status === "EVALUATING",
-      );
-    if (tab === 3) return rows.filter((r) => r.status === "NOT STARTED");
-    return rows;
-  }, [rows, tab]);
+    const byTab =
+      tab === 1
+        ? rows.filter((r) => r.status === "In Progress")
+        : tab === 2
+          ? rows.filter(
+              (r) => r.status === "COMPLETED" || r.status === "EVALUATING",
+            )
+          : tab === 3
+            ? rows.filter((r) => r.status === "NOT STARTED")
+            : rows;
+    return [...byTab].sort(SORTS[sort]);
+  }, [rows, tab, sort]);
 
   const checkedIn = monitor
     ? monitor.totalStudents - monitor.counts.notStarted
@@ -215,6 +238,35 @@ function ParticipantsInner() {
               <DownloadIcon className="size-4 text-admin-muted" />
               {exporting ? "Exporting…" : "Export Results"}
             </button>
+            {/*
+              Attendance is a different report from results and was missing
+              entirely: the results sheet omits everyone who never started,
+              which is exactly the list an institute needs to follow up.
+            */}
+            <button
+              disabled={!data?.exam || exporting}
+              onClick={async () => {
+                if (!data?.exam) return;
+                setExporting(true);
+                setExportError(null);
+                try {
+                  await downloadAttendanceCsv(
+                    data.exam.id,
+                    `${data.exam.title}-attendance.csv`,
+                  );
+                } catch (e) {
+                  setExportError(
+                    e instanceof Error ? e.message : "Export failed",
+                  );
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <DownloadIcon className="size-4 text-admin-muted" />
+              {exporting ? "Exporting…" : "Export Attendance"}
+            </button>
             <button
               disabled
               title="Batch assignment happens in the exam wizard; per-student enrolment has no endpoint yet"
@@ -284,8 +336,26 @@ function ParticipantsInner() {
               })}
             </div>
             <div className="flex items-center gap-3">
-              <FilterBtn icon={FilterIcon}>Filter: Eligibility</FilterBtn>
-              <FilterBtn icon={SortIcon}>Sort: Roll Number</FilterBtn>
+              {/*
+                A "Filter: Eligibility" button used to sit beside this. There is
+                no eligibility concept on a participant — assignment is by batch
+                and is already reflected in this list — so it could never have
+                filtered anything. Removed rather than wired to an invention.
+              */}
+              <label className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink">
+                <SortIcon className="size-4 text-admin-muted" />
+                <span className="sr-only">Sort participants by</span>
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortKey)}
+                  className="bg-transparent text-sm outline-none"
+                >
+                  <option value="roll">Roll number</option>
+                  <option value="name">Name</option>
+                  <option value="score-desc">Score, highest first</option>
+                  <option value="score-asc">Score, lowest first</option>
+                </select>
+              </label>
             </div>
           </div>
 
@@ -360,11 +430,12 @@ function ParticipantsInner() {
                     <td className="px-4 py-4 font-semibold text-admin-ink">
                       {r.score}
                     </td>
-                    <td className="px-4 py-4 text-right">
-                      <button className="text-admin-muted hover:text-admin-ink">
-                        <MoreVerticalIcon className="size-4" />
-                      </button>
-                    </td>
+                    {/*
+                      A kebab button used to sit here with no menu behind it.
+                      Everything a participant row can actually do — export,
+                      publish, hold — is an exam-level action and already lives
+                      in the header, so there is nothing for a row menu to hold.
+                    */}
                   </tr>
                 ))}
               </tbody>
@@ -373,10 +444,11 @@ function ParticipantsInner() {
         </section>
       </div>
 
-      {/* FAB */}
-      <button className="fixed bottom-8 right-8 flex size-14 items-center justify-center rounded-full bg-admin text-white shadow-lg hover:opacity-95">
-        <PlusIcon className="size-6" />
-      </button>
+      {/*
+        A floating "+" button used to sit here. Participants are not added on
+        this screen — they are whoever is in the batches the exam is assigned
+        to — so it had nothing to open, and no handler.
+      */}
     </AdminShell>
   );
 }
@@ -465,21 +537,6 @@ function AttemptPill({ v }: { v: Attempt }) {
     <span className="rounded-full bg-admin-surface px-3 py-1 text-xs font-bold text-admin-muted">
       NOT STARTED
     </span>
-  );
-}
-
-function FilterBtn({
-  icon: Icon,
-  children,
-}: {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  children: React.ReactNode;
-}) {
-  return (
-    <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink hover:bg-admin-bg">
-      <Icon className="size-4 text-admin-muted" />
-      {children}
-    </button>
   );
 }
 

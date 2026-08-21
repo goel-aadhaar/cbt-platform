@@ -11,6 +11,7 @@ import {
   listAnnouncements,
   publishAnnouncement,
   unpublishAnnouncement,
+  updateAnnouncement,
   type AnnouncementCategory,
   type StaffAnnouncement,
 } from "@/lib/announcements";
@@ -27,6 +28,9 @@ const CATEGORIES: AnnouncementCategory[] = [
 /** Staff authoring for the student notice board. */
 export default function AdminAnnouncementsPage() {
   const [items, setItems] = useState<StaffAnnouncement[] | null>(null);
+  // The notice currently open for editing; null means the composer is
+  // creating a new one.
+  const [editing, setEditing] = useState<StaffAnnouncement | null>(null);
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -97,7 +101,10 @@ export default function AdminAnnouncementsPage() {
           </div>
           <button
             type="button"
-            onClick={() => setComposing((c) => !c)}
+            onClick={() => {
+              setEditing(null);
+              setComposing((c) => !c);
+            }}
             className="flex items-center gap-2 rounded-full bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
           >
             <PlusIcon className="size-4" />
@@ -116,9 +123,12 @@ export default function AdminAnnouncementsPage() {
 
         {composing && (
           <Composer
+            key={editing?.id ?? "new"}
             batches={batches}
+            editing={editing}
             onDone={async () => {
               setComposing(false);
+              setEditing(null);
               await reload();
             }}
             onError={setError}
@@ -200,6 +210,16 @@ export default function AdminAnnouncementsPage() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      setEditing(a);
+                      setComposing(true);
+                    }}
+                    className="rounded-lg border border-admin-line px-4 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
                     disabled={busy === a.id}
                     onClick={() => {
                       if (
@@ -224,20 +244,39 @@ export default function AdminAnnouncementsPage() {
   );
 }
 
+/**
+ * Authoring form for a notice, used for both new ones and edits.
+ *
+ * `PATCH /announcements/:id` was fully implemented server-side but had no
+ * client function and no control, so a published notice with a typo could only
+ * be deleted and retyped — losing its publication time and its place in the
+ * students' list. `expiresAt` was likewise supported and absent here.
+ *
+ * The parent remounts this via `key`, so the seeded state below is read once
+ * per notice rather than needing an effect to resync.
+ */
 function Composer({
   batches,
+  editing,
   onDone,
   onError,
 }: {
   batches: BatchRow[];
+  editing: StaffAnnouncement | null;
   onDone: () => void | Promise<void>;
   onError: (m: string) => void;
 }) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [category, setCategory] = useState<AnnouncementCategory>("GENERAL");
-  const [batchId, setBatchId] = useState("");
-  const [pinned, setPinned] = useState(false);
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [body, setBody] = useState(editing?.body ?? "");
+  const [category, setCategory] = useState<AnnouncementCategory>(
+    editing?.category ?? "GENERAL",
+  );
+  const [batchId, setBatchId] = useState(editing?.batchId ?? "");
+  const [pinned, setPinned] = useState(editing?.pinned ?? false);
+  // <input type="datetime-local"> wants `YYYY-MM-DDTHH:mm`, not an ISO string.
+  const [expiresAt, setExpiresAt] = useState(
+    editing?.expiresAt ? editing.expiresAt.slice(0, 16) : "",
+  );
   const [saving, setSaving] = useState(false);
 
   async function save(publish: boolean) {
@@ -248,14 +287,28 @@ function Composer({
     }
     setSaving(true);
     try {
-      await createAnnouncement({
+      const shared = {
         title: title.trim(),
         body: body.trim(),
         category,
         pinned,
-        publish,
-        ...(batchId ? { audience: "BATCH", batchId } : {}),
-      });
+        // An empty audience select means institute-wide, which is an explicit
+        // clear on an edit rather than "leave the old batch alone".
+        ...(batchId
+          ? { audience: "BATCH" as const, batchId }
+          : { audience: "ALL_STUDENTS" as const, batchId: null }),
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+      };
+      if (editing) {
+        await updateAnnouncement(editing.id, shared);
+      } else {
+        await createAnnouncement({
+          ...shared,
+          batchId: shared.batchId ?? undefined,
+          expiresAt: shared.expiresAt ?? undefined,
+          publish,
+        });
+      }
       await onDone();
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Could not save that");
@@ -328,6 +381,21 @@ function Composer({
             ))}
           </select>
         </label>
+
+        <label>
+          <span className="text-xs font-bold uppercase text-admin-muted">
+            Stop showing after
+          </span>
+          <input
+            type="datetime-local"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-admin-line px-3 py-2 text-sm outline-none focus:border-admin"
+          />
+          <span className="mt-1 block text-xs text-admin-muted">
+            Leave blank to keep it up indefinitely.
+          </span>
+        </label>
       </div>
 
       <label className="mt-4 flex items-center gap-2 text-sm text-admin-ink">
@@ -347,16 +415,20 @@ function Composer({
           onClick={() => void save(true)}
           className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
         >
-          {saving ? "Saving…" : "Publish now"}
+          {saving ? "Saving…" : editing ? "Save changes" : "Publish now"}
         </button>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => void save(false)}
-          className="rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
-        >
-          Save as draft
-        </button>
+        {/* Editing never re-publishes: a notice keeps whatever visibility it
+            already had, so there is no second button to offer. */}
+        {!editing && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void save(false)}
+            className="rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+          >
+            Save as draft
+          </button>
+        )}
       </div>
     </section>
   );

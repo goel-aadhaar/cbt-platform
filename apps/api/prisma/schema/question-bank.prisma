@@ -118,6 +118,10 @@ model Question {
   options       Json?
   answerKey     Json     @map("answer_key")
   explanation   String?
+  /// PRACTICE ONLY. Exam scoring uses the *section's* marksCorrect/marksWrong
+  /// for every question (`ResultsService.evaluate`), because an NTA-style paper
+  /// marks per section, not per question. Setting these has no effect on any
+  /// exam result — the authoring UI says so.
   marks         Float    @default(4)
   negativeMarks Float    @default(1) @map("negative_marks")
   mediaKeys     String[] @default([]) @map("media_keys")

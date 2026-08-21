@@ -21,8 +21,6 @@ import { AddStaffDrawer, StaffDetailsDrawer } from "./staff-drawers";
 import { RowActionsMenu } from "./row-actions-menu";
 import {
   CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ClipboardIcon,
   PlusIcon,
   SearchIcon,
@@ -42,6 +40,27 @@ const TAB_DEFS: { label: string; status?: StaffRow["status"] }[] = [
  * these used to be one page toggling a `viewRole` state; now `role` is fixed
  * per page, so a teacher and an administrator invite/list/act on distinctly.
  */
+type SortKey = "name-asc" | "name-desc" | "role" | "status" | "last-login";
+
+const SORT_LABELS: [SortKey, string][] = [
+  ["name-asc", "Name A–Z"],
+  ["name-desc", "Name Z–A"],
+  ["role", "Role"],
+  ["status", "Status"],
+  ["last-login", "Last login"],
+];
+
+const SORTS: Record<SortKey, (a: StaffRow, b: StaffRow) => number> = {
+  "name-asc": (a, b) => a.name.localeCompare(b.name),
+  "name-desc": (a, b) => b.name.localeCompare(a.name),
+  role: (a, b) => (a.roles?.join() ?? "").localeCompare(b.roles?.join() ?? ""),
+  status: (a, b) => a.status.localeCompare(b.status),
+  // Never-signed-in sorts last rather than pretending to be the oldest login.
+  "last-login": (a, b) =>
+    (b.lastLoginAt ? Date.parse(b.lastLoginAt) : -Infinity) -
+    (a.lastLoginAt ? Date.parse(a.lastLoginAt) : -Infinity),
+};
+
 export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
   const [tab, setTab] = useState(0);
   const params = useSearchParams();
@@ -53,14 +72,32 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  // The search box and the Sort button used to be decorative. `listStaff`
+  // already accepts `search`, so the box now drives the query; sorting is done
+  // over the loaded page, which is what the roster is.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("name-asc");
+
+  // Debounced so a typed name is one request, not one per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const {
     data,
     loading,
     error: loadError,
   } = useAdminData(
-    () => listStaff({ role, batchId: batchId || undefined, limit: 200 }),
-    [role, batchId, refreshTick],
+    () =>
+      listStaff({
+        role,
+        batchId: batchId || undefined,
+        search: search || undefined,
+        limit: 200,
+      }),
+    [role, batchId, search, refreshTick],
   );
   const all = useMemo(() => data?.items ?? [], [data]);
 
@@ -96,7 +133,11 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
   }));
 
   const wanted = TAB_DEFS[tab]?.status;
-  const STAFF = wanted ? all.filter((s) => s.status === wanted) : all;
+  const filtered = wanted ? all.filter((s) => s.status === wanted) : all;
+  const STAFF = useMemo(
+    () => [...filtered].sort(SORTS[sort]),
+    [filtered, sort],
+  );
   const label = role === "ADMIN" ? "administrator" : "teacher";
 
   async function handleDeactivate(row: StaffRow) {
@@ -254,7 +295,9 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
           <div className="relative flex min-w-[240px] flex-1 items-center">
             <SearchIcon className="pointer-events-none absolute left-3 size-4 text-admin-subtle" />
             <input
-              placeholder="Search staff…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search staff by name or email…"
               className="h-10 w-full rounded-lg border border-admin-line bg-white pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
             />
           </div>
@@ -272,18 +315,27 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
               ))}
             </select>
           )}
-          <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink hover:bg-admin-bg">
-            <SortIcon className="size-4 text-admin-muted" /> Sort
-          </button>
+          <label className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink">
+            <SortIcon className="size-4 text-admin-muted" />
+            <span className="sr-only">Sort staff by</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="bg-transparent text-sm outline-none"
+            >
+              {SORT_LABELS.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px] text-left text-sm">
             <thead>
               <tr className="border-y border-admin-line/60 bg-admin-bg/50 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-                <th className="w-10 px-4 py-3">
-                  <input type="checkbox" className="size-4 accent-admin" />
-                </th>
                 <th className="px-4 py-3">Staff Name</th>
                 {role === "TEACHER" && (
                   <>
@@ -325,9 +377,6 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
                     key={s.id}
                     className={`hover:bg-admin-bg/40 ${rowBusy === s.id ? "opacity-50" : ""}`}
                   >
-                    <td className="px-4 py-4">
-                      <input type="checkbox" className="size-4 accent-admin" />
-                    </td>
                     <td
                       className="cursor-pointer px-4 py-4"
                       onClick={() => setDetailsStaff(s)}
@@ -457,15 +506,18 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
           <p className="text-sm text-admin-muted">
             Showing {STAFF.length} of {counts.total} staff
           </p>
-          <div className="flex items-center gap-1">
-            <PageBtn>
-              <ChevronLeftIcon className="size-4" />
-            </PageBtn>
-            <PageNum active>1</PageNum>
-            <PageBtn>
-              <ChevronRightIcon className="size-4" />
-            </PageBtn>
-          </div>
+          {/*
+            The pager here was a dead "1" between two dead arrows. The endpoint
+            returns up to 200 staff in one call and no institute's staff list
+            approaches that, so rather than build paging nothing needs, say so
+            when the cap is actually reached instead of implying a page 2 that
+            never existed.
+          */}
+          {counts.total > all.length && (
+            <p className="text-xs text-admin-muted">
+              Showing the first {all.length}. Narrow the list with search.
+            </p>
+          )}
         </div>
       </section>
 
@@ -519,30 +571,6 @@ function StatCard({
       <p className="mt-4 text-sm text-admin-muted">{label}</p>
       <p className="mt-1 text-3xl font-bold text-admin-ink">{value}</p>
     </div>
-  );
-}
-
-function PageBtn({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex size-8 items-center justify-center rounded-lg border border-admin-line text-admin-muted hover:bg-admin-bg">
-      {children}
-    </button>
-  );
-}
-
-function PageNum({
-  children,
-  active,
-}: {
-  children: React.ReactNode;
-  active?: boolean;
-}) {
-  return (
-    <button
-      className={`flex size-8 items-center justify-center rounded-lg text-xs font-bold ${active ? "bg-admin text-white" : "text-admin-muted hover:bg-admin-bg"}`}
-    >
-      {children}
-    </button>
   );
 }
 

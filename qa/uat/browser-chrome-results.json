@@ -1,0 +1,210 @@
+{
+  "browser": "chrome",
+  "total": 29,
+  "failed": 0,
+  "results": [
+    {
+      "browser": "chrome",
+      "uat": "S01-P1-01a",
+      "name": "login screen renders",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-02a",
+      "name": "audience choice is a real control",
+      "pass": true,
+      "detail": "clicked the Student card"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S01-P1-01b",
+      "name": "candidate credential form renders",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-13",
+      "name": "Enter submits the login form (no click needed)",
+      "pass": true,
+      "detail": "landed on /student"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-01a",
+      "name": "sidebar exposes navigation links",
+      "pass": true,
+      "detail": "7 links: /student, /student/exams, /student/practice, /student/updates, /student/reports, /student/help, /student/profile"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-01b",
+      "name": "every nav destination renders with an active state",
+      "pass": true,
+      "detail": "7 routes checked"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-01",
+      "name": "result summary renders",
+      "pass": true,
+      "detail": "y to wrong answers. No marks lost to negative marking. Nothing you attempted was marked wrong. Review my answers Back to Performance Reports"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-01b",
+      "name": "every required result element is present",
+      "pass": true,
+      "detail": "all 20 present"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-11",
+      "name": "result page has no horizontal overflow at 1440x900",
+      "pass": true,
+      "detail": "overflow=0px "
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-12",
+      "name": "result page usable at 125% zoom",
+      "pass": true,
+      "detail": "overflow=0px , content=true"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S01-P1-05",
+      "name": "sign out and sign in as another candidate",
+      "pass": true,
+      "detail": "now UATKEY-DELTA"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-02",
+      "name": "question review renders",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-03",
+      "name": "all six review filters offered",
+      "pass": true,
+      "detail": "All / Incorrect / Correct / Skipped / Marked for review / Slow questions"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-03b",
+      "name": "every offered filter returns at least one question",
+      "pass": true,
+      "detail": "Incorrect=ok, Skipped=ok, Marked for review=ok, Slow questions=ok, Correct=ok"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-04a",
+      "name": "clicking a question opens the single-question reader",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-04",
+      "name": "Next advances without leaving the page",
+      "pass": true,
+      "detail": "position 1 -> 2, still on review=true"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-05",
+      "name": "Previous returns to the prior question",
+      "pass": true,
+      "detail": "position 2 -> 1 (expected 1)"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-03",
+      "name": "Previous is truly disabled on the first question",
+      "pass": true,
+      "detail": "disabled=true"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S13-P1-06",
+      "name": "question detail carries answer, key, marks, explanation, time, difficulty and subject",
+      "pass": true,
+      "detail": "all present"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-11b",
+      "name": "review page has no horizontal overflow at 1440x900",
+      "pass": true,
+      "detail": "overflow=0px "
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-01b",
+      "name": "candidate can sign in to sit the paper",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-01c",
+      "name": "the exam runner loads and renders the first question",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-01",
+      "name": "exam header carries the candidate, the paper and a running clock",
+      "pass": true,
+      "detail": "{\"roll\":true,\"exam\":true,\"timer\":true}"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-04",
+      "name": "a question diagram actually decodes and paints",
+      "pass": true,
+      "detail": "painted 8x8"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-31",
+      "name": "an incidental violation does not end a paper with no violation limit set",
+      "pass": true,
+      "detail": "still sitting=true, submitted=false, banner=1 VIOLATION RECORDED"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S04-P0-05",
+      "name": "math and science notation render as notation, not as source",
+      "pass": true,
+      "detail": "a math renderer is present"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-09",
+      "name": "a very long name/email does not force the page sideways",
+      "pass": true,
+      "detail": "overflow=0px"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-04",
+      "name": "no uncaught console errors across the run",
+      "pass": true,
+      "detail": "clean"
+    },
+    {
+      "browser": "chrome",
+      "uat": "S22-P1-06b",
+      "name": "no failed network requests across the run",
+      "pass": true,
+      "detail": "clean"
+    }
+  ]
+}

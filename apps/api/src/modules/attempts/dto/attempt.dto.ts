@@ -46,4 +46,18 @@ export class SaveResponseDto {
   @IsOptional()
   @IsBoolean()
   markedForReview?: boolean;
+
+  /**
+   * Milliseconds spent on this question SINCE THE LAST REPORT (a delta, not a
+   * total) — accumulated server-side, mirroring `RecordSectionTimeDto.seconds`.
+   * A delta is what survives the client's fire-and-forget autosave: two saves
+   * racing add up correctly, whereas two "totals" would clobber each other.
+   * Capped at one hour per report so a tab left open overnight can't book a
+   * day of thinking time against a single question.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3_600_000)
+  timeSpentMs?: number;
 }

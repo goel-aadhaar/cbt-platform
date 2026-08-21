@@ -67,15 +67,28 @@ async function bootstrap(): Promise<void> {
   // Global prefix + URI versioning → /api, /api/v1 (health/docs version-neutral).
   configureApp(app);
 
-  // OpenAPI docs at /api/docs.
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('DRSK CBT API')
-    .setDescription('Multi-tenant NTA-style CBT examination platform API')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, swaggerConfig);
-  SwaggerModule.setup('api/docs', app, document);
+  /**
+   * OpenAPI docs at /api/docs — off in production unless explicitly asked for.
+   *
+   * Swagger UI is unauthenticated by construction, so on a public origin it
+   * hands an anonymous caller the complete route list, every DTO and every
+   * validation rule: a map of the attack surface, published next to the API it
+   * describes. Nobody sitting an exam needs it, so the default flips with the
+   * environment. `ENABLE_API_DOCS=true` re-enables it for a staging box that
+   * happens to run NODE_ENV=production.
+   */
+  const docsEnabled =
+    process.env.ENABLE_API_DOCS === 'true' || config.nodeEnv !== 'production';
+  if (docsEnabled) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('DRSK CBT API')
+      .setDescription('Multi-tenant NTA-style CBT examination platform API')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, swaggerConfig);
+    SwaggerModule.setup('api/docs', app, document);
+  }
 
   // Graceful shutdown (DB pool, pino flush) on SIGTERM/SIGINT.
   app.enableShutdownHooks();
@@ -88,7 +101,9 @@ async function bootstrap(): Promise<void> {
     'Bootstrap',
   );
   logger.log(
-    `📚 Docs at http://localhost:${config.port}/api/docs`,
+    docsEnabled
+      ? `📚 Docs at http://localhost:${config.port}/api/docs`
+      : '📚 Docs disabled in production (set ENABLE_API_DOCS=true to serve them)',
     'Bootstrap',
   );
 }

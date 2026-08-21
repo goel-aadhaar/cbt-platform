@@ -1,0 +1,168 @@
+{
+  "total": 27,
+  "failed": 0,
+  "results": [
+    {
+      "uat": "BUG-101-a",
+      "name": "evaluate returns 200",
+      "pass": true,
+      "detail": "200 {\"evaluated\": 3, \"maxScore\": 12, \"autoPublished\": false}"
+    },
+    {
+      "uat": "BUG-101-b",
+      "name": "baseline score UATKEY-ALPHA",
+      "pass": true,
+      "detail": "expected 12, got 12"
+    },
+    {
+      "uat": "BUG-101-b",
+      "name": "baseline score UATKEY-BETA",
+      "pass": true,
+      "detail": "expected 2, got 2"
+    },
+    {
+      "uat": "BUG-101-b",
+      "name": "baseline score UATKEY-GAMMA",
+      "pass": true,
+      "detail": "expected -3, got -3"
+    },
+    {
+      "uat": "BUG-101-c",
+      "name": "baseline overall ranks 1/2/3",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": 1, \"UATKEY-BETA\": 2, \"UATKEY-GAMMA\": 3}"
+    },
+    {
+      "uat": "BUG-101-d",
+      "name": "results publish returns 200",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "uat": "BUG-101-e",
+      "name": "all three results published",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": true, \"UATKEY-BETA\": true, \"UATKEY-GAMMA\": true}"
+    },
+    {
+      "uat": "BUG-101-f",
+      "name": "un-confirmed edit of a used question is refused",
+      "pass": true,
+      "detail": "409 {\"statusCode\": 409, \"error\": \"QuestionUsedInExams\", \"message\": \"This question has already been used in exams. Continue? Re-send with confirm"
+    },
+    {
+      "uat": "BUG-101-g",
+      "name": "confirmed key edit returns 200",
+      "pass": true,
+      "detail": "200 {\"id\": \"92d179d8-4d02-4495-bd02-c178193b9aad\", \"subject\": \"Physics\", \"chapter\": \"Kinematics\", \"topic\": null, \"subjectId\": \"02726bd5-a563-41d"
+    },
+    {
+      "uat": "BUG-101-h",
+      "name": "response reports the exam it re-scored",
+      "pass": true,
+      "detail": "[{\"examId\": \"c2e3d4ca-fd96-4255-82c2-c258f3d5a979\", \"evaluated\": 3}]"
+    },
+    {
+      "uat": "BUG-101-i",
+      "name": "stored score re-scored UATKEY-ALPHA",
+      "pass": true,
+      "detail": "expected 7, got 7"
+    },
+    {
+      "uat": "BUG-101-i",
+      "name": "stored score re-scored UATKEY-BETA",
+      "pass": true,
+      "detail": "expected -3, got -3"
+    },
+    {
+      "uat": "BUG-101-i",
+      "name": "stored score re-scored UATKEY-GAMMA",
+      "pass": true,
+      "detail": "expected 2, got 2"
+    },
+    {
+      "uat": "BUG-101-j",
+      "name": "ranks re-derived from the new scores (ALPHA 1, GAMMA 2, BETA 3)",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": 1, \"UATKEY-BETA\": 3, \"UATKEY-GAMMA\": 2}"
+    },
+    {
+      "uat": "BUG-101-k",
+      "name": "re-score preserved publication (no yank back into review)",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": true, \"UATKEY-BETA\": true, \"UATKEY-GAMMA\": true}"
+    },
+    {
+      "uat": "BUG-101-l",
+      "name": "review per-question marks sum to the stored total (UATKEY-ALPHA)",
+      "pass": true,
+      "detail": "sum=7 stored=7 expected=7"
+    },
+    {
+      "uat": "BUG-101-l",
+      "name": "review per-question marks sum to the stored total (UATKEY-BETA)",
+      "pass": true,
+      "detail": "sum=-3 stored=-3 expected=-3"
+    },
+    {
+      "uat": "BUG-101-l",
+      "name": "review per-question marks sum to the stored total (UATKEY-GAMMA)",
+      "pass": true,
+      "detail": "sum=2 stored=2 expected=2"
+    },
+    {
+      "uat": "BUG-101-m",
+      "name": "key restored returns 200",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "uat": "BUG-101-n",
+      "name": "restoring the key restores the original scores",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": 12, \"UATKEY-BETA\": 2, \"UATKEY-GAMMA\": -3}"
+    },
+    {
+      "uat": "BUG-102-a",
+      "name": "GAMMA is alone in batch B (batchRank 1)",
+      "pass": true,
+      "detail": "batchRank=1"
+    },
+    {
+      "uat": "BUG-102-b",
+      "name": "ALPHA tops batch A (batchRank 1)",
+      "pass": true,
+      "detail": "batchRank=1"
+    },
+    {
+      "uat": "BUG-102-c",
+      "name": "student moved to batch A",
+      "pass": true,
+      "detail": "200 {\"id\": \"01faed0e-79bd-42fa-9856-e6fc74e62993\", \"rollNumber\": \"UATKEY-GAMMA\", \"name\": \"UATKEY-GAMMA\", \"email\": \"uatkey-ga"
+    },
+    {
+      "uat": "BUG-102-d",
+      "name": "re-evaluate after the move returns 200",
+      "pass": true,
+      "detail": "200"
+    },
+    {
+      "uat": "BUG-102-e",
+      "name": "scores unchanged by a batch move",
+      "pass": true,
+      "detail": "{\"UATKEY-ALPHA\": 12, \"UATKEY-BETA\": 2, \"UATKEY-GAMMA\": -3}"
+    },
+    {
+      "uat": "BUG-102-f",
+      "name": "GAMMA's batch rank still reflects the batch sat under (1, not 3)",
+      "pass": true,
+      "detail": "batchRank=1 (3 would mean the concluded exam was re-cohorted)"
+    },
+    {
+      "uat": "BUG-102-g",
+      "name": "ALPHA's batch rank unaffected by another student's move",
+      "pass": true,
+      "detail": "batchRank=1"
+    }
+  ]
+}

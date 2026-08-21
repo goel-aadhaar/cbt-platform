@@ -14,6 +14,10 @@ import { ApiError } from "@/lib/api";
 import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   createQuestion,
+  updateQuestion,
+  usedInExams,
+  type AffectedExam,
+  type QuestionDetail,
   type CreateQuestionInput,
   type Difficulty,
   type QuestionType,
@@ -52,14 +56,30 @@ function emptyOptions(): OptionRow[] {
  * Saved as DRAFT; the teacher sends it for approval afterwards from the
  * question list, same as an imported one.
  */
+/**
+ * Authoring drawer, used for both new questions and edits.
+ *
+ * `PATCH /questions/:id` has always been implemented — with a used-in-exams
+ * safeguard and, since the answer-key fix, automatic re-scoring — but nothing
+ * in the app called it. A question with a wrong answer key could not be
+ * corrected through the UI at all; the only route was to archive it and author
+ * a replacement, which loses its history and leaves concluded papers scored
+ * against the bad key.
+ *
+ * The parent remounts this via `key` when the target changes, so the state
+ * below is seeded once per question rather than resynced by an effect.
+ */
 export function QuestionAuthorDrawer({
   open,
   onClose,
   onCreated,
+  editing,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
+  /** Provide to edit an existing question; omit to author a new one. */
+  editing?: QuestionDetail | null;
 }) {
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [chapters, setChapters] = useState<ChapterRow[] | null>(null);
@@ -67,25 +87,50 @@ export function QuestionAuthorDrawer({
   const [examCategories, setExamCategories] = useState<ExamCategory[] | null>(
     null,
   );
-  const [subjectId, setSubjectId] = useState("");
-  const [chapterId, setChapterId] = useState("");
-  const [topicId, setTopicId] = useState("");
-  const [difficulty, setDifficulty] = useState<Difficulty>("MEDIUM");
-  const [type, setType] = useState<QuestionType>("MCQ");
-  const [examCategoryId, setExamCategoryId] = useState("");
-  const [tags, setTags] = useState("");
-  const [statement, setStatement] = useState("");
-  const [options, setOptions] = useState<OptionRow[]>(emptyOptions());
-  const [mcqAnswer, setMcqAnswer] = useState("A");
-  const [msqAnswer, setMsqAnswer] = useState<string[]>([]);
-  const [intAnswer, setIntAnswer] = useState("");
-  const [explanation, setExplanation] = useState("");
-  const [marks, setMarks] = useState("4");
-  const [negativeMarks, setNegativeMarks] = useState("1");
-  const [mediaKeys, setMediaKeys] = useState<string[]>([]);
+  const [subjectId, setSubjectId] = useState(editing?.subjectId ?? "");
+  const [chapterId, setChapterId] = useState(editing?.chapterId ?? "");
+  const [topicId, setTopicId] = useState(editing?.topicId ?? "");
+  const [difficulty, setDifficulty] = useState<Difficulty>(
+    editing?.difficulty ?? "MEDIUM",
+  );
+  const [type, setType] = useState<QuestionType>(editing?.type ?? "MCQ");
+  const [examCategoryId, setExamCategoryId] = useState(
+    editing?.examCategoryId ?? "",
+  );
+  const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
+  const [statement, setStatement] = useState(editing?.statement ?? "");
+  const [options, setOptions] = useState<OptionRow[]>(
+    editing?.options?.length
+      ? editing.options.map((o) => ({ key: o.key, text: o.text }))
+      : emptyOptions(),
+  );
+  const [mcqAnswer, setMcqAnswer] = useState(
+    typeof editing?.answerKey === "string" ? editing.answerKey : "A",
+  );
+  const [msqAnswer, setMsqAnswer] = useState<string[]>(
+    Array.isArray(editing?.answerKey) ? editing.answerKey : [],
+  );
+  const [intAnswer, setIntAnswer] = useState(
+    typeof editing?.answerKey === "number" ? String(editing.answerKey) : "",
+  );
+  const [explanation, setExplanation] = useState(editing?.explanation ?? "");
+  const [marks, setMarks] = useState(String(editing?.marks ?? 4));
+  const [negativeMarks, setNegativeMarks] = useState(
+    String(editing?.negativeMarks ?? 1),
+  );
+  const [mediaKeys, setMediaKeys] = useState<string[]>(
+    editing?.mediaKeys ?? [],
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /**
+   * Exams this edit would re-score, from a 409 the server raised. Holding them
+   * here turns the refusal into a confirmation step instead of an error the
+   * author cannot get past.
+   */
+  const [affected, setAffected] = useState<AffectedExam[] | null>(null);
+  const [recalculated, setRecalculated] = useState<number | null>(null);
 
   function reset() {
     setSubjectId("");
@@ -176,7 +221,7 @@ export function QuestionAuthorDrawer({
         options.every((o) => o.text.trim()) &&
         (type === "MCQ" ? mcqAnswer : msqAnswer.length > 0));
 
-  async function save() {
+  async function save(confirm = false) {
     if (!valid) return;
     setSaving(true);
     setError(null);
@@ -207,15 +252,31 @@ export function QuestionAuthorDrawer({
         negativeMarks: negativeMarks.trim() ? Number(negativeMarks) : undefined,
         mediaKeys: mediaKeys.length ? mediaKeys : undefined,
       };
-      await createQuestion(input);
+      if (editing) {
+        const res = await updateQuestion(editing.id, { ...input, confirm });
+        setRecalculated(
+          res.recalculated?.reduce((n, r) => n + r.evaluated, 0) ?? 0,
+        );
+      } else {
+        await createQuestion(input);
+      }
+      setAffected(null);
       setDone(true);
       onCreated?.();
     } catch (e) {
-      setError(
-        e instanceof ApiError || e instanceof Error
-          ? e.message
-          : "Could not save the question.",
-      );
+      // Not an error the author can do anything about by retrying — it is the
+      // server asking whether they meant to touch a question that has already
+      // been sat. Show which papers, and let them decide.
+      const exams = usedInExams(e);
+      if (exams) {
+        setAffected(exams);
+      } else {
+        setError(
+          e instanceof ApiError || e instanceof Error
+            ? e.message
+            : "Could not save the question.",
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -234,7 +295,11 @@ export function QuestionAuthorDrawer({
       <div className="relative flex h-full w-full max-w-[760px] flex-col bg-white shadow-2xl">
         <header className="flex items-center justify-between border-b border-admin-line/60 px-8 py-6">
           <h2 className="text-xl font-bold text-admin-ink">
-            {done ? "Question saved" : "New Question"}
+            {done
+              ? "Question saved"
+              : editing
+                ? "Edit Question"
+                : "New Question"}
           </h2>
           <button
             onClick={reset}
@@ -249,12 +314,65 @@ export function QuestionAuthorDrawer({
           {done ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <p className="text-lg font-bold text-admin-ink">
-                Saved as a draft
+                {editing ? "Changes saved" : "Saved as a draft"}
               </p>
               <p className="max-w-sm text-sm text-admin-muted">
-                Find it under &quot;My questions&quot; to send it for approval
-                whenever you&apos;re ready.
+                {editing
+                  ? recalculated
+                    ? `${recalculated} result(s) were re-scored because the answer key changed. Published results were updated in place, not withdrawn.`
+                    : "Nothing needed re-scoring — this edit does not change how the question marks."
+                  : 'Find it under "My questions" to send it for approval whenever you\'re ready.'}
               </p>
+            </div>
+          ) : affected ? (
+            /*
+              The server refused because this question has already been sat.
+              That is a safeguard, not a failure: an answer-key change re-scores
+              concluded papers. Show exactly which, then let the author decide.
+            */
+            <div className="flex flex-col gap-4 py-6">
+              <p className="text-lg font-bold text-admin-ink">
+                This question has already been used
+              </p>
+              <p className="text-sm text-admin-muted">
+                {affected.length} exam(s) include it. If your change affects the
+                answer key, the type or the options, those papers will be
+                re-scored immediately — ranks and percentiles included.
+                Already-published results are updated in place rather than
+                withdrawn.
+              </p>
+              <ul className="flex flex-col gap-2 rounded-xl border border-admin-line bg-admin-bg/40 p-4">
+                {affected.map((e) => (
+                  <li
+                    key={e.id}
+                    className="flex items-center justify-between text-sm"
+                  >
+                    <span className="font-semibold text-admin-ink">
+                      {e.title}
+                    </span>
+                    <span className="text-xs uppercase text-admin-muted">
+                      {e.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void save(true)}
+                  className="rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save and re-score"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAffected(null)}
+                  className="rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin-ink hover:bg-admin-bg"
+                >
+                  Back to editing
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex flex-col gap-6">
@@ -375,21 +493,41 @@ export function QuestionAuthorDrawer({
                     className={INPUT_CLS}
                   />
                 </Field>
-                <Field label="Marks / Negative marks">
+                <Field label="Practice marks / negative marks">
                   <div className="flex gap-2">
                     <input
                       type="number"
                       value={marks}
                       onChange={(e) => setMarks(e.target.value)}
                       className={INPUT_CLS}
+                      aria-describedby="practice-marks-note"
                     />
                     <input
                       type="number"
                       value={negativeMarks}
                       onChange={(e) => setNegativeMarks(e.target.value)}
                       className={INPUT_CLS}
+                      aria-describedby="practice-marks-note"
                     />
                   </div>
+                  {/*
+                    These apply to PRACTICE only.
+                    An exam scores every question by its *section's*
+                    marksCorrect/marksWrong — that is how an NTA-style paper
+                    works, and it is what `evaluate()` reads. The field used to
+                    be labelled plainly "Marks", so a teacher could set 5/-2
+                    here, see it saved, and reasonably believe the exam would
+                    mark it that way. It never did. Labelled rather than
+                    honoured: making exam scoring read this field would
+                    silently restate every result already published.
+                  */}
+                  <p
+                    id="practice-marks-note"
+                    className="mt-1 text-xs text-admin-muted"
+                  >
+                    Used in the practice library. Exams mark every question by
+                    its section&apos;s scheme, set when the paper is built.
+                  </p>
                 </Field>
               </div>
 
@@ -518,13 +656,15 @@ export function QuestionAuthorDrawer({
           >
             {done ? "Close" : "Cancel"}
           </button>
-          {!done && (
+          {/* Hidden while the used-in-exams confirmation is up: that panel
+              carries its own, more explicit, save button. */}
+          {!done && !affected && (
             <button
-              onClick={save}
+              onClick={() => void save()}
               disabled={!valid || saving}
               className="rounded-lg bg-admin px-6 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {saving ? "Saving…" : "Save as draft"}
+              {saving ? "Saving…" : editing ? "Save changes" : "Save as draft"}
             </button>
           )}
         </footer>

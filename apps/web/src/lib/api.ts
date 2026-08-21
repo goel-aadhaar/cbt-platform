@@ -76,6 +76,15 @@ export class ApiError extends Error {
   readonly reason?: string;
   /** API path that failed — included so support can act on the message. */
   readonly path?: string;
+  /**
+   * The server's error body, verbatim.
+   *
+   * `code`/`reason`/`details` cover the common shapes, but some refusals carry
+   * a payload the caller has to act on — `QuestionUsedInExams` names the exams
+   * an answer-key change would re-score, and the UI cannot ask for confirmation
+   * without it. Keeping the body avoids adding a field per special case.
+   */
+  readonly body?: unknown;
 
   constructor(status: number, body: Partial<ApiErrorBody> | null, path = "") {
     const raw = body?.message;
@@ -94,6 +103,7 @@ export class ApiError extends Error {
     this.details = body?.details;
     this.reason = body?.error;
     this.path = path;
+    this.body = body;
   }
 }
 

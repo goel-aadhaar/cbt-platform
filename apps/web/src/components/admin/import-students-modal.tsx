@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import {
-  importStudentsCsv,
+  downloadStudentTemplate,
+  importStudentRoster,
   listBatches,
   type BatchRow,
   type ImportSummary,
@@ -18,15 +19,23 @@ import {
 } from "./icons";
 
 /**
- * Bulk-import students from CSV (Figma 9:6962), wired to POST /students/import.
+ * Bulk-import students from an Excel workbook or CSV (Figma 9:6962), wired to
+ * POST /students/import.
  *
- * The backend requires a target `batchId` and a CSV with `name` + `email`
- * columns. Roll numbers are always server-generated
- * ({yy}{institute code}{sequence}, §2.11) — a rollNumber column, if present,
- * is ignored. Each row goes through the normal invitation flow, so imported
- * students land in PENDING. Max upload is 2 MB (backend limit), and only CSV is
- * accepted — the design's "XLSX / 50MB" copy overstated both.
+ * Excel is what schools actually keep rosters in, so it is the primary path —
+ * asking an office to re-save as CSV is where a bulk import goes wrong (lost
+ * leading zeros, mangled encodings, the wrong delimiter for the machine's
+ * locale). CSV still works for anyone who prefers it.
+ *
+ * The backend requires a target `batchId` and `name` + `email` columns. Roll
+ * numbers are always server-generated ({yy}{institute code}{sequence}, §2.11) —
+ * a rollNumber column, if present, is ignored. Each row goes through the normal
+ * invitation flow, so imported students land in PENDING. Max upload is 10 MB.
  */
+/** How many rows to list before summarising the rest. */
+const IMPORTED_SHOWN = 8;
+const FAILURES_SHOWN = 5;
+
 export function ImportStudentsModal({
   open,
   onClose,
@@ -57,13 +66,46 @@ export function ImportStudentsModal({
     };
   }, [open]);
 
-  function downloadTemplate() {
-    const csv = "name,email\nJane Doe,jane@example.com\n";
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  /**
+   * The template comes from the API rather than being built here, so its
+   * columns are generated from the same names the parser reads and cannot
+   * drift out of date. It carries worked example rows and a "How to use" sheet.
+   */
+  async function downloadTemplate() {
+    try {
+      await downloadStudentTemplate();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not download the template.",
+      );
+    }
+  }
+
+  /**
+   * Hand back the rejected rows as a file.
+   *
+   * On a 500-row roster the on-screen list can only ever be a sample, and
+   * re-typing what it showed is not a workflow. This is the list of what to
+   * fix, in the same shape as the file that was uploaded.
+   */
+  function downloadFailures() {
+    if (!summary) return;
+    const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = [
+      "row,email,reason",
+      ...summary.failed.map((f) =>
+        [f.row, esc(f.email), esc(f.reason)].join(","),
+      ),
+    ].join("\r\n");
+    const url = URL.createObjectURL(
+      new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }),
+    );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "drsk-students-template.csv";
+    a.download = "drsk-student-import-failures.csv";
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     URL.revokeObjectURL(url);
   }
 
@@ -72,7 +114,7 @@ export function ImportStudentsModal({
     setBusy(true);
     setError(null);
     try {
-      const res = await importStudentsCsv(file, { batchId });
+      const res = await importStudentRoster(file, { batchId });
       setSummary(res);
       onImported?.(res);
     } catch (e) {
@@ -110,7 +152,8 @@ export function ImportStudentsModal({
                 Import Students
               </h2>
               <p className="text-sm text-admin-muted">
-                Upload a CSV to bulk add students to a batch.
+                Upload an Excel file (.xlsx) or CSV to bulk add students to a
+                batch.
               </p>
             </div>
           </div>
@@ -148,7 +191,7 @@ export function ImportStudentsModal({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-admin-line/50">
-                      {summary.imported.slice(0, 8).map((r) => (
+                      {summary.imported.slice(0, IMPORTED_SHOWN).map((r) => (
                         <tr key={r.row}>
                           <td className="px-3 py-2 text-admin-muted">
                             {r.row}
@@ -161,15 +204,40 @@ export function ImportStudentsModal({
                       ))}
                     </tbody>
                   </table>
+                  {summary.imported.length > IMPORTED_SHOWN && (
+                    <p className="border-t border-admin-line/60 px-3 py-2 text-xs text-admin-muted">
+                      …and {summary.imported.length - IMPORTED_SHOWN} more
+                      imported successfully.
+                    </p>
+                  )}
                 </div>
               )}
               {summary.failed.length > 0 && (
                 <div className="rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm">
-                  {summary.failed.slice(0, 5).map((f) => (
+                  {summary.failed.slice(0, FAILURES_SHOWN).map((f) => (
                     <p key={f.row} className="text-danger">
                       Row {f.row} ({f.email}): {f.reason}
                     </p>
                   ))}
+                  {/*
+                    Never let the list end without saying it was cut short: the
+                    rows that failed are exactly what the admin has to go and
+                    fix, and a silently truncated list looks like the whole of
+                    the problem.
+                  */}
+                  {summary.failed.length > FAILURES_SHOWN && (
+                    <p className="mt-2 font-semibold text-danger">
+                      …and {summary.failed.length - FAILURES_SHOWN} more.
+                      Download the failed rows to see them all.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={downloadFailures}
+                    className="mt-3 rounded-lg border border-danger/40 px-3 py-1.5 text-xs font-bold text-danger hover:bg-danger/10"
+                  >
+                    Download failed rows (CSV)
+                  </button>
                 </div>
               )}
             </div>
@@ -202,18 +270,18 @@ export function ImportStudentsModal({
                   <CloudUploadIcon className="size-7" />
                 </span>
                 <span className="mt-4 text-lg font-bold text-admin-ink">
-                  {file ? file.name : "Click to upload a CSV"}
+                  {file ? file.name : "Click to upload an Excel file or CSV"}
                 </span>
                 <span className="mt-1 text-sm text-admin-muted">
                   {file
                     ? `${(file.size / 1024).toFixed(1)} KB — click to replace`
-                    : "Columns: name, email · roll numbers are assigned automatically · max 2 MB"}
+                    : "Columns: name, email · roll numbers are assigned automatically · max 10 MB"}
                 </span>
               </button>
               <input
                 ref={inputRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
                 hidden
                 onChange={(e) => {
                   setFile(e.target.files?.[0] ?? null);
@@ -223,7 +291,7 @@ export function ImportStudentsModal({
 
               <div className="mt-4 flex items-center gap-6 text-sm font-semibold text-admin">
                 <button
-                  onClick={downloadTemplate}
+                  onClick={() => void downloadTemplate()}
                   className="flex items-center gap-2 hover:underline"
                 >
                   <DownloadIcon className="size-4" /> Download template

@@ -7,6 +7,7 @@ import {
 import {
   ExamQuestionScoring,
   QuestionType,
+  ResponseStatus,
   ResultPolicy,
 } from '../../generated/prisma/enums';
 import { Workbook } from 'exceljs';
@@ -29,12 +30,26 @@ interface SectionScore {
   sectionId: string;
   name: string;
   score: number;
+  /**
+   * Marks obtainable in this section, and how many questions carry them —
+   * what makes a section *percentage* (and so section accuracy) computable.
+   * Optional on read: rows written before these were added simply omit them.
+   */
+  maxScore: number;
+  questionCount: number;
   correct: number;
   incorrect: number;
   unattempted: number;
   /** Time the candidate spent in this section (§2.8 historical record). */
   seconds: number;
 }
+
+/**
+ * Fewest candidates for which a cohort average is still an aggregate. Below
+ * this, "the average" plus the reader's own score narrows the remaining
+ * candidates' scores too far — see {@link ResultsService.getCohortForStudent}.
+ */
+const COHORT_MIN = 5;
 
 interface ScoredAttempt {
   attemptId: string;
@@ -171,6 +186,25 @@ export class ResultsService {
       timeRows.map((t) => [`${t.attemptId}:${t.sectionId}`, t.seconds]),
     );
 
+    /**
+     * Batch as it was WHEN THE PAPER WAS SAT, not as it is now.
+     *
+     * `Result.batchId` is written once on the first evaluation and never
+     * updated, but batch ranks used to be grouped by the student's *current*
+     * batch. Moving a student after an exam therefore re-ranked their old
+     * result against a cohort it does not belong to, and wrote that rank onto
+     * a row still labelled with the original batch — the two disagreed.
+     * Re-using the stored batch keeps a concluded exam's batch ranks stable no
+     * matter how the roster is reorganised afterwards.
+     */
+    const priorResults = await this.prisma.result.findMany({
+      where: { examId, instituteId },
+      select: { attemptId: true, batchId: true },
+    });
+    const batchAtEvaluation = new Map(
+      priorResults.map((r) => [r.attemptId, r.batchId]),
+    );
+
     const scored: ScoredAttempt[] = attempts.map((att) => {
       let totalScore = 0;
       let correctCount = 0;
@@ -191,11 +225,18 @@ export class ResultsService {
             sectionId: m.sectionId,
             name: m.sectionName,
             score: 0,
+            maxScore: 0,
+            questionCount: 0,
             correct: 0,
             incorrect: 0,
             unattempted: 0,
             seconds: secondsByKey.get(`${att.id}:${m.sectionId}`) ?? 0,
           } satisfies SectionScore);
+
+        // Every question still in `meta` is obtainable (DROPPED ones were
+        // filtered out above), so this mirrors the exam-wide `maxScore` sum.
+        sec.maxScore += m.marksCorrect;
+        sec.questionCount += 1;
 
         if (m.override === ExamQuestionScoring.BONUS) {
           // Full marks to everyone regardless of their answer.
@@ -242,7 +283,8 @@ export class ResultsService {
       return {
         attemptId: att.id,
         studentId: att.studentId,
-        batchId: att.student.batchId,
+        // Snapshot semantics — see `batchAtEvaluation` above.
+        batchId: batchAtEvaluation.get(att.id) ?? att.student.batchId,
         totalScore,
         correctCount,
         incorrectCount,
@@ -285,6 +327,7 @@ export class ResultsService {
     // held policies (ON_PUBLISH / BATCH_WISE) stay hidden until an admin
     // publishes (all at once, or batch-by-batch for BATCH_WISE).
     const autoPublish = exam.resultPolicy === ResultPolicy.IMMEDIATE;
+    const now = new Date();
 
     await this.prisma.$transaction(
       scored.map((s) =>
@@ -306,6 +349,7 @@ export class ResultsService {
             batchRank: s.batchRank,
             percentile: s.percentile,
             published: autoPublish,
+            publishedAt: autoPublish ? now : null,
           },
           update: {
             totalScore: s.totalScore,
@@ -320,11 +364,30 @@ export class ResultsService {
             // IMMEDIATE stays visible on re-evaluation; held policies re-hide
             // until an admin reviews + republishes — unless this is an answer-key
             // correction, which must leave visibility exactly as it was.
-            ...(opts.preservePublished ? {} : { published: autoPublish }),
+            //
+            // `publishedAt` tracks that decision rather than the re-evaluation:
+            // a paper that was already visible keeps its original release time
+            // (re-scoring is not a re-release), and one that gets re-hidden has
+            // it cleared. Only a hidden→visible flip stamps a new timestamp.
+            ...(opts.preservePublished
+              ? {}
+              : {
+                  published: autoPublish,
+                  ...(autoPublish ? {} : { publishedAt: null }),
+                }),
           },
         }),
       ),
     );
+
+    // An upsert's `update` cannot read the row's current value, so a result
+    // that flipped hidden→visible in the block above would be `published` with
+    // no release time. Stamp exactly those; already-visible rows keep the
+    // timestamp they had, which is the point of tracking it separately.
+    await this.prisma.result.updateMany({
+      where: { examId, instituteId, published: true, publishedAt: null },
+      data: { publishedAt: now },
+    });
 
     return { evaluated: n, maxScore, autoPublished: autoPublish };
   }
@@ -497,7 +560,32 @@ export class ResultsService {
       update: { marks: dto.marks },
       select: { attemptId: true, questionId: true, marks: true },
     });
-    return { ...saved, scoring: examQuestion.scoring };
+
+    /**
+     * Re-score the exam straight away.
+     *
+     * A manual award only reaches a candidate's total through `evaluate()`, so
+     * writing the `ManualScore` row alone left every stored `Result` stale
+     * until somebody happened to press Recalculate — and the award silently did
+     * nothing in the meantime. Worse, it also moves ranks and percentiles for
+     * *other* candidates, so a half-applied award is not merely incomplete, it
+     * is inconsistent.
+     *
+     * `preservePublished` keeps an already-visible result visible: awarding
+     * marks should raise what a candidate sees, not pull their result back into
+     * review. Same treatment as an answer-key correction and a bonus/dropped
+     * question.
+     */
+    const recalculated = await this.evaluate(examId, {
+      preservePublished: true,
+    });
+
+    return {
+      ...saved,
+      scoring: examQuestion.scoring,
+      // Surfaced so the caller can tell the admin the award actually landed.
+      recalculated: { evaluated: recalculated.evaluated },
+    };
   }
 
   /** Publish results (§2.8). Pass `batchId` to release one batch (BATCH_WISE). */
@@ -509,7 +597,7 @@ export class ResultsService {
         instituteId: this.instituteId(),
         ...(batchId ? { batchId } : {}),
       },
-      data: { published: true },
+      data: { published: true, publishedAt: new Date() },
     });
     return { published: res.count, ...(batchId ? { batchId } : {}) };
   }
@@ -523,7 +611,9 @@ export class ResultsService {
         instituteId: this.instituteId(),
         ...(batchId ? { batchId } : {}),
       },
-      data: { published: false },
+      // Cleared, not kept: a held result is not "released as of" anything, and
+      // re-publishing it later is a new release with a new timestamp.
+      data: { published: false, publishedAt: null },
     });
     return { held: res.count, ...(batchId ? { batchId } : {}) };
   }
@@ -766,11 +856,128 @@ export class ResultsService {
         overallRank: true,
         batchRank: true,
         percentile: true,
-        exam: { select: { title: true } },
+        publishedAt: true,
+        // The pass mark and the paper's own length are what turn a bare score
+        // into "did I pass" and "what share did I attempt" on the result page.
+        exam: {
+          select: {
+            id: true,
+            title: true,
+            passingMarks: true,
+            durationMinutes: true,
+          },
+        },
+        // Total time taken is `submittedAt - startedAt`; without these the
+        // student page had to fetch the whole attempt list to find them.
+        attempt: {
+          select: { startedAt: true, submittedAt: true, status: true },
+        },
       },
     });
     if (!result) throw new NotFoundException('Result not available yet');
-    return result;
+
+    // Cohort size, so a rank reads as "12 of 240" rather than a bare "#12".
+    const cohortSize = await this.prisma.result.count({
+      where: { examId: result.exam.id, instituteId: ctx.instituteId },
+    });
+
+    return { ...result, attemptId, cohortSize };
+  }
+
+  /**
+   * How the candidate's score sits against everyone else who sat the paper
+   * (§2.8 "score comparison"). Aggregates only — never another candidate's
+   * name, roll number or individual score.
+   *
+   * Suppressed below {@link COHORT_MIN} candidates: with a cohort of two, an
+   * average plus your own score is that other person's score exactly, so a
+   * small cohort makes an "aggregate" no longer an aggregate. The page shows
+   * the panel as unavailable rather than showing a misleading comparison.
+   *
+   * The comparison set is every *evaluated* result, not only published ones —
+   * a batch-by-batch release must not make the class average drift as each
+   * batch is let through.
+   */
+  async getCohortForStudent(attemptId: string) {
+    const ctx = this.tenant.get();
+    if (!ctx?.instituteId) {
+      throw new ForbiddenException('No institute in the current context');
+    }
+    const student = await this.prisma.student.findUnique({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    });
+    if (!student) throw new ForbiddenException('Not a student account');
+
+    const mine = await this.prisma.result.findFirst({
+      where: { attemptId, studentId: student.id, published: true },
+      select: { examId: true, batchId: true, totalScore: true },
+    });
+    if (!mine) throw new NotFoundException('Result not available yet');
+
+    const rows = await this.prisma.result.findMany({
+      where: { examId: mine.examId, instituteId: ctx.instituteId },
+      select: { totalScore: true, batchId: true, sectionScores: true },
+    });
+
+    const cohortSize = rows.length;
+    if (cohortSize < COHORT_MIN) {
+      return { available: false as const, cohortSize, batchSize: 0 };
+    }
+
+    const scores = rows.map((r) => r.totalScore).sort((a, b) => a - b);
+    const mean = (xs: number[]) =>
+      xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
+    // Even-length cohorts average the two middle values, the usual convention.
+    const mid = Math.floor(scores.length / 2);
+    const median =
+      scores.length % 2 === 0
+        ? (scores[mid - 1] + scores[mid]) / 2
+        : scores[mid];
+
+    const batchScores = rows
+      .filter((r) => r.batchId === mine.batchId)
+      .map((r) => r.totalScore);
+
+    // Per-section cohort averages, so the section table can show a delta per
+    // section rather than only one number for the whole paper.
+    const sectionTotals = new Map<
+      string,
+      { name: string; sum: number; n: number }
+    >();
+    for (const row of rows) {
+      const sections = Array.isArray(row.sectionScores)
+        ? (row.sectionScores as unknown as SectionScore[])
+        : [];
+      for (const s of sections) {
+        const acc = sectionTotals.get(s.sectionId) ?? {
+          name: s.name,
+          sum: 0,
+          n: 0,
+        };
+        acc.sum += s.score;
+        acc.n += 1;
+        sectionTotals.set(s.sectionId, acc);
+      }
+    }
+
+    return {
+      available: true as const,
+      cohortSize,
+      batchSize: batchScores.length,
+      average: mean(scores),
+      median,
+      highest: scores[scores.length - 1],
+      lowest: scores[0],
+      // Suppressed on the same reasoning as the cohort itself — a two-person
+      // batch would otherwise leak through the batch average instead.
+      batchAverage: batchScores.length >= COHORT_MIN ? mean(batchScores) : null,
+      sections: [...sectionTotals.entries()].map(([sectionId, acc]) => ({
+        sectionId,
+        name: acc.name,
+        averageScore: acc.sum / acc.n,
+      })),
+    };
   }
 
   /**
@@ -800,8 +1007,18 @@ export class ResultsService {
       select: {
         id: true,
         examId: true,
+        startedAt: true,
         submittedAt: true,
-        responses: { select: { questionId: true, answer: true } },
+        // `status` carries the marked-for-review flag (and the never-opened vs
+        // opened-and-skipped distinction); `timeSpentMs` drives time analysis.
+        responses: {
+          select: {
+            questionId: true,
+            answer: true,
+            status: true,
+            timeSpentMs: true,
+          },
+        },
       },
     });
     if (!attempt) throw new NotFoundException('Attempt not found');
@@ -826,6 +1043,8 @@ export class ResultsService {
       where: { id: attempt.examId, instituteId: ctx.instituteId },
       select: {
         title: true,
+        durationMinutes: true,
+        passingMarks: true,
         sections: {
           orderBy: { order: 'asc' },
           select: {
@@ -846,6 +1065,15 @@ export class ResultsService {
                     options: true,
                     answerKey: true,
                     explanation: true,
+                    // Classification, for the subject-wise breakdown and the
+                    // per-question metadata the review screen shows.
+                    subject: true,
+                    chapter: true,
+                    topic: true,
+                    difficulty: true,
+                    // Diagrams — the review screen rendered none of these
+                    // before, so a question that *is* a diagram was unreadable.
+                    mediaKeys: true,
                   },
                 },
               },
@@ -865,6 +1093,9 @@ export class ResultsService {
     );
     const answers = new Map(
       attempt.responses.map((r) => [r.questionId, r.answer]),
+    );
+    const responseByQuestion = new Map(
+      attempt.responses.map((r) => [r.questionId, r]),
     );
 
     let number = 0;
@@ -902,9 +1133,12 @@ export class ResultsService {
           marksAwarded = -section.marksWrong;
         }
 
+        const response = responseByQuestion.get(q.id);
+
         return {
           number,
           questionId: q.id,
+          sectionId: section.id,
           section: section.name,
           type: q.type,
           statement: q.statement,
@@ -917,18 +1151,44 @@ export class ResultsService {
           /** What this question was worth, so a negative mark is explicable. */
           marksCorrect: section.marksCorrect,
           marksWrong: section.marksWrong,
+          // Classification for filtering and the subject-wise rollup.
+          subject: q.subject,
+          chapter: q.chapter,
+          topic: q.topic,
+          difficulty: q.difficulty,
+          mediaKeys: q.mediaKeys,
+          /**
+           * Whether the candidate flagged this one during the exam. Read off
+           * the saved response's status rather than a separate column — the
+           * player already persists it there.
+           */
+          markedForReview:
+            response?.status === ResponseStatus.MARKED ||
+            response?.status === ResponseStatus.ANSWERED_MARKED,
+          /** Never opened at all, as opposed to opened and left blank. */
+          visited: response
+            ? response.status !== ResponseStatus.NOT_VISITED
+            : false,
+          /** Null for attempts sat before per-question timing was recorded. */
+          timeSpentMs: response?.timeSpentMs ?? null,
         };
       }),
     );
 
     return {
       attemptId: attempt.id,
-      exam: { title: exam.title },
+      exam: {
+        title: exam.title,
+        durationMinutes: exam.durationMinutes,
+        passingMarks: exam.passingMarks,
+      },
+      startedAt: attempt.startedAt,
       submittedAt: attempt.submittedAt,
       summary: {
         ...result,
         totalQuestions: questions.length,
         attempted: questions.filter((q) => q.yourAnswer !== null).length,
+        markedForReviewCount: questions.filter((q) => q.markedForReview).length,
       },
       questions,
     };

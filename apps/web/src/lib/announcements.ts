@@ -79,6 +79,36 @@ export function createAnnouncement(
   });
 }
 
+/**
+ * Fields an edit may change. `PATCH /announcements/:id` has always supported
+ * this — there was simply no client function and no UI control, so a published
+ * notice with a typo could only be deleted and retyped.
+ *
+ * Every field is optional and absent means "leave alone", matching the server's
+ * partial-update contract. `batchId: null` and `expiresAt: null` are explicit
+ * clears, which is why they are nullable rather than merely optional.
+ */
+export interface UpdateAnnouncementInput {
+  title?: string;
+  body?: string;
+  category?: AnnouncementCategory;
+  audience?: AnnouncementAudience;
+  batchId?: string | null;
+  pinned?: boolean;
+  expiresAt?: string | null;
+}
+
+export function updateAnnouncement(
+  id: string,
+  input: UpdateAnnouncementInput,
+): Promise<StaffAnnouncement> {
+  return apiFetch<StaffAnnouncement>(`/announcements/${id}`, {
+    method: "PATCH",
+    body: input,
+    token: token(),
+  });
+}
+
 export function publishAnnouncement(id: string): Promise<StaffAnnouncement> {
   return apiFetch<StaffAnnouncement>(`/announcements/${id}/publish`, {
     method: "POST",

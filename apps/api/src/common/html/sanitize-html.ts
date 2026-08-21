@@ -26,6 +26,11 @@ export function sanitizeRichText(html: string): string {
       'a',
       'code',
       'pre',
+      // Science notation: H<sub>2</sub>SO<sub>4</sub>, x<sup>2</sup>. Neither
+      // can carry an attribute or a URL, so allowing them adds no attack
+      // surface — and without them a chemistry paper cannot state a formula.
+      'sub',
+      'sup',
     ],
     allowedAttributes: {
       a: ['href', 'target', 'rel'],
@@ -38,4 +43,22 @@ export function sanitizeRichText(html: string): string {
       }),
     },
   });
+}
+
+/**
+ * Sanitize a question's statement or explanation.
+ *
+ * These were stored **raw** and rendered as plain text, so nothing was escaped
+ * and nothing was stripped — safe only because the text never reached a HTML
+ * parser. Rendering notation means it now does, which makes sanitizing on write
+ * a prerequisite rather than a nicety: this is the highest-stakes screen in the
+ * product, and a stored script in a question statement would execute inside a
+ * live exam.
+ *
+ * Same allowlist as the rich-text fields. Maths written as `$…$` or `\\(…\\)`
+ * passes through untouched — it is plain text at this layer, and the browser
+ * typesets it after this sanitizer has already had its say, never before.
+ */
+export function sanitizeQuestionText(text: string): string {
+  return sanitizeRichText(text);
 }

@@ -51,9 +51,21 @@ export class ProgramsService {
     });
   }
 
-  findAll() {
+  /**
+   * Active entries only unless `includeArchived` is asked for.
+   *
+   * Archiving sets `isActive = false` and the confirm dialog tells the admin the
+   * entry will stop appearing — but nothing filtered on it, so archived programs
+   * kept showing up in every picker, and an admin could still assign new records
+   * to something they had just retired. The flag exists so the organization
+   * screen can list archived rows in order to restore them.
+   */
+  findAll(includeArchived = false) {
     return this.prisma.program.findMany({
-      where: { instituteId: this.instituteId() },
+      where: {
+        instituteId: this.instituteId(),
+        ...(includeArchived ? {} : { isActive: true }),
+      },
       orderBy: { createdAt: 'desc' },
       select: programSelect,
     });

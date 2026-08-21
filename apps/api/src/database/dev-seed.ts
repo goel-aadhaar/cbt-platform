@@ -471,13 +471,21 @@ async function devSeed(): Promise<void> {
       },
     });
     const perSection = Math.round(s.totalScore / 3);
+    const sectionCorrect = Math.round(s.correct / 3);
+    const sectionIncorrect = Math.round(s.incorrect / 3);
+    const sectionUnattempted = Math.round(s.unattempted / 3);
     const sectionScores = completed.sections.map((sec) => ({
       sectionId: sec.id,
       name: sec.name,
       score: perSection,
-      correct: Math.round(s.correct / 3),
-      incorrect: Math.round(s.incorrect / 3),
-      unattempted: Math.round(s.unattempted / 3),
+      maxScore: Math.round(maxScore / 3),
+      questionCount: sectionCorrect + sectionIncorrect + sectionUnattempted,
+      correct: sectionCorrect,
+      incorrect: sectionIncorrect,
+      unattempted: sectionUnattempted,
+      // Plausible spread so the seeded result page exercises time analysis
+      // rather than rendering every section as 0 seconds.
+      seconds: 20 * 60 + ((r * 7) % 900),
     }));
     const batchPeers = ranked.filter((x) => x.batchId === s.batchId);
     const batchRank = batchPeers.findIndex((x) => x.id === s.id) + 1;
@@ -498,6 +506,7 @@ async function devSeed(): Promise<void> {
         batchRank,
         percentile: Math.round(((n - (r + 1)) / n) * 1000) / 10,
         published: true,
+        publishedAt: new Date(startedAt.getTime() + 200 * MIN),
       },
     });
     // A couple of proctoring events on flagged/violation attempts.

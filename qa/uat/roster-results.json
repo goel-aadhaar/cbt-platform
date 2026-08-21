@@ -1,0 +1,104 @@
+[
+  {
+    "uat": "S09-P1-01",
+    "name": "roster loads",
+    "pass": true,
+    "detail": "status=200"
+  },
+  {
+    "uat": "S09-P1-02",
+    "name": "counts block present (server-derived)",
+    "pass": true,
+    "detail": "{\"all\": 86, \"active\": 31, \"disabled\": 0, \"pending\": 55}"
+  },
+  {
+    "uat": "S09-P1-03/04/05",
+    "name": "status counts sum to total",
+    "pass": true,
+    "detail": "active+disabled+pending=86 all=86"
+  },
+  {
+    "uat": "S09-P1-16[ACTIVE]",
+    "name": "status filter returns only ACTIVE",
+    "pass": true,
+    "detail": "rows=31 total=31"
+  },
+  {
+    "uat": "S09-P1-19[ACTIVE]",
+    "name": "tab count matches filtered total for ACTIVE",
+    "pass": true,
+    "detail": "filtered total=31 card count=31"
+  },
+  {
+    "uat": "S09-P1-16[DISABLED]",
+    "name": "status filter returns only DISABLED",
+    "pass": true,
+    "detail": "rows=0 total=0"
+  },
+  {
+    "uat": "S09-P1-19[DISABLED]",
+    "name": "tab count matches filtered total for DISABLED",
+    "pass": true,
+    "detail": "filtered total=0 card count=0"
+  },
+  {
+    "uat": "S09-P1-16[PENDING]",
+    "name": "status filter returns only PENDING",
+    "pass": true,
+    "detail": "rows=55 total=55"
+  },
+  {
+    "uat": "S09-P1-19[PENDING]",
+    "name": "tab count matches filtered total for PENDING",
+    "pass": true,
+    "detail": "filtered total=55 card count=55"
+  },
+  {
+    "uat": "S09-P1-15a",
+    "name": "search by name finds the student",
+    "pass": true,
+    "detail": "term='Aarav' rows=1"
+  },
+  {
+    "uat": "S09-P1-15b",
+    "name": "search by roll number finds the student",
+    "pass": true,
+    "detail": "roll=2610000001 rows=1"
+  },
+  {
+    "uat": "S09-P1-15c",
+    "name": "search term is actually applied (no false matches)",
+    "pass": true,
+    "detail": "rows=0"
+  },
+  {
+    "uat": "S09-P1-17a",
+    "name": "roll_asc is ascending",
+    "pass": true,
+    "detail": "first=['2610000001', '2610000002']"
+  },
+  {
+    "uat": "S09-P1-17b",
+    "name": "roll_desc reverses roll_asc",
+    "pass": true,
+    "detail": "first=['UATKEY-GAMMA', 'UATKEY-DELTA']"
+  },
+  {
+    "uat": "S09-P1-17c",
+    "name": "name_asc is alphabetical",
+    "pass": true,
+    "detail": "first=['a 51def4', 'aadhya das']"
+  },
+  {
+    "uat": "S09-P1-17d",
+    "name": "invalid sort value rejected",
+    "pass": true,
+    "detail": "status=400"
+  },
+  {
+    "uat": "S09-P1-16[program]",
+    "name": "program filter accepted and narrows",
+    "pass": true,
+    "detail": "program total=51 of 86"
+  }
+]

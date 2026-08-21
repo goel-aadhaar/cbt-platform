@@ -33,6 +33,7 @@ import {
   type QuestionFilters,
   type QuestionListItem,
   type QuestionStatus,
+  type QuestionDetail,
 } from "@/lib/questions";
 
 const STATUS_LABEL: Record<QuestionStatus, string> = {
@@ -57,6 +58,10 @@ export default function QuestionBankPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
+  // The question the author drawer is editing; null means it is creating.
+  const [editingQuestion, setEditingQuestion] = useState<QuestionDetail | null>(
+    null,
+  );
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
@@ -292,10 +297,20 @@ export default function QuestionBankPage() {
         onClose={() => setExportOpen(false)}
       />
       <QuestionAuthorDrawer
+        // Remounts when the target changes so the form re-seeds from it.
+        key={editingQuestion?.id ?? "new"}
         open={authorOpen}
-        onClose={() => setAuthorOpen(false)}
+        editing={editingQuestion}
+        onClose={() => {
+          setAuthorOpen(false);
+          setEditingQuestion(null);
+        }}
         onCreated={() => {
-          setNotice("Question saved as a draft.");
+          setNotice(
+            editingQuestion
+              ? "Question updated."
+              : "Question saved as a draft.",
+          );
           setTimeout(() => window.location.reload(), 800);
         }}
       />
@@ -303,6 +318,11 @@ export default function QuestionBankPage() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         questionId={selectedId}
+        onEdit={(q) => {
+          setDetailOpen(false);
+          setEditingQuestion(q);
+          setAuthorOpen(true);
+        }}
         onActioned={(action, status) => {
           setNotice(`Question ${action}d — now ${status}.`);
           // Counts and tab filters derive from the fetched list, so re-read it.

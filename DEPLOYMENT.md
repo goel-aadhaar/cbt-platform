@@ -129,6 +129,35 @@ Pulls latest, reinstalls, rebuilds both apps, applies any new migrations, and
 reloads both pm2 processes (zero-downtime for the API; `next start` briefly
 drops connections during its own reload, same as any `next start` restart).
 
+### Never deploy the frontend ahead of the API
+
+`deploy.sh` reloads both together, which is the safe order. If you ever deploy
+them separately, **the API goes first.**
+
+Request validation runs with `forbidNonWhitelisted`, so an older API rejects a
+field a newer client sends — with a `400`, not a warning. The autosave payload
+is where this bites: `PUT /attempts/:id/responses/:questionId` gained
+`timeSpentMs`, and an API that predates it answers
+
+```
+400  {"message":["property timeSpentMs should not exist"]}
+```
+
+Autosave is fire-and-forget, so a candidate sees nothing wrong while **none of
+their answers are being saved**. This is not hypothetical — it was observed
+against the live instance during UAT (BUG-124 in `qa/uat/defect-log.md`), where
+the deployed API was one release behind the working tree.
+
+To check what is actually deployed before shipping a frontend, sit one question
+through the deployed API:
+
+```bash
+python qa/uat/prod-smoke.py http://<host> /tmp/engfixture.json
+```
+
+`S24-P0-08c1` fails if the deployment cannot accept the payload the current
+client sends.
+
 ## Known, deliberately deferred gaps
 
 - Media (question diagrams) is stored on the instance's local disk. Fine for

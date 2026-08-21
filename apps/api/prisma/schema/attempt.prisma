@@ -68,6 +68,13 @@ model Response {
   instituteId String         @map("institute_id") @db.Uuid
   answer      Json?
   status      ResponseStatus @default(NOT_VISITED)
+  /// Cumulative time the candidate spent with this question on screen, summed
+  /// from client-reported deltas (§2.8 time analysis). Milliseconds rather than
+  /// the seconds `AttemptSectionTime` uses: a per-question figure is often only
+  /// a few seconds, and "fastest question" needs finer resolution than that.
+  /// Null — not 0 — for attempts taken before timing was instrumented, so the
+  /// result page can say "not recorded" instead of claiming an instant answer.
+  timeSpentMs Int?           @map("time_spent_ms")
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 

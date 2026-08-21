@@ -9,5 +9,9 @@ import { StudentResultController } from './student-result.controller';
   imports: [AuthModule], // for TenantContextService
   controllers: [AdminResultsController, StudentResultController],
   providers: [ResultsService],
+  // QuestionsModule re-evaluates affected exams when an answer-key edit
+  // invalidates results that have already been scored. Safe to export: nothing
+  // in this module imports QuestionsModule, so there is no cycle.
+  exports: [ResultsService],
 })
 export class ResultsModule {}

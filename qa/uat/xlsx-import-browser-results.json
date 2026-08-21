@@ -1,0 +1,66 @@
+{
+  "total": 10,
+  "failed": 0,
+  "results": [
+    {
+      "uat": "XLSX-UI-1",
+      "name": "admin signs in",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-2",
+      "name": "the roster import dialog opens from the students page",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-3",
+      "name": "the roster picker accepts .xlsx",
+      "pass": true,
+      "detail": "accept=\".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv\""
+    },
+    {
+      "uat": "XLSX-UI-4",
+      "name": "the dialog tells the user Excel is accepted",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-5",
+      "name": "the roster template downloads as a workbook",
+      "pass": true,
+      "detail": "drsk-students-template.xlsx"
+    },
+    {
+      "uat": "XLSX-UI-6",
+      "name": "teacher signs in",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-7",
+      "name": "the teacher console has a bulk-import entry point (it had none before)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-8",
+      "name": "the question import dialog opens for a teacher",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "XLSX-UI-9",
+      "name": "the question picker accepts both .xlsx and .docx",
+      "pass": true,
+      "detail": "accept=\".xlsx,.docx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document\""
+    },
+    {
+      "uat": "XLSX-UI-10",
+      "name": "the question template downloads as a workbook",
+      "pass": true,
+      "detail": "drsk-questions-template.xlsx"
+    }
+  ]
+}

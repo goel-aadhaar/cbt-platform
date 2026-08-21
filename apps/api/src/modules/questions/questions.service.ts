@@ -8,9 +8,14 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { sanitizeQuestionText } from '../../common/html/sanitize-html';
 import { Role } from '../auth/auth.types';
+import { ResultsService } from '../results/results.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ImportsService } from '../imports/imports.service';
+import { buildTemplate } from '../../common/spreadsheet/build-template';
+import { isXlsx } from '../../common/spreadsheet/read-workbook';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { QueryQuestionsDto } from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
@@ -38,8 +43,36 @@ export interface DocxDefaults {
 /** Result of a bulk DOCX question import (§2.4). */
 export interface DocxImportSummary {
   total: number;
-  imported: { index: number; id: string; type: string; statement: string }[];
+  imported: {
+    index: number;
+    id: string;
+    type: string;
+    statement: string;
+    /** Diagrams lifted out of the document and attached to this question. */
+    images: number;
+  }[];
   failed: { index: number; statement: string; reason: string }[];
+}
+
+/**
+ * Sanitize each option's text, preserving `undefined` so a partial update does
+ * not clear the options it did not mention.
+ */
+function sanitizeOptions(
+  options: { key: string; text: string }[] | undefined,
+): Prisma.InputJsonValue | undefined {
+  if (options === undefined) return undefined;
+  // Already a plain JSON-safe shape, so no cast is needed.
+  return options.map((o) => ({
+    key: o.key,
+    text: sanitizeQuestionText(o.text),
+  }));
+}
+
+/** Filename extension for a stored image, defaulting to png. */
+function extensionFor(contentType: string): string {
+  const sub = contentType.split('/')[1] ?? 'png';
+  return sub === 'jpeg' ? 'jpg' : sub.replace(/[^a-z0-9]/gi, '') || 'png';
 }
 
 const MAX_IMPORT_QUESTIONS = 500;
@@ -101,6 +134,10 @@ export class QuestionsService {
     private readonly search: QuestionSearchPort,
     private readonly importer: QuestionImportPort,
     private readonly imports: ImportsService,
+    // Used to re-score exams when an edit changes how a question marks.
+    private readonly results: ResultsService,
+    // DOCX imports carry their diagrams; those bytes need somewhere to live.
+    private readonly mediaStorage: MediaStoragePort,
   ) {}
 
   private ctx() {
@@ -135,10 +172,16 @@ export class QuestionsService {
         type: dto.type,
         language: dto.language ?? 'en',
         tags: dto.tags ?? [],
-        statement: dto.statement,
-        options: dto.options as unknown as Prisma.InputJsonValue,
+        // Sanitized on the way in: these are rendered as HTML so that science
+        // notation displays, which makes an unsanitized statement a stored-XSS
+        // vector on the exam screen itself.
+        statement: sanitizeQuestionText(dto.statement),
+        options: sanitizeOptions(dto.options),
         answerKey: dto.answerKey,
-        explanation: dto.explanation,
+        explanation:
+          dto.explanation === undefined
+            ? undefined
+            : sanitizeQuestionText(dto.explanation),
         marks: dto.marks ?? 4,
         negativeMarks: dto.negativeMarks ?? 1,
         mediaKeys: dto.mediaKeys ?? [],
@@ -221,17 +264,123 @@ export class QuestionsService {
   }
 
   /**
-   * Bulk-import questions from a .docx (§2.4). Each parsed block becomes a DRAFT
+   * Bulk-import questions from a .docx or .xlsx (§2.4). Each parsed block becomes a DRAFT
    * question through the normal {@link create} path (so content validation and
    * the lifecycle apply). Per-question fault-tolerant: a bad block is reported
    * in `failed` without aborting the rest. Missing fields fall back to defaults.
    */
-  async importDocx(
+  /**
+   * The question-bank template, generated from the columns the sheet parser
+   * reads. Subject and chapter are absent on purpose: they are chosen once in
+   * the import dialog because they must resolve to real taxonomy rows.
+   */
+  importTemplate(): Promise<Buffer> {
+    return buildTemplate({
+      sheetName: 'Questions',
+      headers: [
+        'statement',
+        'type',
+        'optionA',
+        'optionB',
+        'optionC',
+        'optionD',
+        'answer',
+        'difficulty',
+        'marks',
+        'negativeMarks',
+        'explanation',
+        'tags',
+      ],
+      examples: [
+        [
+          'A body moves 12 m in 4 s at constant speed. What is its speed?',
+          'MCQ',
+          '2 m/s',
+          '3 m/s',
+          '4 m/s',
+          '6 m/s',
+          'B',
+          'EASY',
+          4,
+          1,
+          'Speed = distance / time = 12 / 4 = 3 m/s.',
+          'kinematics, speed',
+        ],
+        [
+          'Which of these are noble gases?',
+          'MSQ',
+          'Helium',
+          'Nitrogen',
+          'Argon',
+          'Oxygen',
+          'A,C',
+          'MEDIUM',
+          4,
+          1,
+          'Helium and Argon are in group 18.',
+          'periodic-table',
+        ],
+        [
+          'How many protons does a carbon atom have?',
+          'INTEGER',
+          '',
+          '',
+          '',
+          '',
+          6,
+          'EASY',
+          4,
+          0,
+          'Carbon has atomic number 6.',
+          'atomic-structure',
+        ],
+      ],
+      notes: [
+        'Bulk import questions',
+        '',
+        'One question per row. The first row must stay as the column headers.',
+        '',
+        'Required columns:',
+        'statement   The question itself.',
+        'answer      MCQ: one option letter (B). MSQ: letters separated by',
+        '            commas (A,C). INTEGER: the number (6).',
+        '',
+        'Optional columns:',
+        'type            MCQ, MSQ or INTEGER. Left blank it is inferred — no',
+        '                options means INTEGER, several answers means MSQ.',
+        'optionA…optionH The choices. Leave blank for INTEGER questions.',
+        'difficulty      EASY, MEDIUM or HARD. Defaults to what you pick in the',
+        '                import dialog.',
+        'marks /         Practice-mode marks only. An exam scores every question',
+        "negativeMarks   by its section's scheme, set when the paper is built.",
+        'explanation     Shown to the candidate on the review screen.',
+        'tags            Comma-separated.',
+        '',
+        'Maths and science notation:',
+        'Write LaTeX between dollar signs — $E = \\tfrac{1}{2}mv^{2}$ — or use',
+        '<sub> and <sup>, as in H<sub>2</sub>SO<sub>4</sub> and x<sup>2</sup>.',
+        'Both are typeset for the candidate.',
+        '',
+        'Notes:',
+        '- Subject and chapter are chosen once in the import dialog, not here.',
+        '- Delete the three example rows before uploading.',
+        '- Up to 500 questions per file.',
+        '- Every question is created as a DRAFT for approval.',
+        '- A row that fails validation is reported with its row number; the rest',
+        '  of the file still imports.',
+        '- Diagrams cannot travel in a spreadsheet cell. Import a Word (.docx)',
+        '  paper instead if your questions have images, or attach them by',
+        '  editing the question afterwards.',
+      ],
+    });
+  }
+
+  async importQuestions(
     buffer: Buffer,
     defaults: DocxDefaults,
-    fileName = 'questions.docx',
+    fileName = 'questions',
   ): Promise<DocxImportSummary> {
-    const { instituteId } = this.ctx(); // also enforced by create()
+    const { instituteId, userId } = this.ctx(); // also enforced by create()
     if (!defaults.subjectId || !defaults.chapterId) {
       throw new BadRequestException(
         'Select a subject and chapter to import into',
@@ -241,8 +390,16 @@ export class QuestionsService {
     // Parse via the Import port (§2.6) — the DOCX adapter today.
     const parsed = await this.importer.parse(buffer);
     if (parsed.length === 0) {
+      // The two formats fail for completely different reasons, so say which
+      // one the file actually was rather than giving Word advice for a
+      // spreadsheet.
       throw new BadRequestException(
-        'No questions found — each must start with "Q:" or a number (e.g. "1.")',
+        isXlsx(buffer)
+          ? 'No questions found. The first row must be the column headers, ' +
+              'with one question per row beneath it — "statement" and "answer" ' +
+              'are required.'
+          : 'No questions found — each must start with "Q:" or a number ' +
+              '(e.g. "1.")',
       );
     }
     if (parsed.length > MAX_IMPORT_QUESTIONS) {
@@ -259,16 +416,52 @@ export class QuestionsService {
       index++;
       try {
         const dto = resolveDraft(block, defaults);
+        /**
+         * Store this question's diagrams and attach them.
+         *
+         * Done per question rather than up-front so a block that fails
+         * validation does not leave orphaned objects behind, and so a failure
+         * to store one image is reported against the question it belongs to.
+         */
+        if (block.images.length > 0) {
+          const keys: string[] = [];
+          for (const [i, img] of block.images.entries()) {
+            const stored = await this.mediaStorage.put({
+              instituteId,
+              fileName:
+                `${fileName.replace(/\.docx$/i, '')}-q${index}-${i + 1}` +
+                `.${extensionFor(img.contentType)}`,
+              mimeType: img.contentType,
+              body: img.buffer,
+            });
+            keys.push(stored.key);
+            await this.prisma.media.create({
+              data: {
+                instituteId,
+                key: stored.key,
+                fileName: `Imported diagram (question ${index})`,
+                mimeType: img.contentType,
+                size: img.buffer.length,
+                altText: `Diagram for imported question ${index}`,
+                uploadedById: userId,
+              },
+            });
+          }
+          dto.mediaKeys = keys;
+        }
         const created = await this.create(dto);
         imported.push({
-          index,
+          // The spreadsheet row when the file had one, so "row 14 failed"
+          // matches what the author sees; otherwise the question's position.
+          index: block.sourceRow ?? index,
           id: created.id,
           type: dto.type,
           statement: block.statement.slice(0, 80),
+          images: block.images.length,
         });
       } catch (err) {
         failed.push({
-          index,
+          index: block.sourceRow ?? index,
           statement: block.statement.slice(0, 80),
           reason: err instanceof Error ? err.message : 'Failed',
         });
@@ -444,7 +637,25 @@ export class QuestionsService {
         })
       : null;
 
-    return this.prisma.question.update({
+    /**
+     * Does this edit change how the question SCORES?
+     *
+     * Only the answer key, the question type and the option set can flip a
+     * candidate's answer between right and wrong. A typo fix in the statement,
+     * a new tag or a different difficulty cannot, and must not trigger a
+     * re-score of a concluded paper.
+     *
+     * Compared against the stored value rather than merely "was the field
+     * present", so re-sending an unchanged key is a no-op.
+     */
+    const scoringChanged =
+      (dto.answerKey !== undefined &&
+        JSON.stringify(dto.answerKey) !== JSON.stringify(existing.answerKey)) ||
+      (dto.type !== undefined && dto.type !== existing.type) ||
+      (dto.options !== undefined &&
+        JSON.stringify(dto.options) !== JSON.stringify(existing.options));
+
+    const updated = await this.prisma.question.update({
       where: { id },
       data: {
         ...(tax && {
@@ -472,6 +683,41 @@ export class QuestionsService {
       },
       select: detailSelect,
     });
+
+    /**
+     * Re-score every already-evaluated exam that uses this question.
+     *
+     * Without this, an answer-key correction left stored results untouched
+     * while `getReviewForStudent` recomputed each question's correctness LIVE
+     * from the new key — so a candidate's per-question marks stopped summing to
+     * the total printed above them, and ranks reflected the old key.
+     *
+     * `preservePublished` keeps an already-visible result visible: a key
+     * correction should update what a candidate sees, not yank their result
+     * back into review. Mirrors what `setQuestionScoring` (bonus/dropped)
+     * already does.
+     *
+     * Only exams that HAVE results are touched — re-evaluating an exam nobody
+     * has sat would be pointless work.
+     */
+    const recalculated: { examId: string; evaluated: number }[] = [];
+    if (scoringChanged) {
+      const affected = await this.prisma.examQuestion.findMany({
+        where: { questionId: id, exam: { results: { some: {} } } },
+        select: { examId: true },
+        distinct: ['examId'],
+      });
+      for (const { examId } of affected) {
+        const res = await this.results.evaluate(examId, {
+          preservePublished: true,
+        });
+        recalculated.push({ examId, evaluated: res.evaluated });
+      }
+    }
+
+    // Surfaced so the caller can tell the admin what their edit just rewrote,
+    // instead of the recalculation being invisible.
+    return { ...updated, recalculated };
   }
 
   async submit(id: string) {
@@ -647,7 +893,7 @@ export class QuestionsService {
  * on missing/invalid fields so the importer can report the row as failed.
  *
  * Subject/chapter/exam-category are NOT inferred per-block — they're selected
- * once for the whole file via `defaults` (importDocx already requires
+ * once for the whole file via `defaults` (importQuestions already requires
  * subjectId/chapterId before parsing starts), since they must resolve to real
  * taxonomy rows rather than arbitrary text a .docx block happened to contain.
  */
@@ -696,6 +942,21 @@ function resolveDraft(
     options = undefined;
   } else {
     options = parsed.options;
+    /**
+     * An MCQ with several answers is a contradiction, not a shrug.
+     *
+     * Taking `answerKeys[0]` silently discarded the rest, so a row typed as
+     * MCQ with "A,C" imported as a single-answer question marking C wrong —
+     * a wrong answer key, created by the import, that nobody was told about.
+     * Better to reject the row: the author knows which they meant, and the
+     * failure names the row so they can go and say so.
+     */
+    if (type === QuestionType.MCQ && answerKeys.length > 1) {
+      throw new Error(
+        `An MCQ takes one answer, but "${parsed.answer}" gives ` +
+          `${answerKeys.length}. Use type MSQ for multiple correct options.`,
+      );
+    }
     answerKey = type === QuestionType.MSQ ? answerKeys : (answerKeys[0] ?? '');
   }
 

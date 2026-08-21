@@ -6,7 +6,51 @@ import type { ExamMonitor } from "@/lib/admin";
 
 import { AlertTriangleIcon, ClipboardIcon, RadioIcon, XIcon } from "./icons";
 
-type Status = "on-track" | "idle" | "flagged";
+/**
+ * A candidate finished and a candidate who never turned up are opposite
+ * situations, and both used to render as "Idle" in the same amber. During a
+ * live exam that is the difference between "nothing to do" and "find out where
+ * this person is", so they are now separate states.
+ *
+ * "Stalled" is a candidate whose attempt is open but whose last saved response
+ * is older than {@link STALL_AFTER_MS} — the case the invigilator most needs to
+ * see, and one the drawer could not previously express at all.
+ */
+type Status = "on-track" | "stalled" | "submitted" | "absent" | "flagged";
+
+/** How long without a saved response before a live attempt reads as stalled. */
+const STALL_AFTER_MS = 3 * 60 * 1000;
+
+const STATUS_LOOK: Record<
+  Status,
+  { label: string; ring: string; avatar: string }
+> = {
+  "on-track": {
+    label: "Working",
+    ring: "border-admin/40",
+    avatar: "bg-admin text-white",
+  },
+  stalled: {
+    label: "No activity",
+    ring: "border-warn",
+    avatar: "bg-warn text-white",
+  },
+  submitted: {
+    label: "Submitted",
+    ring: "border-success/50",
+    avatar: "bg-success text-white",
+  },
+  absent: {
+    label: "Not started",
+    ring: "border-admin-line",
+    avatar: "bg-admin-surface text-admin-muted",
+  },
+  flagged: {
+    label: "Flagged",
+    ring: "border-danger bg-danger-soft/30",
+    avatar: "bg-danger text-white",
+  },
+};
 
 interface Student {
   name: string;
@@ -42,15 +86,30 @@ export function MonitorDetailDrawer({
   const [tab, setTab] = useState(0);
   if (!open || !monitor) return null;
 
-  const STUDENTS: Student[] = monitor.students.slice(0, 24).map((s) => ({
-    name: s.name,
-    initials: s.flagged ? "!" : initialsOf(s.name),
-    status: s.flagged
+  // The server's clock, not the browser's: the payload carries `serverTime`,
+  // and comparing against it means a candidate does not read as stalled merely
+  // because the invigilator's machine has drifted. Same principle the exam
+  // timer follows — and pure, unlike `Date.now()` in render.
+  const now = new Date(monitor.serverTime).getTime();
+  const STUDENTS: Student[] = monitor.students.slice(0, 24).map((s) => {
+    const idleFor = s.lastActivityAt
+      ? now - new Date(s.lastActivityAt).getTime()
+      : Infinity;
+    const status: Status = s.flagged
       ? "flagged"
-      : s.status === "IN_PROGRESS"
-        ? "on-track"
-        : "idle",
-  }));
+      : s.status === "NOT_STARTED"
+        ? "absent"
+        : s.status === "IN_PROGRESS"
+          ? idleFor > STALL_AFTER_MS
+            ? "stalled"
+            : "on-track"
+          : "submitted";
+    return {
+      name: s.name,
+      initials: s.flagged ? "!" : initialsOf(s.name),
+      status,
+    };
+  });
 
   const submittedCount =
     monitor.counts.submitted + monitor.counts.autoSubmitted;
@@ -173,8 +232,10 @@ export function MonitorDetailDrawer({
                   Real-time Student Status
                 </h3>
                 <div className="flex items-center gap-4 text-xs text-admin-muted">
-                  <Legend color="bg-admin" label="On Track" />
-                  <Legend color="bg-warn" label="Idle" />
+                  <Legend color="bg-admin" label="Working" />
+                  <Legend color="bg-warn" label="No activity" />
+                  <Legend color="bg-success" label="Submitted" />
+                  <Legend color="bg-admin-surface" label="Not started" />
                   <Legend color="bg-danger" label="Flagged" />
                 </div>
               </div>
@@ -222,18 +283,7 @@ export function MonitorDetailDrawer({
 }
 
 function StudentCard({ student }: { student: Student }) {
-  const ring =
-    student.status === "flagged"
-      ? "border-danger bg-danger-soft/30"
-      : student.status === "idle"
-        ? "border-warn"
-        : "border-admin/40";
-  const avatar =
-    student.status === "flagged"
-      ? "bg-danger text-white"
-      : student.status === "idle"
-        ? "bg-admin-surface text-admin-muted"
-        : "bg-admin text-white";
+  const { ring, avatar, label } = STATUS_LOOK[student.status];
   return (
     <div
       className={`flex flex-col items-center gap-2 rounded-xl border-2 bg-white p-4 ${ring}`}
@@ -246,6 +296,9 @@ function StudentCard({ student }: { student: Student }) {
       <span className="text-sm font-semibold text-admin-ink">
         {student.name}
       </span>
+      {/* The state in words, not only in colour — the four non-flagged states
+          were previously indistinguishable to anyone reading the grid. */}
+      <span className="text-xs text-admin-muted">{label}</span>
     </div>
   );
 }

@@ -26,4 +26,14 @@ export class StudentResultController {
   getReview(@Param('id', ParseUUIDPipe) id: string) {
     return this.results.getReviewForStudent(id);
   }
+
+  /**
+   * Cohort aggregates for the paper this attempt belongs to — "your score vs
+   * the class average". Aggregates only, and suppressed entirely for a cohort
+   * small enough that an average would identify individuals.
+   */
+  @Get(':id/cohort')
+  getCohort(@Param('id', ParseUUIDPipe) id: string) {
+    return this.results.getCohortForStudent(id);
+  }
 }

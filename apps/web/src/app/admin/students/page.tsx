@@ -10,9 +10,9 @@ import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ImportStudentsModal } from "@/components/admin/import-students-modal";
 import { RowActionsMenu } from "@/components/admin/row-actions-menu";
+import { StudentHistoryModal } from "@/components/admin/student-history-modal";
 import {
   CheckIcon,
-  ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
   PlusIcon,
@@ -25,7 +25,14 @@ import {
   UserXIcon,
 } from "@/components/admin/icons";
 import { useIsHydrated } from "@/hooks/use-auth";
-import { listBatches, type BatchRow } from "@/lib/admin";
+import {
+  listBatches,
+  listClasses,
+  listPrograms,
+  type BatchRow,
+  type ClassRow,
+  type Program,
+} from "@/lib/admin";
 import { ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import {
@@ -34,6 +41,8 @@ import {
   reactivateStudent,
   resendStudentInvite,
   type StudentListItem,
+  type StudentQuery,
+  type StudentSort,
 } from "@/lib/students";
 
 type Status = "Active" | "Pending" | "Deactivated";
@@ -43,6 +52,24 @@ const STATUS_LABEL: Record<StudentListItem["status"], Status> = {
   PENDING: "Pending",
   DISABLED: "Deactivated",
 };
+
+/** Roster tab → server-side status filter. Index 0 ("All") sends none. */
+const TAB_STATUS: (StudentListItem["status"] | undefined)[] = [
+  undefined,
+  "ACTIVE",
+  "DISABLED",
+  "PENDING",
+];
+
+/** Roster orderings offered in the Sort control. */
+const SORT_OPTIONS: { value: StudentSort; label: string }[] = [
+  { value: "roll_asc", label: "Roll number (asc)" },
+  { value: "roll_desc", label: "Roll number (desc)" },
+  { value: "name_asc", label: "Name (A–Z)" },
+  { value: "name_desc", label: "Name (Z–A)" },
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+];
 
 /**
  * `useSearchParams()` (deep links from the Quick Create menu) forces a client
@@ -70,12 +97,43 @@ function StudentsPageInner() {
 
   const [rows, setRows] = useState<StudentListItem[] | null>(null);
   const [total, setTotal] = useState(0);
+  /** Whole-set status tallies from the API (not counted over the loaded page). */
+  const [counts, setCounts] = useState({
+    all: 0,
+    active: 0,
+    disabled: 0,
+    pending: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [batchId, setBatchId] = useState("");
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  /* Roster query state. Each of these used to be a decorative control. */
+  const [searchInput, setSearchInput] = useState("");
+  /** Debounced copy of `searchInput` — the value actually sent to the API. */
+  const [search, setSearch] = useState("");
+  const [classId, setClassId] = useState("");
+  const [programId, setProgramId] = useState("");
+  const [sort, setSort] = useState<StudentSort>("roll_asc");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // The student whose exam record is open; `/students/:id/history` had no
+  // caller anywhere in the app before this.
+  const [historyFor, setHistoryFor] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [classes, setClasses] = useState<ClassRow[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+
+  // Typing re-queries the server, so debounce rather than firing per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   async function copyRollNumber(id: string, rollNumber: string) {
     await navigator.clipboard.writeText(rollNumber);
@@ -87,7 +145,17 @@ function StudentsPageInner() {
     listBatches()
       .then(setBatches)
       .catch(() => undefined);
+    listPrograms()
+      .then(setPrograms)
+      .catch(() => undefined);
   }, []);
+
+  // Classes narrow to the chosen program, mirroring the org hierarchy.
+  useEffect(() => {
+    listClasses(programId || undefined)
+      .then(setClasses)
+      .catch(() => undefined);
+  }, [programId]);
 
   // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
@@ -97,11 +165,20 @@ function StudentsPageInner() {
       return;
     }
     let active = true;
-    listStudents({ limit: 200, batchId: batchId || undefined })
+    listStudents({
+      limit: 200,
+      batchId: batchId || undefined,
+      classId: classId || undefined,
+      programId: programId || undefined,
+      status: TAB_STATUS[activeTab],
+      search: search || undefined,
+      sort,
+    })
       .then((res) => {
         if (!active) return;
         setRows(res.items);
         setTotal(res.total);
+        setCounts(res.counts);
         setError(null);
       })
       .catch((err) => {
@@ -121,7 +198,7 @@ function StudentsPageInner() {
     return () => {
       active = false;
     };
-  }, [hydrated, router, batchId]);
+  }, [hydrated, router, batchId, classId, programId, activeTab, search, sort]);
 
   async function handleDeactivate(row: StudentListItem) {
     if (
@@ -166,6 +243,54 @@ function StudentsPageInner() {
     }
   }
 
+  /**
+   * Deactivate every checked student.
+   *
+   * There is no bulk endpoint, so this is a sequential loop over the existing
+   * per-student route — sequential rather than Promise.all so a mid-run failure
+   * stops cleanly with a partial count reported, instead of firing N parallel
+   * writes and leaving the operator guessing which ones landed.
+   */
+  async function handleBulkDeactivate() {
+    const targets = items.filter(
+      (r) => selected.has(r.id) && r.status !== "DISABLED",
+    );
+    if (targets.length === 0) {
+      setNotice(
+        "Nothing to deactivate — the selected students are already deactivated.",
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Deactivate ${targets.length} student(s)? They can no longer sign in, but their records and results are kept and this can be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    setError(null);
+    let done = 0;
+    try {
+      for (const row of targets) {
+        const updated = await deactivateStudent(row.id);
+        setRows((prev) =>
+          (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
+        );
+        done += 1;
+      }
+      setNotice(`${done} student(s) deactivated.`);
+      setSelected(new Set());
+    } catch (e: unknown) {
+      setError(
+        `${e instanceof ApiError ? e.message : "Bulk deactivation failed."}` +
+          ` ${done} of ${targets.length} were deactivated before the failure.`,
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function handleResendInvite(row: StudentListItem) {
     setRowBusy(row.id);
     setError(null);
@@ -182,14 +307,18 @@ function StudentsPageInner() {
   }
 
   const items = rows ?? [];
-  const countBy = (s: StudentListItem["status"]) =>
-    items.filter((r) => r.status === s).length;
 
+  /**
+   * Tabs map to a server-side status filter. "Archived Students" and "Student
+   * Transfers" were removed: both rendered a hardcoded "0" and neither has a
+   * backing concept in the schema — a tab that can only ever say zero is worse
+   * than no tab.
+   */
   const TABS = [
-    { label: "All Students", count: fmt(total) },
-    { label: "Deactivated Students", count: fmt(countBy("DISABLED")) },
-    { label: "Archived Students", count: "0" },
-    { label: "Student Transfers", count: "0" },
+    { label: "All Students", count: fmt(counts.all) },
+    { label: "Active", count: fmt(counts.active) },
+    { label: "Deactivated", count: fmt(counts.disabled) },
+    { label: "Pending Credentials", count: fmt(counts.pending) },
   ];
 
   return (
@@ -225,9 +354,30 @@ function StudentsPageInner() {
             </OutlineBtn>
             <OutlineBtn
               icon={DownloadIcon}
-              onClick={() => exportRosterCsv(items)}
+              title={
+                selected.size > 0
+                  ? `Export the ${selected.size} selected student(s)`
+                  : "Export every student matching the current filters"
+              }
+              onClick={() => {
+                void exportRosterCsv(
+                  {
+                    batchId: batchId || undefined,
+                    classId: classId || undefined,
+                    programId: programId || undefined,
+                    status: TAB_STATUS[activeTab],
+                    search: search || undefined,
+                    sort,
+                  },
+                  items.filter((r) => selected.has(r.id)),
+                ).catch(() =>
+                  setError("Could not build the export. Please try again."),
+                );
+              }}
             >
-              Export Students
+              {selected.size > 0
+                ? `Export Selected (${selected.size})`
+                : "Export Students"}
             </OutlineBtn>
           </div>
           <OutlineBtn
@@ -251,20 +401,20 @@ function StudentsPageInner() {
         <StatCard
           icon={UserCheckIcon}
           label="Active Students"
-          value={fmt(countBy("ACTIVE"))}
+          value={fmt(counts.active)}
           delta="Live"
         />
         <StatCard
           icon={UserXIcon}
           label="Deactivated Students"
-          value={fmt(countBy("DISABLED"))}
+          value={fmt(counts.disabled)}
           delta="Live"
           down
         />
         <StatCard
           icon={UserPlusIcon}
           label="Pending Credentials"
-          value={fmt(countBy("PENDING"))}
+          value={fmt(counts.pending)}
           delta="Live"
         />
       </div>
@@ -297,16 +447,54 @@ function StudentsPageInner() {
         <div className="relative flex min-w-[220px] flex-1 items-center">
           <SearchIcon className="pointer-events-none absolute left-3 size-4 text-admin-subtle" />
           <input
-            placeholder="Search by name, roll no..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by name, roll no or email…"
+            aria-label="Search students"
             className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
           />
         </div>
+        <select
+          value={programId}
+          onChange={(e) => {
+            setLoading(true);
+            setProgramId(e.target.value);
+            // A class from the old program would contradict the new one.
+            setClassId("");
+          }}
+          aria-label="Filter by program"
+          className="h-10 rounded-lg border border-admin-line bg-white px-3 text-sm text-admin-ink outline-none focus:border-admin"
+        >
+          <option value="">All programs</option>
+          {programs.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={classId}
+          onChange={(e) => {
+            setLoading(true);
+            setClassId(e.target.value);
+          }}
+          aria-label="Filter by class"
+          className="h-10 rounded-lg border border-admin-line bg-white px-3 text-sm text-admin-ink outline-none focus:border-admin"
+        >
+          <option value="">All classes</option>
+          {classes.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
         <select
           value={batchId}
           onChange={(e) => {
             setLoading(true);
             setBatchId(e.target.value);
           }}
+          aria-label="Filter by batch"
           className="h-10 rounded-lg border border-admin-line bg-white px-3 text-sm text-admin-ink outline-none focus:border-admin"
         >
           <option value="">All batches</option>
@@ -316,14 +504,43 @@ function StudentsPageInner() {
             </option>
           ))}
         </select>
-        <FilterBtn>Class</FilterBtn>
-        <FilterBtn>Program</FilterBtn>
-        <FilterBtn>Status</FilterBtn>
         <div className="ml-auto flex items-center gap-3">
-          <button className="flex items-center gap-2 text-sm font-semibold text-admin-muted">
-            <SortIcon className="size-4" /> Sort by
+          <label className="flex items-center gap-2 text-sm font-semibold text-admin-muted">
+            <SortIcon className="size-4" />
+            <span className="sr-only">Sort by</span>
+            <select
+              value={sort}
+              onChange={(e) => {
+                setLoading(true);
+                setSort(e.target.value as StudentSort);
+              }}
+              aria-label="Sort students by"
+              className="h-10 rounded-lg border border-admin-line bg-white px-3 text-sm text-admin-ink outline-none focus:border-admin"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {/* Bulk actions apply to the checkbox selection below. Disabled with
+              a reason while nothing is selected, rather than silently inert. */}
+          <button
+            type="button"
+            onClick={() => void handleBulkDeactivate()}
+            disabled={selected.size === 0 || bulkBusy}
+            title={
+              selected.size === 0
+                ? "Select one or more students first"
+                : `Deactivate ${selected.size} selected student(s)`
+            }
+            className="flex items-center gap-2 rounded-lg border border-admin-line px-3 py-2 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {bulkBusy
+              ? "Deactivating…"
+              : `Deactivate selected${selected.size ? ` (${selected.size})` : ""}`}
           </button>
-          <FilterBtn>Bulk Actions</FilterBtn>
         </div>
       </div>
 
@@ -333,7 +550,19 @@ function StudentsPageInner() {
           <thead>
             <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
               <th className="w-10 px-4 py-3">
-                <input type="checkbox" className="size-4 accent-admin" />
+                <input
+                  type="checkbox"
+                  className="size-4 accent-admin"
+                  aria-label="Select all students on this page"
+                  checked={items.length > 0 && selected.size === items.length}
+                  onChange={(e) =>
+                    setSelected(
+                      e.target.checked
+                        ? new Set(items.map((r) => r.id))
+                        : new Set(),
+                    )
+                  }
+                />
               </th>
               <th className="px-4 py-3">Student Name</th>
               <th className="px-4 py-3">Roll Number</th>
@@ -381,7 +610,20 @@ function StudentsPageInner() {
                   className={`hover:bg-admin-bg/50 ${rowBusy === r.id ? "opacity-50" : ""}`}
                 >
                   <td className="px-4 py-4">
-                    <input type="checkbox" className="size-4 accent-admin" />
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-admin"
+                      aria-label={`Select ${r.name}`}
+                      checked={selected.has(r.id)}
+                      onChange={(e) =>
+                        setSelected((prev) => {
+                          const next = new Set(prev);
+                          if (e.target.checked) next.add(r.id);
+                          else next.delete(r.id);
+                          return next;
+                        })
+                      }
+                    />
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
@@ -427,12 +669,22 @@ function StudentsPageInner() {
                         r.status === "DISABLED"
                           ? [
                               {
+                                label: "View exam history",
+                                onClick: () =>
+                                  setHistoryFor({ id: r.id, name: r.name }),
+                              },
+                              {
                                 label: "Reactivate student",
                                 onClick: () => void handleReactivate(r),
                                 disabled: rowBusy === r.id,
                               },
                             ]
                           : [
+                              {
+                                label: "View exam history",
+                                onClick: () =>
+                                  setHistoryFor({ id: r.id, name: r.name }),
+                              },
                               ...(r.status === "PENDING"
                                 ? [
                                     {
@@ -457,6 +709,12 @@ function StudentsPageInner() {
           </tbody>
         </table>
       </div>
+
+      <StudentHistoryModal
+        studentId={historyFor?.id ?? null}
+        studentName={historyFor?.name}
+        onClose={() => setHistoryFor(null)}
+      />
 
       <AddStudentDrawer
         open={drawerOpen}
@@ -559,15 +817,6 @@ function OutlineBtn({
   );
 }
 
-function FilterBtn({ children }: { children: React.ReactNode }) {
-  return (
-    <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink hover:bg-admin-bg">
-      {children}
-      <ChevronDownIcon className="size-4 text-admin-muted" />
-    </button>
-  );
-}
-
 function initials(name: string): string {
   const p = name.split(" ").filter(Boolean);
   return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase();
@@ -584,12 +833,7 @@ function fmtDate(iso: string): string {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
-/**
- * Client-side CSV of the roster currently loaded. There is no server-side
- * student export endpoint (only exam results have one), so this serialises
- * what the table already holds rather than pretending to call an API.
- */
-function exportRosterCsv(rows: StudentListItem[]): void {
+function toCsv(rows: StudentListItem[]): string {
   const head = "rollNumber,name,email,status,batch,joinedAt";
   const body = rows
     .map((r) =>
@@ -598,17 +842,48 @@ function exportRosterCsv(rows: StudentListItem[]): void {
         JSON.stringify(r.name),
         r.email,
         r.status,
-        r.batch?.name ?? "",
+        JSON.stringify(r.batch?.name ?? ""),
         new Date(r.createdAt).toISOString().slice(0, 10),
       ].join(","),
     )
     .join("\n");
-  const url = URL.createObjectURL(
-    new Blob([`${head}\n${body}\n`], { type: "text/csv" }),
-  );
+  return `${head}\n${body}\n`;
+}
+
+function download(csv: string): void {
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = `drsk-students-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/**
+ * CSV of the roster. There is no server-side student export endpoint (only exam
+ * results have one), so this builds the file client-side — but it exports the
+ * WHOLE filtered set, not just the page on screen.
+ *
+ * The previous version serialised only the ≤200 loaded rows while the button
+ * said "Export Students", so an institute with more students silently got a
+ * truncated file. Pages through the API instead, and honours a checkbox
+ * selection when one exists.
+ */
+async function exportRosterCsv(
+  query: StudentQuery,
+  selectedRows: StudentListItem[],
+): Promise<void> {
+  if (selectedRows.length > 0) {
+    download(toCsv(selectedRows));
+    return;
+  }
+
+  const PAGE = 200;
+  const all: StudentListItem[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const page = await listStudents({ ...query, limit: PAGE, offset });
+    all.push(...page.items);
+    if (all.length >= page.total || page.items.length === 0) break;
+  }
+  download(toCsv(all));
 }

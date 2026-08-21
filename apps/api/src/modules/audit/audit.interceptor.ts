@@ -44,6 +44,16 @@ export class AuditInterceptor implements NestInterceptor {
           metadata: {
             path: descriptor.rawPath,
             durationMs: Date.now() - startedAt,
+            // What the caller actually changed. Without this an answer-key
+            // correction and a typo fix are the same row.
+            ...(descriptor.changed
+              ? {
+                  fields: descriptor.changed.fields,
+                  ...(Object.keys(descriptor.changed.values).length
+                    ? { values: descriptor.changed.values }
+                    : {}),
+                }
+              : {}),
           },
           ...actorFromRequest(req),
         });

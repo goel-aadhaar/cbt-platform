@@ -1,0 +1,198 @@
+{
+  "total": 32,
+  "failed": 0,
+  "results": [
+    {
+      "uat": "S04-P0-01a",
+      "name": "attempt starts and returns an id",
+      "pass": true,
+      "detail": "b19382f1-4c40-4c68-96de-4074a7d61270"
+    },
+    {
+      "uat": "S04-P0-01",
+      "name": "exam header data (title, duration, remaining time) served by the API",
+      "pass": true,
+      "detail": "title=UAT Engine duration=60 remaining=3594s"
+    },
+    {
+      "uat": "S04-P0-02",
+      "name": "every question carries its statement",
+      "pass": true,
+      "detail": "5 questions"
+    },
+    {
+      "uat": "S04-P0-03",
+      "name": "options are served for choice questions and omitted for INTEGER",
+      "pass": true,
+      "detail": "MCQ=True MSQ=True INTEGER=None"
+    },
+    {
+      "uat": "S04-P0-06",
+      "name": "a fresh attempt reports every question NOT_VISITED",
+      "pass": true,
+      "detail": "[\"NOT_VISITED\"]"
+    },
+    {
+      "uat": "S04-P0-22",
+      "name": "an answer persists server-side with no manual save, in every answer shape",
+      "pass": true,
+      "detail": "MCQ / MSQ / INTEGER round-tripped"
+    },
+    {
+      "uat": "S04-P0-08",
+      "name": "an answered question reports ANSWERED",
+      "pass": true,
+      "detail": "{\"04a884c6\": \"ANSWERED\", \"ccd65166\": \"ANSWERED\", \"a37a9d9f\": \"ANSWERED\"}"
+    },
+    {
+      "uat": "S04-P0-09",
+      "name": "flagging an unanswered question reports MARKED",
+      "pass": true,
+      "detail": "status=MARKED"
+    },
+    {
+      "uat": "S04-P0-10",
+      "name": "flagging an answered question reports ANSWERED_MARKED",
+      "pass": true,
+      "detail": "status=ANSWERED_MARKED"
+    },
+    {
+      "uat": "S04-P0-12",
+      "name": "flagging a question does not destroy its saved answer",
+      "pass": true,
+      "detail": "answer after a mark-only save = 'A'"
+    },
+    {
+      "uat": "S04-P0-14",
+      "name": "clearing a response removes the answer and resets the palette state",
+      "pass": true,
+      "detail": "answer=None status=NOT_ANSWERED"
+    },
+    {
+      "uat": "S04-P0-07",
+      "name": "a visited-but-blank question reports NOT_ANSWERED",
+      "pass": true,
+      "detail": "status=NOT_ANSWERED"
+    },
+    {
+      "uat": "S04-P0-15",
+      "name": "responses are retained when questions are revisited out of order",
+      "pass": true,
+      "detail": "{\"a7a39ca1\": \"D\", \"a37a9d9f\": 7, \"ccd65166\": [\"B\"], \"a8337415\": \"C\", \"04a884c6\": \"A\"}"
+    },
+    {
+      "uat": "S04-P0-16",
+      "name": "any question can be addressed directly (palette jump)",
+      "pass": true,
+      "detail": "all five written by id, none lost"
+    },
+    {
+      "uat": "S04-P0-11",
+      "name": "a save followed by a move keeps the saved value",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "S04-P0-13",
+      "name": "a mark-and-move keeps both the answer and the flag",
+      "pass": true,
+      "detail": "verified above via ANSWERED_MARKED"
+    },
+    {
+      "uat": "S04-P0-17",
+      "name": "both sections are served in one payload with their responses intact",
+      "pass": true,
+      "detail": "2 sections, section-2 answers kept=True"
+    },
+    {
+      "uat": "S04-P0-17b",
+      "name": "time spent in a section is recorded server-side",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "S04-P0-18",
+      "name": "the clock is the server's and counts down in real time",
+      "pass": true,
+      "detail": "3554s -> 3548s (6s) over 9.3s wall, expiresAt unchanged"
+    },
+    {
+      "uat": "S04-P0-19",
+      "name": "refreshing mid-exam neither resets nor extends the deadline",
+      "pass": true,
+      "detail": "expiresAt 2026-08-21T14:35:32.013Z == 2026-08-21T14:35:32.013Z"
+    },
+    {
+      "uat": "S04-P0-20",
+      "name": "a client cannot extend its own exam time",
+      "pass": true,
+      "detail": "re-start returned 201 (same attempt, not a new clock); forged expiresAt payload returned 400; deadline still 2026-08-21T14:35:32.013Z"
+    },
+    {
+      "uat": "S04-P0-26",
+      "name": "reconnecting recovers the session, timer and every response",
+      "pass": true,
+      "detail": "status=200, deadline preserved, 5 responses intact"
+    },
+    {
+      "uat": "S04-P0-27",
+      "name": "closing and reopening the browser resumes the same attempt",
+      "pass": true,
+      "detail": "a new session token against the same attempt returns identical state"
+    },
+    {
+      "uat": "S04-P0-25",
+      "name": "responses saved before a disconnect survive it",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "uat": "S04-P0-24",
+      "name": "a periodic background sync carrying no answer is accepted",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "S04-P0-28",
+      "name": "a second-device login revokes the first session",
+      "pass": true,
+      "detail": "first token -> 401, second token -> 200"
+    },
+    {
+      "uat": "S04-P0-29",
+      "name": "calculator availability is served with the attempt when enabled",
+      "pass": true,
+      "detail": "calculatorEnabled=True"
+    },
+    {
+      "uat": "S04-P0-30",
+      "name": "calculator is absent when the exam disables it",
+      "pass": true,
+      "detail": "calculatorEnabled=False"
+    },
+    {
+      "uat": "S04-P0-21",
+      "name": "an expired attempt auto-submits and refuses further writes",
+      "pass": true,
+      "detail": "write after expiry -> 400 (Time is up \u2014 the attempt was auto-submitted), status=AUTO_SUBMITTED"
+    },
+    {
+      "uat": "S04-P0-23",
+      "name": "the answer saved before expiry is the one that persists",
+      "pass": true,
+      "detail": "the post-expiry write was refused, so the pre-expiry answer stands"
+    },
+    {
+      "uat": "S04-P0-04",
+      "name": "images / diagrams / tables render",
+      "pass": null,
+      "detail": "irreducibly visual - not assertable over HTTP; see the browser suite and uat-results.md rather than counting this as verified here"
+    },
+    {
+      "uat": "S04-P0-05",
+      "name": "math content renders",
+      "pass": null,
+      "detail": "irreducibly visual - not assertable over HTTP; see the browser suite and uat-results.md rather than counting this as verified here"
+    }
+  ]
+}

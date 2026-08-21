@@ -1,0 +1,54 @@
+{
+  "total": 8,
+  "failed": 1,
+  "results": [
+    {
+      "uat": "S24-P0-08a",
+      "name": "candidate login works on the deployment",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "S24-P0-08b",
+      "name": "candidate can start the paper on the deployment",
+      "pass": true,
+      "detail": "attempt a9a590c0, 5 questions, 3598s on the clock"
+    },
+    {
+      "uat": "S24-P0-08c1",
+      "name": "the deployment accepts the payload the current client sends",
+      "pass": false,
+      "detail": "deployment is running an OLDER API build: it rejects `timeSpentMs`, which every autosave from the current web app carries. Deploying the frontend ahead of the API would 400 every autosave and persist no answers. Server said: {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": [\"property timeSpentMs should not exist\"], \"timestamp\": \"2026-08-"
+    },
+    {
+      "uat": "S24-P0-08c",
+      "name": "responses save on the deployment",
+      "pass": true,
+      "detail": "5 saves, statuses=[200] (sent without `timeSpentMs`, which this build predates)"
+    },
+    {
+      "uat": "S24-P0-08d",
+      "name": "submission succeeds on the deployment",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "S24-P0-08e",
+      "name": "evaluation and publication run against the same data",
+      "pass": null,
+      "detail": "evaluate=200 {\"evaluated\": 1, \"maxScore\": 20, \"autoPublished\": false}, publish=200 {\"published\": 1} (triggered locally: staff OTP is not readable on the remote host)"
+    },
+    {
+      "uat": "S24-P0-08",
+      "name": "login -> exam -> submission -> result passes on the deployment",
+      "pass": true,
+      "detail": "result read back from the deployment: status=200, totalScore=20 (expected 20 - every answer was correct)"
+    },
+    {
+      "uat": "S24-P0-08f",
+      "name": "the review screen agrees with the stored total on the deployment",
+      "pass": true,
+      "detail": "per-question sum=20, stored=20"
+    }
+  ]
+}

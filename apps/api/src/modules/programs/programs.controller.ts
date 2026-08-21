@@ -7,8 +7,9 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -29,8 +30,9 @@ export class ProgramsController {
   }
 
   @Get()
-  findAll() {
-    return this.programs.findAll();
+  @ApiQuery({ name: 'includeArchived', required: false, type: Boolean })
+  findAll(@Query('includeArchived') includeArchived?: string) {
+    return this.programs.findAll(includeArchived === 'true');
   }
 
   @Get(':id')

@@ -1,0 +1,200 @@
+[
+  {
+    "uat": "S18-P0-01",
+    "name": "student -> admin students API",
+    "pass": true,
+    "detail": "status=403"
+  },
+  {
+    "uat": "S18-P0-03",
+    "name": "student -> admin APIs denied by backend",
+    "pass": true,
+    "detail": "all denied"
+  },
+  {
+    "uat": "S18-P0-05",
+    "name": "admin -> student management allowed",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "uat": "S18-P0-06",
+    "name": "admin -> exam management allowed",
+    "pass": true,
+    "detail": "status=200"
+  },
+  {
+    "uat": "S18-P0-04",
+    "name": "teacher -> restricted admin function denied",
+    "pass": true,
+    "detail": "staff/admins status=403"
+  },
+  {
+    "uat": "S18-P0-07",
+    "name": "question approval denied to student",
+    "pass": true,
+    "detail": "status=403"
+  },
+  {
+    "uat": "S18-P0-08",
+    "name": "result publication denied to student",
+    "pass": true,
+    "detail": "status=403"
+  },
+  {
+    "uat": "S18-P0-08b",
+    "name": "result publication denied to teacher",
+    "pass": true,
+    "detail": "status=403"
+  },
+  {
+    "uat": "S18-P0-09",
+    "name": "unauthenticated admin API denied",
+    "pass": true,
+    "detail": "status=401"
+  },
+  {
+    "uat": "S19-P0-01",
+    "name": "A admin student list excludes B students",
+    "pass": true,
+    "detail": "status=200"
+  },
+  {
+    "uat": "S19-P0-02",
+    "name": "A admin exam list excludes B exams",
+    "pass": true,
+    "detail": "count=19"
+  },
+  {
+    "uat": "S19-P0-03",
+    "name": "A admin question list excludes B questions",
+    "pass": true,
+    "detail": "count=87"
+  },
+  {
+    "uat": "S19-P0-08a",
+    "name": "A admin GET B exam by id denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08b",
+    "name": "A admin PATCH B exam denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08c",
+    "name": "A admin GET B question by id denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08d",
+    "name": "A admin GET B student by id denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08e",
+    "name": "A admin PATCH B student denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08f",
+    "name": "A admin GET B batch by id denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-08g",
+    "name": "A admin GET B program denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-04",
+    "name": "A admin GET B exam results denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-05",
+    "name": "A admin export of B exam denied",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S19-P0-09a",
+    "name": "A admin question search cannot find B question",
+    "pass": true,
+    "detail": "hits=0"
+  },
+  {
+    "uat": "S19-P0-09b",
+    "name": "A admin student search cannot find B students",
+    "pass": true,
+    "detail": "hits=0"
+  },
+  {
+    "uat": "S19-P0-02b",
+    "name": "B admin exam list excludes A exams",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "uat": "S19-P0-07",
+    "name": "A student cannot start B exam",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S20-P0-10",
+    "name": "invalid API payloads rejected",
+    "pass": true,
+    "detail": "all rejected"
+  },
+  {
+    "uat": "S20-P0-12",
+    "name": "unauthorized API call fails authorization",
+    "pass": true,
+    "detail": "status=403"
+  },
+  {
+    "uat": "S20-P0-11a",
+    "name": "duplicate student invite rejected on 2nd call",
+    "pass": true,
+    "detail": "first=201 second=409"
+  },
+  {
+    "uat": "S09-P1-14",
+    "name": "server-generated roll number returned on invite",
+    "pass": true,
+    "detail": "resp keys=['id', 'name', 'email', 'roles', 'status', 'rollNumber']"
+  },
+  {
+    "uat": "S20-P0-11b",
+    "name": "re-submit of submitted attempt rejected",
+    "pass": true,
+    "detail": "status=400"
+  },
+  {
+    "uat": "S05-P1-06",
+    "name": "post-submit response write refused",
+    "pass": true,
+    "detail": "status=400"
+  },
+  {
+    "uat": "S18-P0-02",
+    "name": "student cannot read another student's result",
+    "pass": true,
+    "detail": "status=404"
+  },
+  {
+    "uat": "S18-P0-02b",
+    "name": "student cannot read another student's review",
+    "pass": true,
+    "detail": "status=404"
+  }
+]

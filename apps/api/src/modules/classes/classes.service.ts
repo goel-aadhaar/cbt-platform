@@ -56,10 +56,23 @@ export class ClassesService {
     });
   }
 
-  findAll(programId?: string) {
+  /**
+   * Active entries only unless `includeArchived` is asked for.
+   *
+   * Archiving sets `isActive = false` and the confirm dialog tells the admin the
+   * entry will stop appearing — but nothing filtered on it, so archived classes
+   * kept showing up in every picker, and an admin could still assign new records
+   * to something they had just retired. The flag exists so the organization
+   * screen can list archived rows in order to restore them.
+   */
+  findAll(programId?: string, includeArchived = false) {
     const instituteId = this.instituteId();
     return this.prisma.class.findMany({
-      where: { instituteId, ...(programId ? { programId } : {}) },
+      where: {
+        instituteId,
+        ...(programId ? { programId } : {}),
+        ...(includeArchived ? {} : { isActive: true }),
+      },
       orderBy: { createdAt: 'desc' },
       select: classSelect,
     });

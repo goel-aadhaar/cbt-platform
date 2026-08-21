@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { toCsv, withBom } from '../../common/csv/to-csv';
 import { ResponseStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
@@ -116,6 +117,27 @@ export class MonitoringService {
       answeredGroups.map((g) => [g.attemptId, g._count._all]),
     );
 
+    /**
+     * When the candidate was last actually doing something.
+     *
+     * This used to report `Attempt.updatedAt`, which answering never touches —
+     * autosave writes `Response` rows, not the attempt. So an invigilator
+     * watching a hall full of working candidates saw every one of them frozen
+     * at the moment they started, and the column that exists to spot a
+     * disconnected candidate could never do it.
+     *
+     * The newest response write is the real signal, in the same shape of
+     * grouped query as the answered count above.
+     */
+    const activityGroups = await this.prisma.response.groupBy({
+      by: ['attemptId'],
+      where: { attempt: { examId, instituteId } },
+      _max: { updatedAt: true },
+    });
+    const lastActivityByAttempt = new Map(
+      activityGroups.map((g) => [g.attemptId, g._max.updatedAt]),
+    );
+
     const now = Date.now();
     const rows = students.map((s) => {
       const a = attemptByStudent.get(s.id);
@@ -153,7 +175,9 @@ export class MonitoringService {
         answered: answeredByAttempt.get(a.id) ?? 0,
         violations: a.violationCount,
         flagged: a.flagged,
-        lastActivityAt: a.updatedAt,
+        // The newest response write, falling back to the attempt row for an
+        // attempt that has been started but not yet answered.
+        lastActivityAt: lastActivityByAttempt.get(a.id) ?? a.updatedAt,
       };
     });
 
@@ -182,6 +206,85 @@ export class MonitoringService {
       students: query.status
         ? rows.filter((r) => r.status === query.status)
         : rows,
+    };
+  }
+
+  /**
+   * Attendance for an exam: who was expected, who turned up, who did not.
+   *
+   * The platform had no attendance report at all — the participants screen's
+   * "export" downloaded the result sheet, which is a different question and
+   * silently omits everyone who never started. An institute needs the absence
+   * list more than the score list when chasing up a missed exam.
+   *
+   * Built on the same assigned-candidate query as the live monitor, so a
+   * concluded exam reports exactly the cohort it was set for rather than only
+   * those who happen to have a result row.
+   */
+  async getAttendance(examId: string) {
+    const snapshot = await this.getExamMonitor(examId, {});
+    const rows = snapshot.students.map((s) => ({
+      rollNumber: s.rollNumber,
+      name: s.name,
+      batch: s.batch?.name ?? '',
+      present: s.status !== 'NOT_STARTED',
+      status: s.status,
+      startedAt: s.startedAt,
+      submittedAt: s.submittedAt,
+      answered: s.answered,
+      totalQuestions: s.totalQuestions,
+      violations: s.violations,
+      flagged: s.flagged,
+    }));
+    const present = rows.filter((r) => r.present).length;
+    return {
+      examId: snapshot.examId,
+      title: snapshot.title,
+      window: snapshot.window,
+      expected: rows.length,
+      present,
+      absent: rows.length - present,
+      students: rows,
+    };
+  }
+
+  /** Attendance as a CSV, absences included. */
+  async exportAttendanceCsv(examId: string) {
+    const report = await this.getAttendance(examId);
+    const headers = [
+      'Roll Number',
+      'Name',
+      'Batch',
+      'Attendance',
+      'Attempt Status',
+      'Started At',
+      'Submitted At',
+      'Answered',
+      'Total Questions',
+      'Violations',
+      'Flagged',
+    ];
+    const rows = report.students.map((s) => [
+      s.rollNumber,
+      s.name,
+      s.batch,
+      s.present ? 'Present' : 'Absent',
+      s.status,
+      s.startedAt ? new Date(s.startedAt).toISOString() : '',
+      s.submittedAt ? new Date(s.submittedAt).toISOString() : '',
+      s.answered,
+      s.totalQuestions,
+      s.violations,
+      s.flagged ? 'Yes' : 'No',
+    ]);
+    const slug =
+      report.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'exam';
+    return {
+      filename: `${slug}-attendance.csv`,
+      csv: withBom(toCsv(headers, rows)),
     };
   }
 }

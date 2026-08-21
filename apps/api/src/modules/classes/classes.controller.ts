@@ -9,7 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -30,11 +30,13 @@ export class ClassesController {
   }
 
   @Get()
+  @ApiQuery({ name: 'includeArchived', required: false, type: Boolean })
   findAll(
     @Query('programId', new ParseUUIDPipe({ optional: true }))
     programId?: string,
+    @Query('includeArchived') includeArchived?: string,
   ) {
-    return this.classes.findAll(programId);
+    return this.classes.findAll(programId, includeArchived === 'true');
   }
 
   @Get(':id')

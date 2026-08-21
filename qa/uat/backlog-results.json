@@ -1,0 +1,222 @@
+{
+  "total": 36,
+  "failed": 0,
+  "results": [
+    {
+      "uat": "BUG-111-a",
+      "name": "program created",
+      "pass": true,
+      "detail": "status=201"
+    },
+    {
+      "uat": "BUG-111-b",
+      "name": "an archived program leaves the default listing",
+      "pass": true,
+      "detail": "before=True after=False"
+    },
+    {
+      "uat": "BUG-111-c",
+      "name": "includeArchived still returns it, flagged inactive",
+      "pass": true,
+      "detail": "found=True isActive=False"
+    },
+    {
+      "uat": "BUG-116-a0",
+      "name": "teacher granted one batch for the test",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "BUG-116-a",
+      "name": "the teacher is scoped to fewer batches than the institute has",
+      "pass": true,
+      "detail": "teacher teaches 1 of 5"
+    },
+    {
+      "uat": "BUG-116-b",
+      "name": "posting to another teacher's batch is refused",
+      "pass": true,
+      "detail": "status=403 {\"statusCode\": 403, \"error\": \"Forbidden\", \"message\": \"You can only post announcements to batches you teach\", \""
+    },
+    {
+      "uat": "BUG-116-c",
+      "name": "posting to their own batch still works",
+      "pass": true,
+      "detail": "status=201 {\"id\": \"88c93401-5a09-4377-a256-909f827a9fd2\", \"title\": \"UAT own b1134774\", \"body\": \"should be allowed\", \"cate"
+    },
+    {
+      "uat": "BUG-116-d",
+      "name": "an admin may still target any batch",
+      "pass": true,
+      "detail": "status=201"
+    },
+    {
+      "uat": "BUG-112-a",
+      "name": "PATCH /announcements/:id accepts the composer's payload",
+      "pass": true,
+      "detail": "status=200 {\"id\": \"aa797fee-7355-48fa-8a73-99dbfeac41ac\", \"title\": \"UAT admin b1134774 (edited)\", \"body\": \"corrected text"
+    },
+    {
+      "uat": "BUG-112-b",
+      "name": "the edit persists, including expiry and the audience clear",
+      "pass": true,
+      "detail": "title='UAT admin b1134774 (edited)' pinned=True batchId=None expiresAt=2099-01-01T00:00:00.000Z"
+    },
+    {
+      "uat": "BUG-104-a",
+      "name": "question carries the media key",
+      "pass": true,
+      "detail": "mediaKeys=['b1890ea9-522d-45f5-87bb-e1e000eaf8fc/2fd5afe9-ceba-4cb9-bd31-6c5f636db4dd.png']"
+    },
+    {
+      "uat": "BUG-104-b",
+      "name": "deleting an in-use image warns before it destroys anything",
+      "pass": true,
+      "detail": "status=409"
+    },
+    {
+      "uat": "BUG-104-c",
+      "name": "a confirmed delete strips the key from the question",
+      "pass": true,
+      "detail": "delete=200 detached=1 mediaKeys now []"
+    },
+    {
+      "uat": "BUG-117-a0",
+      "name": "candidate has started the paper carrying the diagram",
+      "pass": true,
+      "detail": "status=201"
+    },
+    {
+      "uat": "BUG-117-a",
+      "name": "a candidate can still load a diagram from their own paper",
+      "pass": true,
+      "detail": "status=200, 74 bytes"
+    },
+    {
+      "uat": "BUG-117-b",
+      "name": "a key from a paper they never sat is refused",
+      "pass": true,
+      "detail": "status=404 (was 200 before the fix)"
+    },
+    {
+      "uat": "BUG-117-c",
+      "name": "staff are unaffected \u2014 the library is still theirs",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "BUG-103-a0",
+      "name": "question flagged for manual evaluation",
+      "pass": true,
+      "detail": "status=200 {\"examId\": \"c2e3d4ca-fd96-4255-82c2-c258f3d5a979\", \"questionId\": \"92d179d8-4d02-4495-bd02-c178193b9aad\", \"scor"
+    },
+    {
+      "uat": "BUG-103-a",
+      "name": "setting a manual award returns 200 and reports the re-score",
+      "pass": true,
+      "detail": "status=200 {\"evaluated\": 3}"
+    },
+    {
+      "uat": "BUG-103-b",
+      "name": "the stored total tracks the award with no separate Recalculate",
+      "pass": true,
+      "detail": "award 0 -> total -2 (expected -2); award 4 -> total 2 (expected 2)"
+    },
+    {
+      "uat": "BUG-105-a",
+      "name": "readiness reports the audit trail alongside the database",
+      "pass": true,
+      "detail": "indicators=['auditTrail', 'database']"
+    },
+    {
+      "uat": "BUG-105-b",
+      "name": "audit write failures are counted, not swallowed silently",
+      "pass": true,
+      "detail": "{\"writeFailures\": 0, \"status\": \"up\"}"
+    },
+    {
+      "uat": "BUG-105-c",
+      "name": "an institute admin can read their own audit trail",
+      "pass": true,
+      "detail": "status=200, 5 rows"
+    },
+    {
+      "uat": "BUG-106-a",
+      "name": "the answer-key change is recorded with its new value",
+      "pass": true,
+      "detail": "{\"path\": \"/api/v1/questions/4aaa001c-26fc-4b6e-867d-abd78f161b37\", \"fields\": [\"answerKey\", \"confirm\"], \"values\": {\"confirm\": true, \"answerKey\": \"B\"}, \"durationMs\": 3673}"
+    },
+    {
+      "uat": "BUG-106-b",
+      "name": "a statement-only edit is a different row shape",
+      "pass": true,
+      "detail": "answer-key edits carry `values.answerKey`; other edits do not"
+    },
+    {
+      "uat": "BUG-106-c",
+      "name": "autosave traffic is kept out of the audit trail",
+      "pass": true,
+      "detail": "0 new autosave rows since the watermark (25 historical rows predate the fix)"
+    },
+    {
+      "uat": "BUG-107-a",
+      "name": "lastActivityAt tracks answering, not attempt creation",
+      "pass": true,
+      "detail": "startedAt=2026-08-21T13:35:32.013Z lastActivityAt=2026-08-21T13:41:08.807Z"
+    },
+    {
+      "uat": "BUG-114-a",
+      "name": "attendance reports expected, present and absent",
+      "pass": true,
+      "detail": "expected=10 present=1 absent=9"
+    },
+    {
+      "uat": "BUG-114-b",
+      "name": "absent candidates appear, which the result sheet omits",
+      "pass": true,
+      "detail": "9 absentee row(s)"
+    },
+    {
+      "uat": "BUG-114-c",
+      "name": "the attendance CSV downloads and marks absences",
+      "pass": true,
+      "detail": "status=200, 746 chars"
+    },
+    {
+      "uat": "BUG-114-d",
+      "name": "a student's exam history is readable",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "uat": "BUG-113-a",
+      "name": "a teacher can be promoted to administrator",
+      "pass": true,
+      "detail": "status=200 roles=['TEACHER', 'ADMIN']"
+    },
+    {
+      "uat": "BUG-113-b",
+      "name": "and demoted again",
+      "pass": true,
+      "detail": "status=200 roles=['TEACHER']"
+    },
+    {
+      "uat": "BUG-113-c",
+      "name": "SUPERADMIN cannot be granted by an institute admin",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": [\"each value in roles must be one of the following valu"
+    },
+    {
+      "uat": "BUG-113-d",
+      "name": "an account cannot be left with no role at all",
+      "pass": true,
+      "detail": "status=400"
+    },
+    {
+      "uat": "BUG-113-e",
+      "name": "an admin cannot remove their own administrator role",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"You cannot remove your own administrator role\", \"times"
+    }
+  ]
+}

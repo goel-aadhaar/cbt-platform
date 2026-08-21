@@ -119,6 +119,105 @@ export function holdResults(
  * Uses fetch + a blob URL rather than a plain link because the endpoint needs
  * an Authorization header, which an <a download> cannot carry.
  */
+/**
+ * Download an authenticated file from the API.
+ *
+ * `<a href>` cannot carry a bearer token, so the bytes are fetched and handed
+ * to the browser as an object URL — the same shape as the results export,
+ * factored out so attendance did not need a second copy of it.
+ */
+async function downloadAuthed(path: string, filename: string): Promise<void> {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const res = await fetch(`${base}${path}`, {
+    headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.message;
+    throw new Error(
+      Array.isArray(msg)
+        ? msg.join(", ")
+        : (msg ?? `Download failed (${res.status})`),
+    );
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export interface AttendanceRow {
+  rollNumber: string;
+  name: string;
+  batch: string;
+  present: boolean;
+  status: string;
+  startedAt: string | null;
+  submittedAt: string | null;
+  answered: number;
+  totalQuestions: number;
+  violations: number;
+  flagged: boolean;
+}
+
+export interface AttendanceReport {
+  examId: string;
+  title: string;
+  window: { startAt: string | null; endAt: string | null };
+  expected: number;
+  present: number;
+  absent: number;
+  students: AttendanceRow[];
+}
+
+/**
+ * GET /exams/:id/attendance — who was expected and who turned up.
+ *
+ * Not the same question as the result sheet: results only contain candidates
+ * who have a result, so everyone who never started is missing from it. The
+ * absences are the point of an attendance report.
+ */
+export function getAttendance(examId: string): Promise<AttendanceReport> {
+  return apiFetch<AttendanceReport>(`/exams/${examId}/attendance`, auth());
+}
+
+/** Download the attendance sheet, absences included. */
+export function downloadAttendanceCsv(
+  examId: string,
+  filename = "attendance.csv",
+): Promise<void> {
+  return downloadAuthed(`/exams/${examId}/attendance/export/csv`, filename);
+}
+
+export interface StudentHistoryEntry {
+  id: string;
+  totalScore: number;
+  maxScore: number;
+  overallRank: number | null;
+  percentile: number | null;
+  published: boolean;
+  createdAt: string;
+  exam: { id: string; title: string };
+}
+
+/**
+ * GET /students/:id/history — one candidate's full exam record.
+ *
+ * Implemented server-side from the start and never called by anything.
+ */
+export function getStudentHistory(studentId: string): Promise<{
+  student: { id: string; rollNumber: string; name: string };
+  results: StudentHistoryEntry[];
+}> {
+  return apiFetch(`/students/${studentId}/history`, auth());
+}
+
 export async function downloadResultsExport(
   examId: string,
   format: "csv" | "xlsx" | "pdf",
@@ -478,9 +577,16 @@ export interface BatchRow {
   isActive: boolean;
 }
 
-/** GET /programs — ADMIN. */
-export function listPrograms(): Promise<Program[]> {
-  return apiFetch<Program[]>(`/programs`, auth());
+/**
+ * GET /programs — ADMIN.
+ *
+ * Archived programs are excluded by default, which is what every picker wants.
+ * The organization screen passes `true` so an archived entry stays visible and
+ * can be restored.
+ */
+export function listPrograms(includeArchived = false): Promise<Program[]> {
+  const qs = includeArchived ? `?includeArchived=true` : "";
+  return apiFetch<Program[]>(`/programs${qs}`, auth());
 }
 
 /** POST /programs — ADMIN. Name must be unique within the institute. */
@@ -505,9 +611,16 @@ export function archiveProgram(id: string): Promise<Program> {
   return apiFetch(`/programs/${id}`, { method: "DELETE", ...auth() });
 }
 
-/** GET /classes — ADMIN, optionally scoped to a program. */
-export function listClasses(programId?: string): Promise<ClassRow[]> {
-  const qs = programId ? `?programId=${encodeURIComponent(programId)}` : "";
+/** GET /classes — ADMIN, optionally scoped to a program. Archived excluded
+ * unless asked for — see {@link listPrograms}. */
+export function listClasses(
+  programId?: string,
+  includeArchived = false,
+): Promise<ClassRow[]> {
+  const params = new URLSearchParams();
+  if (programId) params.set("programId", programId);
+  if (includeArchived) params.set("includeArchived", "true");
+  const qs = params.size ? `?${params}` : "";
   return apiFetch<ClassRow[]>(`/classes${qs}`, auth());
 }
 
@@ -537,9 +650,16 @@ export function archiveClass(id: string): Promise<ClassRow> {
   return apiFetch(`/classes/${id}`, { method: "DELETE", ...auth() });
 }
 
-/** GET /batches — ADMIN, optionally scoped to a class. */
-export function listBatches(classId?: string): Promise<BatchRow[]> {
-  const qs = classId ? `?classId=${encodeURIComponent(classId)}` : "";
+/** GET /batches — ADMIN, optionally scoped to a class. Archived excluded
+ * unless asked for — see {@link listPrograms}. */
+export function listBatches(
+  classId?: string,
+  includeArchived = false,
+): Promise<BatchRow[]> {
+  const params = new URLSearchParams();
+  if (classId) params.set("classId", classId);
+  if (includeArchived) params.set("includeArchived", "true");
+  const qs = params.size ? `?${params}` : "";
   return apiFetch<BatchRow[]>(`/batches${qs}`, auth());
 }
 
@@ -773,7 +893,19 @@ export function fetchStaff(id: string): Promise<StaffRow> {
 /** PATCH /staff/:id — ADMIN. */
 export function updateStaff(
   id: string,
-  body: { name?: string },
+  body: {
+    name?: string;
+    /**
+     * Replaces the account's roles outright — pass every role it should end up
+     * with, not just the new one.
+     *
+     * Only TEACHER and ADMIN are assignable: SUPERADMIN is platform-level and
+     * granted out of band, and STUDENT is not staff. The API refuses a
+     * self-demotion or the removal of the last administrator, and a session
+     * whose active role is taken away stops working on its very next request.
+     */
+    roles?: ("TEACHER" | "ADMIN")[];
+  },
 ): Promise<StaffRow> {
   return apiFetch(`/staff/${id}`, { method: "PATCH", body, ...auth() });
 }
@@ -835,13 +967,23 @@ export interface ImportSummary {
   failed: { row: number; email: string; reason: string }[];
 }
 
+/** GET /students/import/template — the workbook to fill in. */
+export function downloadStudentTemplate(): Promise<void> {
+  return downloadAuthed(
+    "/students/import/template",
+    "drsk-students-template.xlsx",
+  );
+}
+
 /**
- * POST /students/import — multipart upload. Sent with fetch directly (not
- * apiFetch) because the body is FormData: setting Content-Type manually would
- * strip the multipart boundary. Roll numbers are always server-generated —
- * a rollNumber column in the CSV, if present, is ignored.
+ * POST /students/import — multipart upload of an Excel workbook or a CSV.
+ *
+ * Sent with fetch directly (not apiFetch) because the body is FormData: setting
+ * Content-Type manually would strip the multipart boundary. Roll numbers are
+ * always server-generated — a rollNumber column in the file, if present, is
+ * ignored.
  */
-export async function importStudentsCsv(
+export async function importStudentRoster(
   file: File,
   opts: { batchId: string },
 ): Promise<ImportSummary> {

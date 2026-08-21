@@ -1,0 +1,174 @@
+{
+  "total": 28,
+  "failed": 1,
+  "results": [
+    {
+      "uat": "XLSX-T-students",
+      "name": "the roster template downloads as a real workbook",
+      "pass": true,
+      "detail": "status=200, 8080 bytes, zip=True, workbook part=True"
+    },
+    {
+      "uat": "XLSX-T-questions",
+      "name": "the question bank template downloads as a real workbook",
+      "pass": true,
+      "detail": "status=200, 9023 bytes, zip=True, workbook part=True"
+    },
+    {
+      "uat": "XLSX-S-1",
+      "name": "an .xlsx roster uploads and imports",
+      "pass": true,
+      "detail": "status=201 {\"total\": 5, \"batch\": \"JEE-A\"}"
+    },
+    {
+      "uat": "XLSX-S-2",
+      "name": "the three valid rows are imported",
+      "pass": true,
+      "detail": "3 imported: ['UATXL 46ff2c One', 'UATXL 46ff2c Two', 'UATXL 46ff2c Three']"
+    },
+    {
+      "uat": "XLSX-S-3",
+      "name": "the blank-name and duplicate rows fail without stopping the file",
+      "pass": true,
+      "detail": "[{\"row\": 5, \"email\": \"no-name@example.com\", \"reason\": \"Missing name\"}, {\"row\": 6, \"email\": \"uatxl-46ff2c-1@example.com\", \"reason\": \"Duplicate email in file\"}]"
+    },
+    {
+      "uat": "XLSX-S-4",
+      "name": "roll numbers are server-generated, never taken from the sheet",
+      "pass": true,
+      "detail": "rolls=['2610000082', '2610000083', '2610000084']"
+    },
+    {
+      "uat": "XLSX-S-5",
+      "name": "the imported students are readable back from the roster",
+      "pass": true,
+      "detail": "3 found, statuses=['PENDING']"
+    },
+    {
+      "uat": "XLSX-S-6",
+      "name": "a sheet missing name/email is refused once, not row by row",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"The sheet is missing the name and email columns. Found: roll, marks. Download the template to "
+    },
+    {
+      "uat": "XLSX-Q-1",
+      "name": "a teacher can upload an .xlsx question bank",
+      "pass": true,
+      "detail": "status=201 total=4"
+    },
+    {
+      "uat": "XLSX-Q-2",
+      "name": "the three well-formed questions import",
+      "pass": true,
+      "detail": "types=['MCQ', 'MSQ', 'INTEGER']"
+    },
+    {
+      "uat": "XLSX-Q-3",
+      "name": "each answer shape is honoured (MCQ / MSQ / INTEGER)",
+      "pass": true,
+      "detail": "['MCQ', 'MSQ', 'INTEGER']"
+    },
+    {
+      "uat": "XLSX-Q-4",
+      "name": "the answerless row is reported rather than dropped",
+      "pass": true,
+      "detail": "[{\"index\": 5, \"statement\": \"UATXL 46ff2c broken: no answer given\", \"reason\": \"Missing answer\"}]"
+    },
+    {
+      "uat": "XLSX-Q-5",
+      "name": "the imported questions are in the bank as DRAFT",
+      "pass": true,
+      "detail": "3 found, statuses=['DRAFT']"
+    },
+    {
+      "uat": "XLSX-Q-6",
+      "name": "an MSQ's comma-separated answer becomes a key array",
+      "pass": true,
+      "detail": "answerKey=[\"A\", \"C\"]"
+    },
+    {
+      "uat": "XLSX-Q-7",
+      "name": "an INTEGER answer becomes a number, with no options",
+      "pass": true,
+      "detail": "answerKey=6 options=null"
+    },
+    {
+      "uat": "XLSX-Q-8",
+      "name": "option columns become keyed options in order",
+      "pass": true,
+      "detail": "[{\"key\": \"A\", \"text\": \"2 m/s\"}, {\"key\": \"B\", \"text\": \"3 m/s\"}, {\"key\": \"C\", \"text\": \"4 m/s\"}, {\"key\": \"D\", \"text\": \"6 m/s\"}]"
+    },
+    {
+      "uat": "XLSX-Q-9",
+      "name": "the Word path is still routed (not swallowed by the sheet reader)",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"That Word document could not be read \\u2014 it looks damaged or incomplete"
+    },
+    {
+      "uat": "XLSX-Q-10",
+      "name": "an unsupported file is refused by content, not by extension",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"Unsupported file. Upload a Word document (.docx) or an Excel workbook (.xl"
+    },
+    {
+      "uat": "XLSX-R-1",
+      "name": "a title row above the headers does not break the import",
+      "pass": true,
+      "detail": "status=201 [{\"row\": 4, \"name\": \"UATRW 92e535 Good\", \"email\": \"uatrw-92e535-ok@example.com\", \"rollNumber\": \"2610000085\"}]"
+    },
+    {
+      "uat": "XLSX-R-2",
+      "name": "reported rows are the real sheet rows, not a running count",
+      "pass": true,
+      "detail": "imported=[4] failed=[5, 6] (expected 4; 5,6)"
+    },
+    {
+      "uat": "XLSX-R-3",
+      "name": "\"Full Name\" / \"E-Mail\" headers are understood",
+      "pass": true,
+      "detail": "status=201 {\"batchId\": \"f7a29c55-4a41-4749-916f-4afed3ebcb56\", \"batch\": \"JEE-A\", \"total\": 1, \"imported\": [{\"row\": 2, \"name\": \"UATRW 92e535 Al"
+    },
+    {
+      "uat": "XLSX-R-9",
+      "name": "a question sheet with a title row imports, reporting real rows",
+      "pass": true,
+      "detail": "status=201 imported=[4] failed=[5] (expected 4; 5)"
+    },
+    {
+      "uat": "XLSX-R-4",
+      "name": "a Word document sent to the roster import is named as such",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"That is a Word document. Student rosters are imported from an Ex"
+    },
+    {
+      "uat": "XLSX-R-5",
+      "name": "a binary that is not a spreadsheet is refused clearly",
+      "pass": true,
+      "detail": "status=400 {\"statusCode\": 400, \"error\": \"Bad Request\", \"message\": \"That file is not a spreadsheet or a CSV. Upload an .xlsx workboo"
+    },
+    {
+      "uat": "XLSX-R-6",
+      "name": "CSV still imports, and a blank line does not shift row numbers",
+      "pass": true,
+      "detail": "status=201 imported=[2] failed=[4] (expected 2; 4)"
+    },
+    {
+      "uat": "XLSX-R-7",
+      "name": "an oversized upload is refused with 413",
+      "pass": true,
+      "detail": "status=413"
+    },
+    {
+      "uat": "XLSX-R-8",
+      "name": "roster import stays admin-only",
+      "pass": true,
+      "detail": "status=403"
+    },
+    {
+      "uat": "XLSX-R-10",
+      "name": "an MCQ given two answers is refused, not imported with one silently dropped",
+      "pass": false,
+      "detail": "status=201 []"
+    }
+  ]
+}

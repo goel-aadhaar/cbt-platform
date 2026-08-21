@@ -1,0 +1,86 @@
+{
+  "target": "http://3.6.167.149",
+  "passed": 5,
+  "failed": 7,
+  "unknown": 1,
+  "results": [
+    {
+      "uat": "S23-P0-01",
+      "name": "frontend loads on the deployment",
+      "pass": true,
+      "detail": "/ -> 200 -> /login -> 200, next-app-markup=True"
+    },
+    {
+      "uat": "S23-P0-02",
+      "name": "backend API responds and enforces auth",
+      "pass": true,
+      "detail": "/api/health=200 live=True; anonymous /api/v1/exams=401"
+    },
+    {
+      "uat": "S23-P0-03",
+      "name": "production database reachable and healthy",
+      "pass": true,
+      "detail": "/api/health/ready=200 {\"status\":\"ok\",\"info\":{\"database\":{\"status\":\"up\"}},\"error\":{},\"details\":{\"database\":{\"status\":\"up\"}}}"
+    },
+    {
+      "uat": "S23-P0-04",
+      "name": "media stored on S3",
+      "pass": false,
+      "detail": "AWS_S3_BUCKET=ABSENT in deploy/.env.api.production - without it the API falls back to the local-disk media adapter, so uploads live on the instance's ephemeral disk and are lost when it is replaced"
+    },
+    {
+      "uat": "S23-P0-05",
+      "name": "question media served through a CDN",
+      "pass": false,
+      "detail": "CDN keys in production env: none - media is served by the single origin, so every image is an instance round-trip"
+    },
+    {
+      "uat": "S23-P0-06",
+      "name": "served from a real production domain",
+      "pass": false,
+      "detail": "host=3.6.167.149 - a bare IP, so there is no domain, no certificate, and no stable address if the instance is replaced"
+    },
+    {
+      "uat": "S23-P0-07",
+      "name": "HTTPS with a valid certificate",
+      "pass": false,
+      "detail": "port 443: TimeoutError: timed out - credentials, session tokens and OTP codes therefore travel in cleartext"
+    },
+    {
+      "uat": "S23-P0-08",
+      "name": "no server secrets in the shipped frontend bundle",
+      "pass": true,
+      "detail": "scanned 9 first-party scripts (697541 chars); clean"
+    },
+    {
+      "uat": "S23-P0-11",
+      "name": "no staging or internal URLs in the shipped bundle",
+      "pass": true,
+      "detail": "clean"
+    },
+    {
+      "uat": "S23-P0-08b",
+      "name": "API documentation not anonymously readable in production",
+      "pass": false,
+      "detail": "/api/docs=200 - full route/DTO surface is public"
+    },
+    {
+      "uat": "S23-P0-09",
+      "name": "backup / restore procedure confirmed",
+      "pass": null,
+      "detail": "no backup or restore procedure in DEPLOYMENT.md; the database is managed Neon, whose retention and PITR window are a console setting this suite has no credentials to read - must be confirmed by the account owner, and a restore actually rehearsed"
+    },
+    {
+      "uat": "S23-P0-10",
+      "name": "production failures are detectable",
+      "pass": false,
+      "detail": "pm2 log capture=yes, alerting/aggregation=NONE - failures are only visible to someone who SSHes in and reads pm2 logs"
+    },
+    {
+      "uat": "S23-P0-12",
+      "name": "production carries no unintended test data",
+      "pass": false,
+      "detail": "deployed DATABASE_URL host/db = ('ep-ancient-truth-atl26dpd.c-9.us-east-1.aws.neon.tech', 'neondb'); local dev = ('ep-ancient-truth-atl26dpd.c-9.us-east-1.aws.neon.tech', 'neondb'); SAME DATABASE - the deployment serves the dev seed (demo tenant, seeded students, and every QA fixture), and local test runs write straight into it"
+    }
+  ]
+}

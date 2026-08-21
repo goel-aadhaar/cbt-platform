@@ -47,6 +47,9 @@ const NAV: NavItem[] = [
   { label: "Live Monitoring", href: "/admin/monitoring", icon: ActivityIcon },
   { label: "Announcements", href: "/admin/announcements", icon: BellIcon },
   { label: "Imports", href: "/admin/imports", icon: UploadIcon },
+  // The trail was reachable by the API but by no page in this console, so an
+  // institute's own administrator could not review their staff's actions.
+  { label: "Audit Log", href: "/admin/audit", icon: ShieldCheckIcon },
   { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
   {
     label: "Administrators",

@@ -1,0 +1,56 @@
+[
+  {
+    "uat": "S07-P1-06a",
+    "name": "student search returns a student hit",
+    "pass": true,
+    "detail": "status=200 hits=1"
+  },
+  {
+    "uat": "S07-P1-06b",
+    "name": "exam search returns an exam hit",
+    "pass": true,
+    "detail": "types=['exam']"
+  },
+  {
+    "uat": "S07-P1-06c",
+    "name": "question search returns a question hit",
+    "pass": true,
+    "detail": "types=['question']"
+  },
+  {
+    "uat": "S07-P1-06d",
+    "name": "one-character term returns nothing (no full scan)",
+    "pass": true,
+    "detail": "hits=0"
+  },
+  {
+    "uat": "S07-P1-06e",
+    "name": "every hit has a navigable href",
+    "pass": true,
+    "detail": "hrefs=['/admin/students?search=26100']"
+  },
+  {
+    "uat": "S19-P0-09c",
+    "name": "tenant A search cannot see tenant B records",
+    "pass": true,
+    "detail": "0 hits"
+  },
+  {
+    "uat": "S19-P0-09d",
+    "name": "tenant B CAN see its own records (proves term works)",
+    "pass": true,
+    "detail": "hits=2 types=['exam', 'question']"
+  },
+  {
+    "uat": "S19-P0-09e",
+    "name": "tenant B search cannot see tenant A exams",
+    "pass": true,
+    "detail": "0 hits"
+  },
+  {
+    "uat": "S18-P0-03b",
+    "name": "student denied console search",
+    "pass": true,
+    "detail": "status=403"
+  }
+]

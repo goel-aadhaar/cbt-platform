@@ -31,8 +31,31 @@ export class AuditService {
   ) {}
 
   /**
+   * How many audit writes have failed since boot, and the most recent one.
+   *
+   * Swallowing the error is right — an audit failure must not fail a candidate's
+   * submission — but swallowing it *silently* meant an audited action could
+   * succeed with no row and nothing to notice, which is indistinguishable from
+   * the action never happening. The counter is surfaced on `/api/health/ready`,
+   * so "the trail has holes" is something a monitor can see rather than
+   * something discovered during an investigation months later.
+   */
+  private failureCount = 0;
+  private lastFailure: { action: string; at: string; reason: string } | null =
+    null;
+
+  /** Read by {@link AuditHealthIndicator}. */
+  getWriteFailures(): {
+    count: number;
+    last: { action: string; at: string; reason: string } | null;
+  } {
+    return { count: this.failureCount, last: this.lastFailure };
+  }
+
+  /**
    * Persist an audit entry. Best-effort: a failure here must never break the
-   * request that triggered it, so all errors are swallowed (and logged).
+   * request that triggered it, so errors are swallowed — but they are logged
+   * AND counted, see {@link getWriteFailures}.
    */
   async record(event: AuditEvent): Promise<void> {
     try {
@@ -57,8 +80,15 @@ export class AuditService {
         },
       });
     } catch (err) {
+      this.failureCount += 1;
+      this.lastFailure = {
+        action: event.action,
+        at: new Date().toISOString(),
+        reason: err instanceof Error ? err.message : String(err),
+      };
       this.logger.error(
-        `Failed to write audit log for "${event.action}"`,
+        `Failed to write audit log for "${event.action}" ` +
+          `(${this.failureCount} audit write failure(s) since boot)`,
         err instanceof Error ? err.stack : undefined,
       );
     }

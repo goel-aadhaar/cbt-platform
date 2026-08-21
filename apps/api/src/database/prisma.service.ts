@@ -30,7 +30,36 @@ export class PrismaService
     // of an exam when a whole batch of candidates hits "Start" together
     // (§2.17: 50–200 concurrent). Size it via DATABASE_POOL_MAX.
     const max = configService.get<number>('database.poolMax') ?? 25;
-    super({ adapter: new PrismaPg({ connectionString, max }) });
+    super({
+      adapter: new PrismaPg({
+        connectionString,
+        max,
+        /**
+         * Bound the wait for a pooled connection.
+         *
+         * node-postgres defaults this to 0, meaning "wait forever". Observed
+         * during UAT: a request to start an exam sat for **255 seconds** on a
+         * connection the pool had already lost, then returned a 500. Waiting
+         * forever is the worst of both worlds during an exam — the candidate
+         * gets a spinner instead of an error they can act on, and the pending
+         * requests pile up behind a database that is not answering.
+         */
+        connectionTimeoutMillis: 10_000,
+        /**
+         * Evict an idle socket before the far end does. Managed Postgres
+         * (Neon today, RDS later) closes idle server connections, and a pool
+         * that hands out one of those fails with "Connection terminated
+         * unexpectedly" on the next query — which is exactly what was seen.
+         * Well under any provider's idle cutoff.
+         */
+        idleTimeoutMillis: 30_000,
+        /**
+         * TCP keepalive, so a connection idling behind NAT is not silently
+         * dropped between exams.
+         */
+        keepAlive: true,
+      }),
+    });
   }
 
   async onModuleInit(): Promise<void> {

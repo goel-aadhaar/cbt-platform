@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -44,12 +45,30 @@ export class QuestionsController {
   }
 
   /**
-   * Bulk-import questions from a .docx upload (§2.4). Field `file`; each question
-   * starts with `Q:`/`1.`, options `A) …`, `Answer: …`, plus optional `Key:
-   * value` lines. `subjectId`/`chapterId` apply to every question in the file
-   * (selected once via the import modal's cascading dropdowns); `examCategoryId`
-   * is optional; `difficulty`/`type` are per-row defaults for rows that omit them.
+   * Bulk-import questions from a `.docx` or `.xlsx` upload (§2.4). Field `file`.
+   *
+   * **Word**: each question starts with `Q:`/`1.`, options `A) …`, `Answer: …`,
+   * plus optional `Key: value` lines. Images in the document are imported and
+   * attached to the question they appear in.
+   *
+   * **Excel**: one question per row — `statement` and `answer` are required,
+   * `optionA`…`optionH` hold the choices, and `type`/`difficulty`/`marks`/
+   * `negativeMarks`/`explanation`/`tags` are optional columns.
+   *
+   * `subjectId`/`chapterId` apply to every question in the file (selected once
+   * via the import dialog's cascading dropdowns); `examCategoryId` is optional;
+   * `difficulty`/`type` are per-row defaults for rows that omit them.
    */
+  /** The blank workbook to fill in, with the columns the parser expects. */
+  @Get('import/template')
+  async importTemplate(): Promise<StreamableFile> {
+    const buffer = await this.questions.importTemplate();
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: 'attachment; filename="drsk-questions-template.xlsx"',
+    });
+  }
+
   @Post('import')
   @ApiConsumes('multipart/form-data')
   @ApiQuery({ name: 'subjectId', required: true })
@@ -64,9 +83,11 @@ export class QuestionsController {
     },
   })
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }),
+    // 10 MB: a workbook of a few hundred questions, or a Word paper carrying
+    // its diagrams, both comfortably exceed the old 5 MB ceiling.
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
-  importDocx(
+  importQuestions(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query('subjectId', new ParseUUIDPipe({ optional: true }))
     subjectId?: string,
@@ -78,9 +99,11 @@ export class QuestionsController {
     examCategoryId?: string,
   ) {
     if (!file) {
-      throw new BadRequestException('A .docx file is required (field "file")');
+      throw new BadRequestException(
+        'A file is required (field "file") — .docx or .xlsx',
+      );
     }
-    return this.questions.importDocx(
+    return this.questions.importQuestions(
       file.buffer,
       { subjectId, chapterId, difficulty, type, examCategoryId },
       file.originalname,

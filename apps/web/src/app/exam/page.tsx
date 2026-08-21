@@ -13,6 +13,7 @@ import {
 } from "react";
 
 import { AuthedImage } from "@/components/authed-image";
+import { RichText } from "@/components/rich-text";
 import { AuthGate } from "@/components/auth-gate";
 import { ExamSidebar } from "@/components/exam/exam-sidebar";
 import {
@@ -35,6 +36,7 @@ import { useProctoring } from "@/hooks/use-proctoring";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 import {
   abandonAttempt,
+  reportSectionTime,
   reportViolation,
   saveResponse,
   startAttempt,
@@ -284,6 +286,7 @@ function ExamRunner({
       optionKeys: string[];
       positiveMarks: number;
       negativeMarks: number;
+      sectionId: string;
       sectionName: string;
       media: { key: string; url: string }[];
     }[] = [];
@@ -299,6 +302,7 @@ function ExamRunner({
           optionKeys: raw.map((o) => o.key),
           positiveMarks: q.question.marks,
           negativeMarks: section.marksWrong,
+          sectionId: section.id,
           sectionName: section.name,
           media: q.question.media ?? [],
         });
@@ -379,11 +383,80 @@ function ExamRunner({
     () => null,
   );
 
-  const remainingSeconds = useCountdown(attempt.remainingSeconds, onSubmit);
+  const attemptId = attempt.id;
+
+  /**
+   * Per-question and per-section time tracking (§2.8 result time analysis).
+   *
+   * Both are reported as DELTAS since the last report, never as totals: the
+   * autosaves here are fire-and-forget, so two in flight together must sum
+   * server-side rather than clobber each other. `dwellRef` holds the wall-clock
+   * mark for the question currently on screen; every exit path settles it.
+   */
+  // `since: 0` means "clock not started" — the mark is set on mount below,
+  // because `Date.now()` in a useRef initializer would run during render.
+  const dwellRef = useRef({ index: 0, since: 0 });
+  useEffect(() => {
+    dwellRef.current = { index: 0, since: Date.now() };
+  }, []);
+
+  /**
+   * Close out the time owed for whichever question was on screen and report it.
+   * Returns the elapsed ms when it belongs to the question on screen (so the
+   * caller can fold it into a save it was already making) and 0 once it has
+   * been sent separately — which is what keeps an interval from counting twice.
+   */
+  const settleDwell = useCallback(
+    (opts: { foldIntoCurrentSave?: boolean } = {}): number => {
+      const { index, since } = dwellRef.current;
+      const now = Date.now();
+      dwellRef.current = { index, since: now };
+
+      // Clock not started yet (see the mount effect) — nothing is owed.
+      if (since === 0) return 0;
+
+      // Sub-second flicker is noise, not thinking time; and a tab left open
+      // for hours must not book a day against one question (server caps too).
+      const elapsed = now - since;
+      if (elapsed < 1000 || elapsed > 3_600_000) return 0;
+
+      const question = questions[index];
+      if (!question) return 0;
+
+      void reportSectionTime(
+        attemptId,
+        question.sectionId,
+        Math.round(elapsed / 1000),
+      ).catch(() => {});
+
+      if (opts.foldIntoCurrentSave) return elapsed;
+
+      void saveResponse(attemptId, question.id, { timeSpentMs: elapsed }).catch(
+        () => {},
+      );
+      return 0;
+    },
+    [attemptId, questions],
+  );
+
+  /**
+   * Settle the last question's time before the attempt closes — otherwise the
+   * time spent on whatever was on screen at submit is simply lost. Wraps every
+   * submit path, including the forced ones (timer expiry, proctoring limit).
+   */
+  const submitWithTiming = useCallback(() => {
+    settleDwell();
+    onSubmit();
+  }, [settleDwell, onSubmit]);
+
+  const remainingSeconds = useCountdown(
+    attempt.remainingSeconds,
+    submitWithTiming,
+  );
   const proctoring = useProctoring({
     maxViolations: attempt.exam.maxViolations,
     enabled: true,
-    onLimitReached: onSubmit,
+    onLimitReached: submitWithTiming,
   });
 
   /**
@@ -391,7 +464,6 @@ function ExamRunner({
    * the server keeps its own count and is the source of truth for auto-submit,
    * so a dropped report degrades the audit trail, not the exam's integrity.
    */
-  const attemptId = attempt.id;
   useEffect(() => {
     if (proctoring.violations === 0) return;
     void reportViolation(attemptId, {
@@ -405,7 +477,11 @@ function ExamRunner({
   const picked = answers[current];
 
   function visit(index: number) {
+    // Settle BEFORE the index moves, so the elapsed time is attributed to the
+    // question the candidate was actually looking at.
+    if (index !== current) settleDwell();
     setCurrent(index);
+    dwellRef.current = { index, since: Date.now() };
     setStatuses((prev) =>
       prev.map((s, i) =>
         i === index && s === "not-visited" ? "not-answered" : s,
@@ -441,9 +517,13 @@ function ExamRunner({
     // review fire separate saves that can be in flight together; a payload
     // carrying the complete state is idempotent, so whichever lands last
     // still leaves the row correct.
+    // Riding along on a save we were making anyway, rather than firing a
+    // second request just to report a few seconds of thinking time.
+    const dwellMs = settleDwell({ foldIntoCurrentSave: true });
     void saveResponse(attemptId, questions[current].id, {
       answer: answered ? value : null,
       markedForReview: wasMarked,
+      ...(dwellMs > 0 ? { timeSpentMs: dwellMs } : {}),
     }).catch(() => {
       // Best-effort; the next interaction re-saves.
     });
@@ -517,12 +597,14 @@ function ExamRunner({
       }),
     );
 
+    const dwellMs = settleDwell({ foldIntoCurrentSave: true });
     try {
       // Both halves again — see commitAnswer. Sending only `markedForReview`
       // here is what previously raced with the in-flight answer save.
       await saveResponse(attemptId, question.id, {
         answer: answered ? value : null,
         markedForReview: mark,
+        ...(dwellMs > 0 ? { timeSpentMs: dwellMs } : {}),
       });
     } catch {
       // Best-effort; the next interaction re-saves.
@@ -577,8 +659,11 @@ function ExamRunner({
           {proctoring.violations > 0 ? (
             <span className="flex items-center gap-2 rounded-[2px] bg-alert px-3 py-1 text-xs font-semibold uppercase text-white">
               <LockClosedIcon className="h-[12px] w-[9px]" />
-              Warning {proctoring.violations}/{attempt.exam.maxViolations}{" "}
-              Violation
+              {/* With no limit configured there is no "of N" to count towards —
+                  "1/0 Violation" reads as a countdown that will never happen. */}
+              {attempt.exam.maxViolations > 0
+                ? `Warning ${proctoring.violations}/${attempt.exam.maxViolations} Violation`
+                : `${proctoring.violations} Violation${proctoring.violations === 1 ? "" : "s"} Recorded`}
             </span>
           ) : (
             <span className="flex items-center gap-2 rounded-[2px] bg-success/10 px-3 py-1 text-xs font-semibold uppercase text-success">
@@ -664,9 +749,13 @@ function ExamRunner({
                 </button>
               </div>
 
-              <p className="mt-4 whitespace-pre-line text-[18px] leading-[29px] text-ink">
-                {q.stem}
-              </p>
+              {/* Typeset rather than printed: a Physics or Chemistry stem
+                  carries notation, and this used to render `v^2` and
+                  `$	frac{1}{2}mv^2$` literally. */}
+              <RichText
+                text={q.stem}
+                className="mt-4 whitespace-pre-line text-[18px] leading-[29px] text-ink"
+              />
 
               {/* Diagrams (§2.7). A figure question is unanswerable without
                   them, so they sit directly under the stem. */}
@@ -743,15 +832,15 @@ function ExamRunner({
                               <span className="size-1.5 rounded-full bg-white" />
                             ))}
                         </span>
-                        <span
+                        <RichText
+                          as="span"
+                          text={opt}
                           className={`text-base ${
                             isPicked
                               ? "font-semibold text-brand-indigo"
                               : "text-ink"
                           }`}
-                        >
-                          {opt}
-                        </span>
+                        />
                       </button>
                     );
                   })
@@ -897,7 +986,7 @@ function ExamRunner({
         <SubmitConfirmModal
           summary={submitSummary}
           onCancel={() => setConfirmOpen(false)}
-          onConfirm={onSubmit}
+          onConfirm={submitWithTiming}
         />
       )}
 

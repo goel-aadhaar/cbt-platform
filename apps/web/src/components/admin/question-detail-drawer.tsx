@@ -38,6 +38,7 @@ export function QuestionDetailDrawer({
   onClose,
   questionId,
   onActioned,
+  onEdit,
 }: {
   open: boolean;
   onClose: () => void;
@@ -45,6 +46,11 @@ export function QuestionDetailDrawer({
   questionId?: string;
   /** Called after a successful transition so the list can refresh. */
   onActioned?: (action: QuestionAction, status: string) => void;
+  /**
+   * Open the authoring drawer on this question. Without it there is no route
+   * to `PATCH /questions/:id` anywhere in the app.
+   */
+  onEdit?: (question: QuestionDetail) => void;
 }) {
   const [tab, setTab] = useState(0);
   const [pending, setPending] = useState<QuestionAction | null>(null);
@@ -297,6 +303,18 @@ export function QuestionDetailDrawer({
             {actionError ?? (question ? "" : "Open a question to review it.")}
           </p>
           <div className="flex items-center gap-3">
+            {/* Editing is allowed at any status: correcting a wrong answer key
+                on an APPROVED question is the case that matters most, and the
+                API's own used-in-exams safeguard handles the consequences. */}
+            {onEdit && question && !archiveConfirm && (
+              <button
+                onClick={() => onEdit(question)}
+                disabled={pending !== null}
+                className="rounded-lg border border-admin-line px-5 py-2.5 text-sm font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
+              >
+                Edit
+              </button>
+            )}
             {archiveConfirm ? (
               <>
                 <button

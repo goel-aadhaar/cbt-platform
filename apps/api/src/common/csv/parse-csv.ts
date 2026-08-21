@@ -66,3 +66,36 @@ export function csvRecords(input: string): Record<string, string>[] {
     return record;
   });
 }
+
+/** One parsed record, with the file line it came from. */
+export interface SourceRecord {
+  /** 1-based line in the original file, for error messages a human can act on. */
+  row: number;
+  data: Record<string, string>;
+}
+
+/**
+ * Like {@link csvRecords}, but each record remembers which line it came from.
+ *
+ * Blank lines are skipped, so the Nth record is not necessarily the (N+1)th
+ * line. Reporting a computed position instead of the real one sends the user to
+ * the wrong row of their own file, which is worse than giving no row at all.
+ */
+export function csvRows(input: string): SourceRecord[] {
+  const all = parseCsv(input);
+  const firstIdx = all.findIndex((r) => r.some((c) => c.trim() !== ''));
+  if (firstIdx === -1) return [];
+
+  const headers = all[firstIdx].map((h) => h.trim().toLowerCase());
+  const out: SourceRecord[] = [];
+  for (let i = firstIdx + 1; i < all.length; i++) {
+    const cells = all[i];
+    if (!cells.some((c) => c.trim() !== '')) continue;
+    const data: Record<string, string> = {};
+    headers.forEach((h, j) => {
+      if (h) data[h] = (cells[j] ?? '').trim();
+    });
+    out.push({ row: i + 1, data });
+  }
+  return out;
+}

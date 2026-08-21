@@ -57,7 +57,7 @@ const stateSelect = {
                   options: true,
                   marks: true,
                   // Diagram-based questions are unanswerable without their
-                  // image (§2.7); keys are resolved to URLs in buildState.
+                  // image (§2.7); keys are resolved to URLs by shapeState().
                   mediaKeys: true,
                 },
               },
@@ -69,6 +69,9 @@ const stateSelect = {
   },
   responses: { select: { questionId: true, status: true, answer: true } },
 } satisfies Prisma.AttemptSelect;
+
+/** A row shaped by {@link stateSelect} — what both candidate-state paths start from. */
+type AttemptStateRow = Prisma.AttemptGetPayload<{ select: typeof stateSelect }>;
 
 /**
  * Candidate exam engine (§2.2). A student starts one attempt per exam; the
@@ -283,13 +286,9 @@ export class AttemptsService {
       throw err;
     }
 
-    return {
-      ...attempt,
-      remainingSeconds: Math.max(
-        0,
-        Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
-      ),
-    };
+    // Same shaping as getState() — a freshly started attempt must arrive with
+    // its diagrams resolved, not just their storage keys.
+    return this.shapeState(attempt);
   }
 
   async getState(attemptId: string) {
@@ -337,7 +336,7 @@ export class AttemptsService {
       : response.status === ResponseStatus.MARKED ||
         response.status === ResponseStatus.ANSWERED_MARKED;
 
-    return this.prisma.response.update({
+    const updated = await this.prisma.response.update({
       where: { id: response.id },
       data: {
         ...(answerProvided
@@ -351,6 +350,28 @@ export class AttemptsService {
       },
       select: { questionId: true, status: true, answer: true },
     });
+
+    /**
+     * Accumulate the reported dwell time as a DELTA — the exam screen fires
+     * autosaves it does not await, so two in flight together must sum rather
+     * than overwrite (same reasoning as recordSectionTime).
+     *
+     * Raw SQL rather than Prisma's `increment`, which compiles to
+     * `col = col + n`: this column is deliberately nullable so that "never
+     * recorded" stays distinguishable from "answered in 0ms", and in SQL
+     * `NULL + n` is NULL — an increment can never seed a null column. COALESCE
+     * is what makes the first report land, and it is not expressible through
+     * `increment`. Still one atomic statement, so concurrent saves still sum.
+     */
+    if (dto.timeSpentMs) {
+      await this.prisma.$executeRaw`
+        UPDATE "responses"
+           SET "time_spent_ms" = COALESCE("time_spent_ms", 0) + ${dto.timeSpentMs}
+         WHERE "id" = ${response.id}::uuid
+      `;
+    }
+
+    return updated;
   }
 
   async submit(attemptId: string) {
@@ -535,16 +556,19 @@ export class AttemptsService {
     return ResponseStatus.NOT_ANSWERED;
   }
 
-  private async buildState(attemptId: string, instituteId: string) {
-    const attempt = await this.prisma.attempt.findFirst({
-      where: { id: attemptId, instituteId },
-      select: stateSelect,
-    });
-    if (!attempt) throw new NotFoundException('Attempt not found');
-    const remainingSeconds = Math.max(
-      0,
-      Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
-    );
+  /**
+   * Turn a `stateSelect` row into the candidate-facing exam state: resolve each
+   * question's stored media keys into fetchable URLs and compute the remaining
+   * time from the server's own deadline.
+   *
+   * Shared by BOTH paths that hand a candidate their paper — `start()` and
+   * `getState()`. It exists as one function because it did not: `start()` used
+   * to spread the raw row and add only `remainingSeconds`, so a freshly started
+   * attempt arrived with `mediaKeys` but no resolved `media`. The exam runner
+   * reads `question.media`, so every diagram rendered as nothing for the whole
+   * attempt — on the one code path every candidate takes.
+   */
+  private shapeState(attempt: AttemptStateRow) {
     return {
       ...attempt,
       exam: {
@@ -560,8 +584,20 @@ export class AttemptsService {
           })),
         })),
       },
-      remainingSeconds,
+      remainingSeconds: Math.max(
+        0,
+        Math.floor((attempt.expiresAt.getTime() - Date.now()) / 1000),
+      ),
     };
+  }
+
+  private async buildState(attemptId: string, instituteId: string) {
+    const attempt = await this.prisma.attempt.findFirst({
+      where: { id: attemptId, instituteId },
+      select: stateSelect,
+    });
+    if (!attempt) throw new NotFoundException('Attempt not found');
+    return this.shapeState(attempt);
   }
 
   private async ensureOwned(attemptId: string, studentId: string) {

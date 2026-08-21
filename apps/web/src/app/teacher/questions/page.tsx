@@ -2,9 +2,10 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { PlusIcon, SearchIcon } from "@/components/admin/icons";
+import { PlusIcon, SearchIcon, UploadIcon } from "@/components/admin/icons";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
+import { QuestionImportModal } from "@/components/admin/question-modals";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { getUserSnapshot } from "@/lib/auth";
@@ -43,6 +44,9 @@ function QuestionsScreen() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [authorOpen, setAuthorOpen] = useState(false);
+  // Bulk import was reachable only from the admin console, even though the API
+  // has always allowed TEACHER — and a teacher is who actually builds a bank.
+  const [importOpen, setImportOpen] = useState(false);
 
   const load = useCallback(async (s: Scope, term: string) => {
     setRows(null);
@@ -124,8 +128,15 @@ function QuestionsScreen() {
         </div>
         <button
           type="button"
+          onClick={() => setImportOpen(true)}
+          className="ml-auto flex items-center gap-2 rounded-full border border-admin-line bg-white px-5 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+        >
+          <UploadIcon className="size-4" /> Bulk Import
+        </button>
+        <button
+          type="button"
           onClick={() => setAuthorOpen(true)}
-          className="ml-auto flex items-center gap-2 rounded-full bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+          className="flex items-center gap-2 rounded-full bg-admin px-5 py-2.5 text-sm font-semibold text-white hover:opacity-95"
         >
           <PlusIcon className="size-4" /> Add Question
         </button>
@@ -224,6 +235,19 @@ function QuestionsScreen() {
         open={authorOpen}
         onClose={() => setAuthorOpen(false)}
         onCreated={() => void load(scope, search.trim())}
+      />
+      <QuestionImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(summary) => {
+          setNotice(
+            `${summary.imported.length} question(s) imported as drafts` +
+              (summary.failed.length
+                ? `, ${summary.failed.length} row(s) could not be read.`
+                : "."),
+          );
+          void load(scope, search.trim());
+        }}
       />
     </TeacherShell>
   );

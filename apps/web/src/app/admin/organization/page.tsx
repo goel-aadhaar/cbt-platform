@@ -49,8 +49,11 @@ export default function OrganizationPage() {
     rename?: { id: string; name: string };
   } | null>(null);
 
+  // This is the screen that *manages* the taxonomy, so it asks for archived
+  // entries too — everywhere else (pickers, drawers) takes the active-only
+  // default, which is what archiving is supposed to mean.
   useEffect(() => {
-    listPrograms()
+    listPrograms(true)
       .then(setPrograms)
       .catch((e: unknown) => {
         setError(msg(e, "Could not load programs"));
@@ -60,7 +63,7 @@ export default function OrganizationPage() {
 
   useEffect(() => {
     if (!selectedProgram) return;
-    listClasses(selectedProgram)
+    listClasses(selectedProgram, true)
       .then(setClasses)
       .catch((e: unknown) => {
         setError(msg(e, "Could not load classes"));
@@ -70,7 +73,7 @@ export default function OrganizationPage() {
 
   useEffect(() => {
     if (!selectedClass) return;
-    listBatches(selectedClass)
+    listBatches(selectedClass, true)
       .then(setBatches)
       .catch((e: unknown) => {
         setError(msg(e, "Could not load batches"));

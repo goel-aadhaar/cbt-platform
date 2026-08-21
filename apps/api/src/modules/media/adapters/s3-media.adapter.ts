@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { MediaStoragePort, StoredObject } from '../ports/media-storage.port';
@@ -17,7 +17,7 @@ import { MediaStoragePort, StoredObject } from '../ports/media-storage.port';
  * contract's "served via CDN; questions reference media by key".
  */
 @Injectable()
-export class S3MediaAdapter extends MediaStoragePort {
+export class S3MediaAdapter extends MediaStoragePort implements OnModuleInit {
   readonly name = 's3';
   private readonly logger = new Logger(S3MediaAdapter.name);
   private readonly bucket: string;
@@ -31,6 +31,36 @@ export class S3MediaAdapter extends MediaStoragePort {
     this.bucket = this.config.get<string>('AWS_S3_BUCKET') ?? '';
     this.region = this.config.get<string>('AWS_REGION') ?? 'ap-south-1';
     this.cdnUrl = this.config.get<string>('MEDIA_CDN_URL') ?? null;
+  }
+
+  /**
+   * Fail fast when S3 is configured but its (optional) SDK is not installed.
+   *
+   * Without this the mismatch stayed invisible until the first upload or the
+   * first question image a candidate loaded — i.e. potentially mid-exam — and
+   * surfaced as an opaque MODULE_NOT_FOUND. Boot is the right place to find
+   * out: a deploy that cannot serve media should not report itself healthy.
+   *
+   * Only runs when a bucket is set; installs without S3 keep using the local
+   * adapter and never reach this class.
+   */
+  async onModuleInit(): Promise<void> {
+    if (!this.bucket) return;
+    try {
+      await this.sdk();
+    } catch (err) {
+      throw new Error(
+        `AWS_S3_BUCKET is set ("${this.bucket}") but the S3 client could not be ` +
+          `loaded, so no question media could be stored or served. Install the ` +
+          `optional dependency with \`pnpm --filter @drsk/api add @aws-sdk/client-s3\`, ` +
+          `or unset AWS_S3_BUCKET to fall back to local disk storage. ` +
+          `Underlying error: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.logger.log(
+      `S3 media storage active (bucket=${this.bucket}, region=${this.region}` +
+        `${this.cdnUrl ? `, cdn=${this.cdnUrl}` : ''})`,
+    );
   }
 
   private async sdk(): Promise<{

@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -45,10 +46,20 @@ export class StudentsController {
   }
 
   /**
-   * Bulk-import a batch's students from a CSV upload (§2.10). Field `file`;
-   * columns `name`, `email` (required). Roll numbers are always
+   * Bulk-import a batch's students from an Excel workbook or CSV (§2.10).
+   * Field `file`; columns `name`, `email` (required). Roll numbers are always
    * server-generated, never read from the file.
    */
+  /** The blank workbook to fill in, with the columns the parser expects. */
+  @Get('import/template')
+  async importTemplate(): Promise<StreamableFile> {
+    const buffer = await this.students.importTemplate();
+    return new StreamableFile(buffer, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition: 'attachment; filename="drsk-students-template.xlsx"',
+    });
+  }
+
   @Post('import')
   @ApiConsumes('multipart/form-data')
   @ApiQuery({ name: 'batchId', required: true })
@@ -59,17 +70,22 @@ export class StudentsController {
     },
   })
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }),
+    // A workbook carries styling and shared strings, so the same roster is
+    // several times larger as .xlsx than as .csv — 2 MB rejected files that
+    // were well inside the 1000-row limit.
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
   )
-  importCsv(
+  importRoster(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Query('batchId', ParseUUIDPipe) batchId: string,
     @CurrentUser() user: AuthUser,
   ) {
     if (!file) {
-      throw new BadRequestException('CSV file is required (form field "file")');
+      throw new BadRequestException(
+        'A file is required (form field "file") — .xlsx or .csv',
+      );
     }
-    return this.students.importCsv({
+    return this.students.importRoster({
       batchId,
       buffer: file.buffer,
       invitedById: user.userId,

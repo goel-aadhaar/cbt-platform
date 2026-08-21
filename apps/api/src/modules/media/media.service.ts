@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { MediaStoragePort } from './ports/media-storage.port';
 
@@ -112,10 +113,50 @@ export class MediaService {
       select: { key: true, mimeType: true, fileName: true },
     });
     if (!row) throw new NotFoundException('Media not found');
+    await this.assertReadableByCaller(row.key);
     const body = await this.storage.get(row.key);
     if (!body)
       throw new NotFoundException('Media file is missing from storage');
     return { ...row, body };
+  }
+
+  /**
+   * Staff may read any of their institute's media — that is their library.
+   * A candidate may only read a diagram they are entitled to see.
+   *
+   * Tenant scoping alone was letting any student fetch any key in their own
+   * institute, including diagrams from papers they were never assigned, given
+   * a guessed UUID. Entitlement is checked against a `Response` row rather than
+   * the exam: one is created for every question the moment a candidate starts
+   * that paper, so it covers the live exam and the later review with a single
+   * condition, and it excludes papers they never sat. Practice-library
+   * questions are open to any candidate by design.
+   *
+   * A denial is a 404, matching every other not-visible-in-your-scope lookup —
+   * it does not confirm that the key exists.
+   */
+  private async assertReadableByCaller(key: string): Promise<void> {
+    const ctx = this.tenant.get();
+    if (ctx?.role !== Role.STUDENT) return;
+
+    const student = await this.prisma.student.findUnique({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    });
+    if (!student) throw new ForbiddenException('Not a student account');
+
+    const entitled = await this.prisma.question.findFirst({
+      where: {
+        instituteId: ctx.instituteId ?? undefined,
+        mediaKeys: { has: key },
+        OR: [
+          { inPracticeLibrary: true },
+          { responses: { some: { attempt: { studentId: student.id } } } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!entitled) throw new NotFoundException('Media not found');
   }
 
   async remove(id: string, confirm?: boolean) {
@@ -152,11 +193,30 @@ export class MediaService {
       }
     }
 
-    // Remove the record first: a stray object is harmless, a record pointing
-    // at nothing is not.
+    /**
+     * Detach the key from every question still carrying it.
+     *
+     * `mediaKeys` is a plain `String[]` with no foreign key, so nothing in the
+     * database does this. Left behind, the key survives the image: the question
+     * keeps asking the browser for a file that no longer exists and renders
+     * "Image unavailable" forever — on a diagram question, permanently
+     * unanswerable — and the dead key propagates into every exam that reuses it.
+     *
+     * Raw SQL because Prisma has no "remove one element from a scalar list"
+     * operation: `array_remove` does it in a single statement rather than
+     * read-modify-write per row, which would race a concurrent question edit.
+     */
+    const detached = await this.prisma.$executeRaw`
+      UPDATE "questions"
+         SET "media_keys" = array_remove("media_keys", ${row.key})
+       WHERE "institute_id" = ${instituteId}::uuid
+         AND ${row.key} = ANY("media_keys")`;
+
+    // Remove the record before the object: a stray object is harmless, a record
+    // pointing at nothing is not.
     await this.prisma.media.delete({ where: { id: row.id } });
     await this.storage.remove(row.key);
-    return { id: row.id, deleted: true };
+    return { id: row.id, deleted: true, detachedFromQuestions: detached };
   }
 
   private readonly select = {

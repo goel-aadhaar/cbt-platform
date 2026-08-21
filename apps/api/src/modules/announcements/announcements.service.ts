@@ -7,6 +7,7 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import {
   AnnouncementAudience,
@@ -40,6 +41,7 @@ export class AnnouncementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly teacherScope: TeacherScopeService,
   ) {}
 
   private ctx() {
@@ -204,6 +206,16 @@ export class AnnouncementsService {
     return found;
   }
 
+  /**
+   * The batch must be in the caller's institute **and**, for a TEACHER, one of
+   * their own.
+   *
+   * The institute check alone let a teacher address a notice to any batch in
+   * the school, including ones they do not teach — the only path in the app
+   * that skipped the `TeacherBatch` scoping every other teacher route applies.
+   * `myBatchIds()` returns null for non-teachers, who are legitimately
+   * institute-wide.
+   */
   private async assertBatch(batchId: string, instituteId: string) {
     const batch = await this.prisma.batch.findFirst({
       where: { id: batchId, instituteId },
@@ -211,6 +223,13 @@ export class AnnouncementsService {
     });
     if (!batch) {
       throw new BadRequestException('That batch is not in your institute');
+    }
+
+    const mine = await this.teacherScope.myBatchIds();
+    if (mine !== null && !mine.includes(batchId)) {
+      throw new ForbiddenException(
+        'You can only post announcements to batches you teach',
+      );
     }
   }
 }

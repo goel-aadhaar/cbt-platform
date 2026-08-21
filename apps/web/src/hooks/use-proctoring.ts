@@ -82,15 +82,32 @@ export function useProctoring({
       lastViolationAt.current = now;
       setViolations((v) => {
         const next = v + 1;
-        if (next >= maxViolations && !limitFired.current) {
+        /**
+         * `maxViolations` of 0 means "record and warn, never terminate" — the
+         * contract stated on the schema field, and the default for every exam.
+         *
+         * Without the `> 0` guard, `next >= 0` is true on the *first*
+         * violation, so the default configuration auto-submitted a candidate's
+         * paper the first time their browser lost focus or dropped out of full
+         * screen. That is the opposite of the documented behaviour, and it
+         * destroys an attempt that cannot be restarted.
+         */
+        const terminates = maxViolations > 0 && next >= maxViolations;
+        if (terminates && !limitFired.current) {
           limitFired.current = true;
           onLimitRef.current?.();
           setWarning(
             "Final violation recorded. Your exam is being submitted automatically.",
           );
-        } else {
+        } else if (maxViolations > 0) {
           setWarning(
             `${message} This is violation ${next} of ${maxViolations}. Further violations will auto-submit your exam.`,
+          );
+        } else {
+          // No limit configured: say what actually happens rather than
+          // threatening an auto-submit that will never come.
+          setWarning(
+            `${message} This is violation ${next}. It has been recorded for the invigilator.`,
           );
         }
         return next;

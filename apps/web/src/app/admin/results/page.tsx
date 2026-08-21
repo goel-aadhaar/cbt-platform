@@ -12,7 +12,6 @@ import {
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
-  ChevronDownIcon,
   ClockIcon,
   PlusIcon,
   SearchIcon,
@@ -106,15 +105,22 @@ export default function ResultsPage() {
   const [selected, setSelected] = useState<RRow | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The search box here was decorative. The rows are already in memory, so it
+  // filters them directly rather than needing a round-trip.
+  const [search, setSearch] = useState("");
 
   const { data, loading, error } = useResultRows();
   const rows = useMemo(() => data ?? [], [data]);
 
   const visible = useMemo(() => {
     const want = TABS[tab];
-    if (want === "All") return rows;
-    return rows.filter((r) => r.status === want.toUpperCase());
-  }, [rows, tab]);
+    const byTab =
+      want === "All"
+        ? rows
+        : rows.filter((r) => r.status === want.toUpperCase());
+    const q = search.trim().toLowerCase();
+    return q ? byTab.filter((r) => r.exam.toLowerCase().includes(q)) : byTab;
+  }, [rows, tab, search]);
 
   const stats = useMemo(
     () => ({
@@ -239,14 +245,18 @@ export default function ResultsPage() {
               <div className="relative flex items-center">
                 <SearchIcon className="pointer-events-none absolute left-3 size-4 text-admin-subtle" />
                 <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search exams…"
                   className="h-9 w-56 rounded-lg border border-admin-line bg-white pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
                 />
               </div>
-              <button className="flex items-center gap-2 rounded-lg border border-admin-line bg-white px-3 py-2 text-sm font-medium text-admin-ink">
-                2023 - 2024{" "}
-                <ChevronDownIcon className="size-4 text-admin-muted" />
-              </button>
+              {/*
+                A "2023 - 2024" button used to sit here. It was a hardcoded
+                string with no handler and no concept behind it — the platform
+                has no academic-session model at all, so it could not have
+                filtered anything. Removed rather than wired to an invention.
+              */}
             </div>
           </div>
 

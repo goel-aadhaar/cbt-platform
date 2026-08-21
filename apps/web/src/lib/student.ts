@@ -34,6 +34,7 @@ export async function fetchStudentMe(): Promise<StudentProfile> {
  * ------------------------------------------------------------------ */
 
 export type QuestionType = "MCQ" | "MSQ" | "INTEGER";
+export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 
 export interface AttemptQuestion {
   id: string;
@@ -172,6 +173,9 @@ export async function saveResponse(
   body: {
     answer?: string | number | string[] | null;
     markedForReview?: boolean;
+    /** Milliseconds on this question SINCE THE LAST REPORT — a delta, summed
+     * server-side, so racing autosaves add up instead of overwriting. */
+    timeSpentMs?: number;
   },
 ): Promise<AttemptResponse> {
   const token = getToken();
@@ -180,6 +184,27 @@ export async function saveResponse(
     `/attempts/${attemptId}/responses/${questionId}`,
     { method: "PUT", body, token },
   );
+}
+
+/**
+ * PUT /attempts/:id/section-time — accumulate seconds spent in one section.
+ *
+ * A delta since the last report, like `saveResponse`'s `timeSpentMs`. The
+ * endpoint has existed since section timing was added but nothing ever called
+ * it, so every stored section time was 0 until this was wired up.
+ */
+export async function reportSectionTime(
+  attemptId: string,
+  sectionId: string,
+  seconds: number,
+): Promise<void> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  await apiFetch(`/attempts/${attemptId}/section-time`, {
+    method: "PUT",
+    body: { sectionId, seconds },
+    token,
+  });
 }
 
 /**
@@ -253,17 +278,51 @@ export async function reportViolation(
  * RESULTS — published only                                             *
  * ------------------------------------------------------------------ */
 
+/**
+ * One section's line in a result. `maxScore`/`questionCount`/`seconds` are
+ * optional because results evaluated before those were recorded simply omit
+ * them — a reader must degrade to "not recorded", never to a fabricated 0.
+ */
+export interface SectionScore {
+  sectionId: string;
+  name: string;
+  score: number;
+  maxScore?: number;
+  questionCount?: number;
+  correct: number;
+  incorrect: number;
+  unattempted: number;
+  seconds?: number;
+}
+
 export interface AttemptResult {
+  attemptId: string;
   totalScore: number;
   maxScore: number;
   correctCount: number;
   incorrectCount: number;
   unattemptedCount: number;
-  sectionScores: Record<string, number> | null;
+  /** An ARRAY — an earlier declaration here claimed a Record and was wrong. */
+  sectionScores: SectionScore[] | null;
   overallRank: number | null;
   batchRank: number | null;
   percentile: number | null;
-  exam: { title: string };
+  /** How many candidates sat the paper, so a rank reads "12 of 240". */
+  cohortSize: number;
+  /** When the result actually became visible. Null for rows released before
+   * the timestamp was tracked. */
+  publishedAt: string | null;
+  exam: {
+    id: string;
+    title: string;
+    passingMarks: number | null;
+    durationMinutes: number;
+  };
+  attempt: {
+    startedAt: string;
+    submittedAt: string | null;
+    status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED" | "ABANDONED";
+  };
 }
 
 /** GET /attempts/:id/result — only available once the row is `published`. */
@@ -273,6 +332,35 @@ export async function fetchAttemptResult(
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
   return apiFetch<AttemptResult>(`/attempts/${attemptId}/result`, { token });
+}
+
+/**
+ * Cohort aggregates for the paper — "your score vs the class average".
+ *
+ * `available: false` when the cohort is too small for an average to still be
+ * an aggregate; the page must hide the comparison rather than invent one.
+ */
+export type AttemptCohort =
+  | { available: false; cohortSize: number; batchSize: number }
+  | {
+      available: true;
+      cohortSize: number;
+      batchSize: number;
+      average: number;
+      median: number;
+      highest: number;
+      lowest: number;
+      batchAverage: number | null;
+      sections: { sectionId: string; name: string; averageScore: number }[];
+    };
+
+/** GET /attempts/:id/cohort — aggregates only, published results only. */
+export async function fetchAttemptCohort(
+  attemptId: string,
+): Promise<AttemptCohort> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptCohort>(`/attempts/${attemptId}/cohort`, { token });
 }
 
 export interface HistoryItem {
@@ -346,6 +434,7 @@ export type ReviewStatus =
 export interface ReviewQuestion {
   number: number;
   questionId: string;
+  sectionId: string;
   section: string;
   type: QuestionType;
   statement: string;
@@ -357,11 +446,28 @@ export interface ReviewQuestion {
   marksAwarded: number;
   marksCorrect: number;
   marksWrong: number;
+  subject: string;
+  chapter: string;
+  topic: string | null;
+  difficulty: Difficulty;
+  /** Storage keys for attached diagrams — resolve via `/media/file/:key`. */
+  mediaKeys: string[];
+  /** Flagged during the exam with "Mark for Review". */
+  markedForReview: boolean;
+  /** Opened at all, as opposed to never navigated to. */
+  visited: boolean;
+  /** Null for attempts sat before per-question timing was instrumented. */
+  timeSpentMs: number | null;
 }
 
 export interface AttemptReview {
   attemptId: string;
-  exam: { title: string };
+  exam: {
+    title: string;
+    durationMinutes: number;
+    passingMarks: number | null;
+  };
+  startedAt: string;
   submittedAt: string | null;
   summary: {
     totalScore: number;
@@ -374,6 +480,7 @@ export interface AttemptReview {
     percentile: number | null;
     totalQuestions: number;
     attempted: number;
+    markedForReviewCount: number;
   };
   questions: ReviewQuestion[];
 }

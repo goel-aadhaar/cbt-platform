@@ -1,4 +1,4 @@
-import { apiFetch } from "./api";
+import { ApiError, apiFetch } from "./api";
 import { getToken } from "./auth";
 import type { Paginated } from "./students";
 
@@ -159,8 +159,81 @@ export function createQuestion(
   });
 }
 
+/**
+ * Everything an edit may change. All optional — absent means "leave alone",
+ * matching the server's partial-update contract.
+ */
+export type UpdateQuestionInput = Partial<CreateQuestionInput> & {
+  /**
+   * Acknowledge that the question has already been used in an exam.
+   *
+   * Without it the API answers 409 `QuestionUsedInExams` and lists the exams
+   * affected — a deliberate safeguard, because an answer-key change re-scores
+   * concluded papers. The UI shows that list and asks before re-sending with
+   * this set.
+   */
+  confirm?: boolean;
+};
+
+/** One exam named by a `QuestionUsedInExams` refusal. */
+export interface AffectedExam {
+  id: string;
+  title: string;
+  status: string;
+}
+
+/**
+ * PATCH /questions/:id.
+ *
+ * Returns the updated question plus `recalculated` — the exams the edit
+ * re-scored, which is empty unless the answer key, type or options actually
+ * changed.
+ */
+export function updateQuestion(
+  id: string,
+  input: UpdateQuestionInput,
+): Promise<
+  QuestionDetail & { recalculated?: { examId: string; evaluated: number }[] }
+> {
+  return apiFetch(`/questions/${id}`, {
+    method: "PATCH",
+    body: input,
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Pull the affected-exam list out of a `QuestionUsedInExams` refusal, or null
+ * if this was some other error.
+ */
+export function usedInExams(err: unknown): AffectedExam[] | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null;
+  if (err.reason !== "QuestionUsedInExams") return null;
+  const body = err.body as { affectedExams?: AffectedExam[] } | undefined;
+  return body?.affectedExams ?? [];
+}
+
+/** GET /questions/import/template — the workbook to fill in. */
+export async function downloadQuestionTemplate(): Promise<void> {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const res = await fetch(`${base}/questions/import/template`, {
+    headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+  });
+  if (!res.ok)
+    throw new Error(`Could not download the template (${res.status})`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "drsk-questions-template.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Defaults applied to a row that omits the field, mirrors the server's DocxDefaults. */
-export interface DocxImportDefaults {
+export interface QuestionImportDefaults {
   subjectId?: string;
   chapterId?: string;
   difficulty?: Difficulty;
@@ -168,7 +241,7 @@ export interface DocxImportDefaults {
   examCategoryId?: string;
 }
 
-export interface DocxImportSummary {
+export interface QuestionImportSummary {
   total: number;
   imported: { index: number; id: string; type: string; statement: string }[];
   failed: { index: number; statement: string; reason: string }[];
@@ -179,10 +252,10 @@ export interface DocxImportSummary {
  * with fetch directly (not apiFetch) because the body is FormData: setting
  * Content-Type manually would strip the multipart boundary.
  */
-export async function importQuestionsDocx(
+export async function importQuestionsFile(
   file: File,
-  defaults: DocxImportDefaults = {},
-): Promise<DocxImportSummary> {
+  defaults: QuestionImportDefaults = {},
+): Promise<QuestionImportSummary> {
   const base =
     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
   const qs = new URLSearchParams();
@@ -210,7 +283,7 @@ export async function importQuestionsDocx(
         : (msg ?? `Import failed (${res.status})`),
     );
   }
-  return payload as DocxImportSummary;
+  return payload as QuestionImportSummary;
 }
 
 /**

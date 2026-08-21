@@ -1,0 +1,68 @@
+[
+  {
+    "uat": "S21-P1-05a",
+    "name": "all concurrent autosaves returned 200",
+    "pass": true,
+    "detail": "codes=[200]"
+  },
+  {
+    "uat": "S21-P1-05b",
+    "name": "no autosave lost or overwritten under concurrency",
+    "pass": true,
+    "detail": "5/5 correct"
+  },
+  {
+    "uat": "S21-P1-05c",
+    "name": "20 concurrent writes to ONE question never error",
+    "pass": true,
+    "detail": "codes=[200]"
+  },
+  {
+    "uat": "S21-P1-07",
+    "name": "autosave latency recorded (workstation, remote DB)",
+    "pass": true,
+    "detail": "n=5 p50=5318ms p95=5325ms max=5327ms"
+  },
+  {
+    "uat": "S21-P1-06a",
+    "name": "exactly one of 10 concurrent submits succeeds",
+    "pass": true,
+    "detail": "200s=1 others=[409, 409, 409, 409, 409, 409, 409, 409, 409]"
+  },
+  {
+    "uat": "S21-P1-06b",
+    "name": "losing submits rejected cleanly (no 500)",
+    "pass": true,
+    "detail": "codes=[200, 409]"
+  },
+  {
+    "uat": "S05-P1-06b",
+    "name": "response write after submit refused",
+    "pass": true,
+    "detail": "status=400"
+  },
+  {
+    "uat": "S21-P1-01",
+    "name": "50 concurrent reads across 25 callers",
+    "pass": true,
+    "detail": "codes={200: 50} p50=6278ms p95=6721ms wall=6.9s throughput=7.3 req/s"
+  },
+  {
+    "uat": "S21-P1-02",
+    "name": "100 concurrent reads across 25 callers",
+    "pass": true,
+    "detail": "codes={200: 100} p50=4010ms p95=4863ms wall=7.8s throughput=12.8 req/s"
+  },
+  {
+    "uat": "S21-P1-03",
+    "name": "150 concurrent reads across 25 callers",
+    "pass": true,
+    "detail": "codes={200: 150} p50=4693ms p95=4892ms wall=11.6s throughput=12.9 req/s"
+  },
+  {
+    "uat": "S21-P1-04",
+    "name": "200 concurrent reads across 25 callers",
+    "pass": true,
+    "detail": "codes={200: 200} p50=5123ms p95=5526ms wall=17.3s throughput=11.6 req/s"
+  }
+]

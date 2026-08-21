@@ -22,9 +22,18 @@ interface ImportRun {
   createdBy: { name: string };
 }
 
+/**
+ * What was imported, not how.
+ *
+ * The stored enum values still read `STUDENTS_CSV` / `QUESTIONS_DOCX` because
+ * they are database identifiers with history behind them, but both importers
+ * now accept several formats — so a run labelled "(CSV)" could perfectly well
+ * have been a workbook. The format is visible anyway: the file name is shown
+ * beside this and carries the real extension.
+ */
 const KIND_LABEL: Record<ImportRun["kind"], string> = {
-  STUDENTS_CSV: "Students (CSV)",
-  QUESTIONS_DOCX: "Questions (DOCX)",
+  STUDENTS_CSV: "Students",
+  QUESTIONS_DOCX: "Questions",
 };
 
 /**

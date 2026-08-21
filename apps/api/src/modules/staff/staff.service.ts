@@ -161,14 +161,90 @@ export class StaffService {
   }
 
   async update(id: string, dto: UpdateStaffDto) {
+    const ctx = this.tenant.get();
     const owned = await this.getOwned(id);
-    if (dto.name !== undefined) {
+
+    if (dto.roles !== undefined) {
+      await this.assertRoleChangeAllowed(owned, dto.roles, ctx?.userId);
+    }
+
+    if (dto.name !== undefined || dto.roles !== undefined) {
       await this.prisma.user.update({
         where: { id: owned.id },
-        data: { name: dto.name },
+        data: {
+          ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.roles !== undefined ? { roles: dto.roles } : {}),
+        },
       });
     }
+
+    /**
+     * Dropping TEACHER removes the batch assignments that came with it.
+     *
+     * `TeacherBatch` rows are what scope a teacher to their own classes. Left
+     * behind on an account that is no longer a teacher they are dead weight,
+     * and they would silently come back into force if the role were ever
+     * restored — granting access nobody consciously re-approved.
+     */
+    if (dto.roles && !dto.roles.includes(Role.TEACHER)) {
+      await this.prisma.teacherBatch.deleteMany({ where: { teacherId: id } });
+    }
+
     return this.findOne(id);
+  }
+
+  /**
+   * Guards on changing someone's roles.
+   *
+   * Three things must hold, and none of them is enforceable by the DTO alone:
+   *
+   *  1. **No self-demotion.** An admin removing their own ADMIN role locks
+   *     themselves out of the console mid-session, with no way back except
+   *     another admin — or nobody at all, if they were the last one.
+   *  2. **Never the last administrator.** The same rule `deactivate()` already
+   *     applies; demotion is the other way to reach an institute with no
+   *     administrator, and it was previously unguarded because the role could
+   *     not be changed at all.
+   *  3. **Only assignable roles.** The DTO restricts the enum, but this repeats
+   *     the check so a future caller reaching the service directly cannot grant
+   *     SUPERADMIN.
+   */
+  private async assertRoleChangeAllowed(
+    owned: { id: string; roles: Role[] },
+    next: Role[],
+    actorId: string | undefined,
+  ): Promise<void> {
+    const allowed = new Set<Role>([Role.TEACHER, Role.ADMIN]);
+    const invalid = next.filter((r) => !allowed.has(r));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Roles that cannot be assigned here: ${invalid.join(', ')}`,
+      );
+    }
+
+    const wasAdmin = owned.roles.includes(Role.ADMIN);
+    const willBeAdmin = next.includes(Role.ADMIN);
+    if (!wasAdmin || willBeAdmin) return; // not a demotion from ADMIN
+
+    if (owned.id === actorId) {
+      throw new BadRequestException(
+        'You cannot remove your own administrator role',
+      );
+    }
+
+    const remainingAdmins = await this.prisma.user.count({
+      where: {
+        instituteId: this.instituteId(),
+        roles: { has: Role.ADMIN },
+        status: UserStatus.ACTIVE,
+        id: { not: owned.id },
+      },
+    });
+    if (remainingAdmins === 0) {
+      throw new BadRequestException(
+        'Cannot remove the last administrator of this institute',
+      );
+    }
   }
 
   /** Soft-delete: disables the staff member's account. */

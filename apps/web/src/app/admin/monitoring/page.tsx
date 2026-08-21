@@ -9,8 +9,6 @@ import {
   CheckCircleIcon,
   ChevronRightIcon,
   ClockIcon,
-  ExternalLinkIcon,
-  GraduationCapIcon,
   RadioIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
@@ -101,13 +99,23 @@ function useMonitoring() {
     };
   }, []);
 
-  return useAdminData(loader, []);
+  /**
+   * Poll, because this screen's whole purpose is to be current.
+   *
+   * It used to fetch once on mount and never again, so an invigilator watching
+   * a live hall saw a snapshot from whenever they opened the tab — candidates
+   * who started, submitted or picked up violations after that were simply
+   * invisible. Ten seconds is frequent enough to act on and cheap enough for a
+   * screen that one or two staff have open, and a failed poll keeps the last
+   * good data rather than blanking the room.
+   */
+  return useAdminData(loader, [], { refreshMs: 10_000 });
 }
 
 export default function MonitoringPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [active, setActive] = useState<Session | null>(null);
-  const { data, loading, error } = useMonitoring();
+  const { data, loading, error, refreshedAt } = useMonitoring();
 
   const SESSIONS = useMemo(() => data?.sessions ?? [], [data]);
   const CONCLUDED = useMemo(() => data?.concluded ?? [], [data]);
@@ -127,6 +135,9 @@ export default function MonitoringPage() {
             ago: relative(st.lastActivityAt),
             action: st.flagged ? "Review Attempt" : "Monitor",
             severe: st.flagged,
+            /** The exam this incident belongs to, so the row can open its
+             * monitor drawer — the action label used to be inert text. */
+            session: s,
           })),
       ).slice(0, 8),
     [SESSIONS],
@@ -136,17 +147,14 @@ export default function MonitoringPage() {
 
   return (
     <AdminShell title="Live Monitoring">
-      {/* System status strip */}
-      <div className="-mx-8 -mt-6 mb-6 flex flex-wrap items-center gap-x-8 gap-y-1 border-b border-admin-line/60 bg-white px-8 py-2.5 font-mono text-xs text-admin-muted">
-        <Strip dot>API UPTIME: 99.99%</Strip>
-        <Strip dot>AUTO-SAVE QUEUE: OPERATIONAL</Strip>
-        <Strip dot>DB LATENCY: 12MS</Strip>
-        <span className="flex items-center gap-2">
-          <GraduationCapIcon className="size-3.5 text-admin" />
-          PROCTORING AI: <span className="text-admin">ACTIVE</span>
-        </span>
-      </div>
-
+      {/*
+       * The status strip that used to sit here printed hardcoded infrastructure
+       * readings ("API UPTIME: 99.99%", "DB LATENCY: 12MS", "PROCTORING AI:
+       * ACTIVE"). They were literals, wired to nothing — they would have kept
+       * reporting 99.99% with the database down, which is worse than showing
+       * nothing at all during a live exam. Removed rather than faked; a real
+       * health strip needs a metrics endpoint that does not exist yet.
+       */}
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
         {/* Header */}
         <div>
@@ -157,6 +165,15 @@ export default function MonitoringPage() {
               ? "Loading live sessions…"
               : `${SESSIONS.length} exam(s) live · ${totalAttempting} student(s) currently attempting`}
           </span>
+          {/* Say when this was last true. A live screen that cannot show its own
+              freshness is indistinguishable from one that has silently stopped
+              updating — which is exactly what this page used to do. */}
+          {refreshedAt && (
+            <span className="ml-3 text-xs text-admin-muted">
+              Updated {refreshedAt.toLocaleTimeString("en-IN")} · refreshes
+              every 10s
+            </span>
+          )}
           {error && (
             <p
               role="alert"
@@ -265,9 +282,16 @@ export default function MonitoringPage() {
                     </p>
                     <p className="mt-0.5 font-mono text-xs text-admin-subtle">
                       {it.ago}{" "}
-                      <span className="ml-1 font-sans font-semibold text-admin-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActive(it.session);
+                          setDetailOpen(true);
+                        }}
+                        className="ml-1 font-sans font-semibold text-admin-2 underline-offset-2 hover:underline"
+                      >
                         {it.action}
-                      </span>
+                      </button>
                     </p>
                   </div>
                 </div>
@@ -277,12 +301,11 @@ export default function MonitoringPage() {
 
           {/* Right rail */}
           <div className="flex flex-col gap-6">
-            <section className="rounded-2xl bg-admin p-5 text-white">
-              <h3 className="text-lg font-bold">Global Network Load</h3>
-              <LoadBar label="Bandwidth Usage" pct={42} />
-              <LoadBar label="Server Capacity" pct={68} />
-            </section>
-
+            {/*
+             * "Global Network Load" (Bandwidth 42% / Server Capacity 68%) was
+             * removed for the same reason as the status strip above: both
+             * percentages were hardcoded literals presented as live telemetry.
+             */}
             <section>
               <h3 className="flex items-center gap-2 text-lg font-bold text-admin-ink">
                 <CheckCircleIcon className="size-5 text-admin" /> Recently
@@ -303,7 +326,9 @@ export default function MonitoringPage() {
                       <p className="font-bold text-admin-ink">{c.name}</p>
                       <p className="text-xs text-admin-subtle">{c.meta}</p>
                     </div>
-                    <ExternalLinkIcon className="size-4 text-admin-2" />
+                    {/* The external-link icon that used to sit here implied a
+                        destination these rows do not have — removed rather
+                        than left as a control that does nothing when clicked. */}
                   </div>
                 ))}
               </div>
@@ -318,21 +343,6 @@ export default function MonitoringPage() {
         monitor={active?.monitor}
       />
     </AdminShell>
-  );
-}
-
-function Strip({
-  children,
-  dot,
-}: {
-  children: React.ReactNode;
-  dot?: boolean;
-}) {
-  return (
-    <span className="flex items-center gap-2">
-      {dot && <span className="size-1.5 rounded-full bg-admin" />}
-      {children}
-    </span>
   );
 }
 
@@ -365,23 +375,6 @@ function Ring({ pct }: { pct: number }) {
       <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-admin">
         {pct}%
       </span>
-    </div>
-  );
-}
-
-function LoadBar({ label, pct }: { label: string; pct: number }) {
-  return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-admin-mint">
-        <span>{label}</span>
-        <span>{pct}%</span>
-      </div>
-      <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-white/20">
-        <div
-          className="h-full rounded-full bg-admin-mint"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
     </div>
   );
 }
