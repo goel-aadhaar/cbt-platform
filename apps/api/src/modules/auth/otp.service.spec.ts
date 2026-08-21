@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { Logger, ServiceUnavailableException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 
 import type { PrismaService } from '../../database/prisma.service';
@@ -20,6 +20,22 @@ import { OtpService } from './otp.service';
  */
 describe('OtpService.issue — mail delivery fails', () => {
   const CHALLENGE_ID = 'chal_1';
+
+  /**
+   * The service logs the provider's reason at error level, on purpose — that
+   * line is how an operator finds out SES is refusing the recipient. Left
+   * unmuted it also means three of these tests print a Nest ERROR banner and a
+   * full stack on every green run, which reads exactly like a failure. Silence
+   * it here and assert on it instead, so the diagnostic stays covered rather
+   * than merely hidden.
+   */
+  let logged: jest.SpyInstance;
+  beforeEach(() => {
+    logged = jest
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+  });
+  afterEach(() => logged.mockRestore());
 
   function build(sendLoginOtp: jest.Mock) {
     const consumed: unknown[] = [];
@@ -79,6 +95,12 @@ describe('OtpService.issue — mail delivery fails', () => {
     await expect(service.issue(params)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );
+
+    // The operator-facing half: the log has to name the recipient and repeat
+    // the provider's own words, or the failure is undiagnosable from the box.
+    const [message] = logged.mock.calls[0] as [string];
+    expect(message).toContain('superadmin@drsk.local');
+    expect(message).toContain('not verified');
   });
 
   it('does not blame the password, which was already accepted', async () => {

@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
-import { Noto_Sans, Courier_Prime, Hanken_Grotesk } from "next/font/google";
+import {
+  Noto_Sans,
+  Courier_Prime,
+  Hanken_Grotesk,
+  Inter,
+  Instrument_Serif,
+} from "next/font/google";
 import "./globals.css";
 import { SessionLostModal } from "@/components/session-lost-modal";
 
@@ -14,6 +20,27 @@ const courierPrime = Courier_Prime({
   variable: "--font-courier-prime",
   subsets: ["latin"],
   weight: ["400", "700"],
+});
+
+/*
+ * Inter and Instrument Serif belong to the public marketing site (`/`),
+ * which is its own visual world: the product consoles keep Noto Sans and
+ * Hanken Grotesk. Loaded here because next/font must be initialised at
+ * module scope in a layout, and the root layout is the only one every route
+ * passes through.
+ */
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800"],
+});
+
+// Display face for the marketing headlines only.
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
 });
 
 // Hanken Grotesk is the admin console's typeface (/admin/*).
@@ -36,7 +63,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${notoSans.variable} ${courierPrime.variable} ${hankenGrotesk.variable} h-full antialiased`}
+      className={`${notoSans.variable} ${courierPrime.variable} ${hankenGrotesk.variable} ${inter.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full">
         {children}

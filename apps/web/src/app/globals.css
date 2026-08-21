@@ -45,10 +45,29 @@
   --color-admin-surface: #edeeef; /* subtle panels / icon chips */
   --color-danger-soft: #ffdad6; /* negative delta pill */
 
+  /* Marketing site palette (`/`) — the third and outermost of the three
+     visual systems here: candidates get navy, the admin console gets teal, and
+     the public page gets this. Deliberately separate tokens rather than reused
+     ones, because a change made for a landing page must never quietly restyle
+     an exam screen. */
+  --color-site-ink: #0a192f; /* dark sections, headings */
+  --color-site-ink-2: #112240; /* raised surfaces on dark */
+  --color-site-accent: #ff6b4a; /* the one warm accent — highlights, badges */
+  --color-site-body: #1e293b; /* body copy on light */
+  --color-site-muted: #64748b; /* secondary copy on light */
+  --color-site-dim: #94a3b8; /* secondary copy on dark */
+  --color-site-faint: #cbd5e1; /* trust row on dark */
+  --color-site-line: #e2e8f0; /* card and badge borders */
+  --color-site-wash: #f4f6f9; /* alternating section background */
+
   /* Typography — Noto Sans is the design's UI font (loaded in layout.tsx). */
   --font-sans:
     var(--font-noto-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-courier-prime), ui-monospace, monospace;
+  /* Marketing site faces. */
+  --font-site: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display:
+    var(--font-instrument-serif), ui-serif, Georgia, Cambria, serif;
 }
 
 html,
