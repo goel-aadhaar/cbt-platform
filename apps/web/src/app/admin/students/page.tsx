@@ -854,7 +854,7 @@ function download(csv: string): void {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `drsk-students-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `codonmind-students-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

@@ -56,7 +56,7 @@ export class StudentsController {
     const buffer = await this.students.importTemplate();
     return new StreamableFile(buffer, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: 'attachment; filename="drsk-students-template.xlsx"',
+      disposition: 'attachment; filename="codonmind-students-template.xlsx"',
     });
   }
 

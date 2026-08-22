@@ -225,7 +225,7 @@ export async function downloadQuestionTemplate(): Promise<void> {
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
   a.href = url;
-  a.download = "drsk-questions-template.xlsx";
+  a.download = "codonmind-questions-template.xlsx";
   document.body.appendChild(a);
   a.click();
   a.remove();

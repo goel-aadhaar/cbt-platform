@@ -65,7 +65,7 @@ export class QuestionsController {
     const buffer = await this.questions.importTemplate();
     return new StreamableFile(buffer, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      disposition: 'attachment; filename="drsk-questions-template.xlsx"',
+      disposition: 'attachment; filename="codonmind-questions-template.xlsx"',
     });
   }
 

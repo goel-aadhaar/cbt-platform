@@ -45,7 +45,21 @@ export class RolesGuard implements CanActivate {
      * administrator routes, and choosing a role would mean nothing.
      */
     if (!user || !requiredRoles.includes(user.role)) {
-      throw new ForbiddenException('Insufficient role');
+      /**
+       * Name both sides. "Insufficient role" is true and useless: it does not
+       * say what this route wanted or what the session is, so someone signed in
+       * as a teacher trying an admin screen cannot tell whether they need a
+       * different account, a different role on the same account, or help.
+       *
+       * Safe to disclose — the caller is authenticated, and the route they just
+       * called is not a secret from them.
+       */
+      const acting = user?.role ?? 'no role selected';
+      const wanted = requiredRoles.join(' or ');
+      throw new ForbiddenException(
+        `This action needs the ${wanted} role, but this session is signed in ` +
+          `as ${acting}. Switch role, or sign in with an account that has it.`,
+      );
     }
     return true;
   }

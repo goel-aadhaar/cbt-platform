@@ -3,9 +3,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -18,6 +20,16 @@ import { MailService } from '../mail/mail.service';
 import { PasswordService } from '../password.service';
 
 const MAX_ROLL_ATTEMPTS = 5;
+
+/**
+ * Ceiling for the invitation transaction, which now spans the email.
+ *
+ * Prisma's default is five seconds, and a cold SES call can exceed that on its
+ * own — the transaction would abort on a message that had actually been sent.
+ * Long enough for a slow provider, short enough that a hung one does not hold a
+ * connection all day.
+ */
+const INVITE_TX_TIMEOUT_MS = 20_000;
 
 export interface InvitedUser {
   id: string;
@@ -85,16 +97,25 @@ export class InvitationService {
     const institute = await this.prisma.institute.findUnique({
       where: { id: targetInstituteId },
     });
-    if (!institute) throw new NotFoundException('Institute not found');
+    if (!institute) {
+      throw new NotFoundException(
+        `No institute with id ${targetInstituteId}. It may have been deleted ` +
+          `since this page was loaded.`,
+      );
+    }
 
-    return this.createInvitation({
-      name: params.name,
-      email: params.email,
-      roles: [Role.ADMIN],
-      instituteId: institute.id,
-      instituteName: institute.name,
-      invitedById: actor.userId,
-    });
+    return this.guard(
+      () =>
+        this.createInvitation({
+          name: params.name,
+          email: params.email,
+          roles: [Role.ADMIN],
+          instituteId: institute.id,
+          instituteName: institute.name,
+          invitedById: actor.userId,
+        }),
+      params.email,
+    );
   }
 
   async inviteTeacher(
@@ -110,20 +131,26 @@ export class InvitationService {
       });
       if (found !== params.batchIds.length) {
         throw new BadRequestException(
-          'One or more batches were not found in your institute',
+          `${params.batchIds.length - found} of the ${params.batchIds.length} ` +
+            `selected batch(es) do not exist in your institute. Reload the ` +
+            `page and choose again.`,
         );
       }
     }
 
-    return this.createInvitation({
-      name: params.name,
-      email: params.email,
-      roles: [Role.TEACHER],
-      instituteId: institute.id,
-      instituteName: institute.name,
-      invitedById,
-      teacherBatchIds: params.batchIds,
-    });
+    return this.guard(
+      () =>
+        this.createInvitation({
+          name: params.name,
+          email: params.email,
+          roles: [Role.TEACHER],
+          instituteId: institute.id,
+          instituteName: institute.name,
+          invitedById,
+          teacherBatchIds: params.batchIds,
+        }),
+      params.email,
+    );
   }
 
   /**
@@ -149,7 +176,10 @@ export class InvitationService {
       where: { id: params.batchId, instituteId: institute.id },
     });
     if (!batch) {
-      throw new BadRequestException('Batch not found in your institute');
+      throw new BadRequestException(
+        'That batch does not exist in your institute. It may have been ' +
+          'renamed or archived — reload the page and pick it again.',
+      );
     }
 
     const existingStudent = await this.prisma.student.findFirst({
@@ -157,6 +187,25 @@ export class InvitationService {
       select: { rollNumber: true },
     });
 
+    return this.guard(
+      () =>
+        this.inviteStudentWithRetry(
+          institute,
+          params,
+          invitedById,
+          existingStudent,
+        ),
+      params.email,
+    );
+  }
+
+  /** The roll-number race retry, kept separate so `guard` wraps only its result. */
+  private async inviteStudentWithRetry(
+    institute: { id: string; name: string; code: string },
+    params: { name: string; email: string; batchId: string },
+    invitedById: string,
+    existingStudent: { rollNumber: string } | null,
+  ): Promise<InvitedUser> {
     for (let attempt = 1; attempt <= MAX_ROLL_ATTEMPTS; attempt++) {
       const rollNumber =
         existingStudent?.rollNumber ??
@@ -169,7 +218,7 @@ export class InvitationService {
           instituteId: institute.id,
           instituteName: institute.name,
           invitedById,
-          student: { rollNumber, batchId: batch.id },
+          student: { rollNumber, batchId: params.batchId },
         });
       } catch (err) {
         // A concurrent invite claimed the same computed roll number first —
@@ -226,7 +275,10 @@ export class InvitationService {
       user.invitationExpiresAt === null ||
       user.invitationExpiresAt <= new Date()
     ) {
-      throw new BadRequestException('Invalid or expired invitation');
+      throw new BadRequestException(
+        'This invitation link is no longer valid. It may have already been ' +
+          'used, or it may have expired — ask your administrator to resend it.',
+      );
     }
 
     const passwordHash = await this.passwords.hash(password);
@@ -287,7 +339,10 @@ export class InvitationService {
     });
     if (!user) throw new NotFoundException('User not found');
     if (user.status !== UserStatus.PENDING) {
-      throw new BadRequestException('Only a pending invitation can be resent');
+      throw new BadRequestException(
+        `${user.email} has already accepted their invitation, so there is ` +
+          `nothing to resend. Use a password reset if they cannot sign in.`,
+      );
     }
 
     const institute = await this.requireInstitute(instituteId);
@@ -297,25 +352,39 @@ export class InvitationService {
       this.config.getOrThrow<AuthConfig>('auth');
     const expiresAt = new Date(Date.now() + inviteTtlHours * 3_600_000);
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { invitationTokenHash: tokenHash, invitationExpiresAt: expiresAt },
-    });
-
-    await this.mail.sendInvitation({
-      to: user.email,
-      name: user.name,
-      role: user.roles[0],
-      inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
-      institute: institute.name,
-    });
+    // Same bargain as a first invitation: minting a new token invalidates the
+    // old one, so a send that fails after the update would leave the invitee
+    // holding a link that no longer works and no replacement for it.
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.user.update({
+          where: { id: user.id },
+          data: {
+            invitationTokenHash: tokenHash,
+            invitationExpiresAt: expiresAt,
+          },
+        });
+        await this.sendInvite({
+          to: user.email,
+          name: user.name,
+          role: user.roles[0],
+          inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
+          institute: institute.name,
+        });
+      },
+      { timeout: INVITE_TX_TIMEOUT_MS },
+    );
 
     return { email: user.email };
   }
 
   private async requireInstitute(instituteId: string | null) {
     if (!instituteId) {
-      throw new BadRequestException('No institute in the current context');
+      throw new BadRequestException(
+        'This session is not attached to an institute, so there is nobody to ' +
+          'invite them into. Platform owners must invite through an ' +
+          "institute's own admin console.",
+      );
     }
     const institute = await this.prisma.institute.findUnique({
       where: { id: instituteId },
@@ -335,7 +404,17 @@ export class InvitationService {
     // Without this, letting a TTL expire locked that email out of ever being
     // invited again, with no self-service recovery.
     if (existing && !this.isResurrectable(existing)) {
-      throw new ConflictException('Email is already registered');
+      // Which kind of "already registered" this is decides what to do next, so
+      // say which one it is rather than leaving the administrator to guess.
+      throw new ConflictException(
+        existing.status === UserStatus.PENDING
+          ? `${params.email} already has an invitation waiting to be accepted. ` +
+              `Use "Resend invite" on the roster to send it again — inviting ` +
+              `afresh would invalidate the link they already have.`
+          : `${params.email} already has an account on this platform. If they ` +
+              `need different access, change their roles on the roster instead ` +
+              `of inviting them again.`,
+      );
     }
 
     const rawToken = randomBytes(32).toString('base64url');
@@ -344,60 +423,86 @@ export class InvitationService {
       this.config.getOrThrow<AuthConfig>('auth');
     const expiresAt = new Date(Date.now() + inviteTtlHours * 3_600_000);
 
-    const user = await this.prisma.$transaction(async (tx) => {
-      const data = {
-        name: params.name,
-        email: params.email,
-        roles: params.roles,
-        status: UserStatus.PENDING,
-        instituteId: params.instituteId,
-        invitedById: params.invitedById,
-        invitationTokenHash: tokenHash,
-        invitationExpiresAt: expiresAt,
-      };
-      const created = existing
-        ? await tx.user.update({ where: { id: existing.id }, data })
-        : await tx.user.create({ data });
-      if (params.student) {
-        await tx.student.upsert({
-          where: { userId: created.id },
-          create: {
-            userId: created.id,
-            instituteId: params.instituteId,
-            batchId: params.student.batchId,
-            rollNumber: params.student.rollNumber,
-          },
-          update: {
-            batchId: params.student.batchId,
-            rollNumber: params.student.rollNumber,
-          },
-        });
-      }
-      if (params.teacherBatchIds) {
-        // Clear-then-create rather than a diff: keeps a resurrected invite
-        // (same email, lapsed PENDING invite reusing `existing.id`) idempotent
-        // even if it carries a different batch set than the stale invite did.
-        await tx.teacherBatch.deleteMany({ where: { teacherId: created.id } });
-        if (params.teacherBatchIds.length) {
-          await tx.teacherBatch.createMany({
-            data: params.teacherBatchIds.map((batchId) => ({
-              teacherId: created.id,
-              batchId,
+    /**
+     * The account and the email it announces are one operation.
+     *
+     * The send used to sit after the transaction had committed, so a provider
+     * that refused the message — an SES account still in the sandbox refuses
+     * every unverified recipient — left a PENDING account holding a token
+     * nobody had ever received. The invitee could not accept, because they had
+     * no link; and the address could not be invited again, because it was now
+     * registered. Both halves of the failure were invisible: the response was
+     * a bare 500.
+     *
+     * Inside the transaction, a refused message rolls the account back, and the
+     * administrator is told to fix the mail problem and try again.
+     *
+     * The tradeoff, deliberately taken this way round: the transaction is held
+     * open across a network call, and a commit that failed *after* a successful
+     * send would email a link to an account that does not exist. That is rarer
+     * than a mail failure — which is currently happening on every attempt — and
+     * the invitee sees a dead link rather than the platform silently accruing
+     * accounts nobody can use.
+     */
+    const user = await this.prisma.$transaction(
+      async (tx) => {
+        const data = {
+          name: params.name,
+          email: params.email,
+          roles: params.roles,
+          status: UserStatus.PENDING,
+          instituteId: params.instituteId,
+          invitedById: params.invitedById,
+          invitationTokenHash: tokenHash,
+          invitationExpiresAt: expiresAt,
+        };
+        const created = existing
+          ? await tx.user.update({ where: { id: existing.id }, data })
+          : await tx.user.create({ data });
+        if (params.student) {
+          await tx.student.upsert({
+            where: { userId: created.id },
+            create: {
+              userId: created.id,
               instituteId: params.instituteId,
-            })),
+              batchId: params.student.batchId,
+              rollNumber: params.student.rollNumber,
+            },
+            update: {
+              batchId: params.student.batchId,
+              rollNumber: params.student.rollNumber,
+            },
           });
         }
-      }
-      return created;
-    });
+        if (params.teacherBatchIds) {
+          // Clear-then-create rather than a diff: keeps a resurrected invite
+          // (same email, lapsed PENDING invite reusing `existing.id`) idempotent
+          // even if it carries a different batch set than the stale invite did.
+          await tx.teacherBatch.deleteMany({
+            where: { teacherId: created.id },
+          });
+          if (params.teacherBatchIds.length) {
+            await tx.teacherBatch.createMany({
+              data: params.teacherBatchIds.map((batchId) => ({
+                teacherId: created.id,
+                batchId,
+                instituteId: params.instituteId,
+              })),
+            });
+          }
+        }
+        await this.sendInvite({
+          to: created.email,
+          name: created.name,
+          role: created.roles[0],
+          inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
+          institute: params.instituteName,
+        });
 
-    await this.mail.sendInvitation({
-      to: user.email,
-      name: user.name,
-      role: user.roles[0],
-      inviteUrl: `${frontendUrl}/accept-invite?token=${rawToken}`,
-      institute: params.instituteName,
-    });
+        return created;
+      },
+      { timeout: INVITE_TX_TIMEOUT_MS },
+    );
 
     return {
       id: user.id,
@@ -407,6 +512,99 @@ export class InvitationService {
       status: user.status,
       rollNumber: params.student?.rollNumber,
     };
+  }
+
+  /**
+   * Send the invitation, or fail with something the administrator can act on.
+   *
+   * The provider's own words are passed through. "Email address is not
+   * verified. The following identities failed the check in region AP-SOUTH-1"
+   * names both the problem and where to fix it; replacing it with "internal
+   * server error" throws away the only useful part.
+   */
+  private async sendInvite(email: {
+    to: string;
+    name: string;
+    role: Role;
+    inviteUrl: string;
+    institute?: string;
+  }): Promise<void> {
+    try {
+      await this.mail.sendInvitation(email);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Invitation to ${email.to} could not be sent, so the account was ` +
+          `rolled back. Provider said: ${reason}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new ServiceUnavailableException(
+        `The invitation could not be emailed to ${email.to}, so nothing was ` +
+          `created — no account exists and you can try again once mail is ` +
+          `working. The mail provider said: ${reason}`,
+      );
+    }
+  }
+
+  /**
+   * Turn whatever escaped into a message that names the problem.
+   *
+   * Anything already carrying a status has been phrased deliberately and is
+   * left alone. The rest would otherwise reach the console as a bare 500, which
+   * tells an administrator nothing about whether to retry, fix an address, or
+   * call someone.
+   */
+  private describeFailure(err: unknown, email: string): unknown {
+    if (err instanceof HttpException) return err;
+
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (err.code) {
+        case 'P2002':
+          return new ConflictException(
+            `${email} is already registered. If that invitation has lapsed, ` +
+              `it can be re-sent from the roster.`,
+          );
+        case 'P2003':
+          return new BadRequestException(
+            'That batch or institute no longer exists. Reload and try again.',
+          );
+        case 'P2028':
+          return new ServiceUnavailableException(
+            'The invitation took too long to complete and was rolled back — ' +
+              'no account was created. This usually means the mail provider ' +
+              'is slow to respond. Try again.',
+          );
+        default:
+          break;
+      }
+    }
+
+    this.logger.error(
+      `Invitation for ${email} failed: ` +
+        (err instanceof Error ? err.message : String(err)),
+      err instanceof Error ? err.stack : undefined,
+    );
+    return new ServiceUnavailableException(
+      `The invitation for ${email} could not be completed and nothing was ` +
+        `saved. ` +
+        (err instanceof Error ? err.message : 'An unexpected error occurred.'),
+    );
+  }
+
+  /**
+   * Run an invite and describe anything that escapes.
+   *
+   * Wrapped at this level rather than inside `createInvitation` on purpose: the
+   * student path retries a lost roll-number race by inspecting the raw Prisma
+   * error, and rewriting it there would turn a recoverable collision into a
+   * hard failure.
+   */
+  private async guard<T>(run: () => Promise<T>, email: string): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      throw this.describeFailure(err, email);
+    }
   }
 
   /** A PENDING account whose invite TTL has already passed — safe to reissue. */

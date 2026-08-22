@@ -30,7 +30,7 @@ const FAQS = [
   },
 ];
 
-const SUPPORT_EMAIL = "support@drsk.in";
+const SUPPORT_EMAIL = "hello@codonmind.in";
 
 export default function StudentHelpPage() {
   const [category, setCategory] = useState("All");
@@ -154,7 +154,7 @@ export default function StudentHelpPage() {
               <ContactRow
                 icon="✉"
                 title="Email Support"
-                value="support@drsk.in"
+                value="hello@codonmind.in"
               />
               <ContactRow
                 icon="☎"

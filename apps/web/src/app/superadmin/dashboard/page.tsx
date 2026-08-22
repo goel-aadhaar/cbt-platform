@@ -5,15 +5,15 @@ import { useEffect, useState } from "react";
 
 import {
   ActivityIcon,
+  LayersIcon,
   ClipboardIcon,
-  DatabaseIcon,
   UsersIcon,
 } from "@/components/admin/icons";
 import {
   BarList,
   LineChart,
   Panel,
-  StatCard,
+  BreakdownCard,
   StatusPill,
 } from "@/components/staff/charts";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
@@ -64,38 +64,44 @@ export default function SuperadminDashboardPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          icon={UsersIcon}
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <BreakdownCard
+          icon={LayersIcon}
           label="Institutes"
-          value={t?.institutes}
-          hint={
-            t === undefined
-              ? undefined
-              : t.suspendedInstitutes > 0
-                ? `${t.suspendedInstitutes} suspended`
-                : "all active"
-          }
-          tone={t && t.suspendedInstitutes > 0 ? "warn" : "good"}
-        />
-        <StatCard
-          icon={UsersIcon}
-          label="Students"
-          value={t?.students}
-          hint={
+          total={t?.institutes}
+          parts={[
+            { label: "active", value: t?.activeInstitutes, tone: "good" },
+            { label: "suspended", value: t?.suspendedInstitutes, tone: "bad" },
+          ]}
+          footnote={
             overview
-              ? `+${overview.last30Days.newInstitutes} tenants / 30d`
+              ? `${overview.last30Days.newInstitutes} onboarded in the last 30 days`
               : undefined
           }
         />
-        <StatCard
+        <BreakdownCard
+          icon={UsersIcon}
+          label="Students"
+          total={t?.students}
+          parts={[
+            { label: "active", value: t?.activeStudents, tone: "good" },
+            { label: "invited", value: t?.pendingStudents, tone: "warn" },
+            { label: "disabled", value: t?.disabledStudents, tone: "bad" },
+          ]}
+        />
+        <BreakdownCard
           icon={ClipboardIcon}
           label="Exams"
-          value={t?.exams}
-          hint={overview ? `${overview.liveExams} in progress` : undefined}
-          tone={overview && overview.liveExams > 0 ? "good" : "default"}
+          total={t?.exams}
+          parts={[
+            {
+              label: "created in 30d",
+              value: overview?.last30Days.exams,
+              tone: "neutral",
+            },
+            { label: "in progress", value: overview?.liveExams, tone: "good" },
+          ]}
         />
-        <StatCard icon={DatabaseIcon} label="Questions" value={t?.questions} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">

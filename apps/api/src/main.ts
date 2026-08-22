@@ -81,7 +81,7 @@ async function bootstrap(): Promise<void> {
     process.env.ENABLE_API_DOCS === 'true' || config.nodeEnv !== 'production';
   if (docsEnabled) {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('DRSK CBT API')
+      .setTitle('Codonmind Nexus API')
       .setDescription('Multi-tenant NTA-style CBT examination platform API')
       .setVersion('1.0')
       .addBearerAuth()

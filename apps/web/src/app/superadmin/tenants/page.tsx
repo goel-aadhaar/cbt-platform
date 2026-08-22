@@ -3,8 +3,14 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { PlusIcon, SearchIcon, UserPlusIcon } from "@/components/admin/icons";
+import {
+  BarChartIcon,
+  PlusIcon,
+  SearchIcon,
+  UserPlusIcon,
+} from "@/components/admin/icons";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { InstituteUsageModal } from "@/components/superadmin/institute-usage-modal";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
 import { ApiError } from "@/lib/api";
 import {
@@ -12,6 +18,8 @@ import {
   deleteTenant,
   inviteAdmin,
   listTenants,
+  type TenantQuery,
+  type TenantSort,
   updateTenant,
   type Tenant,
 } from "@/lib/platform";
@@ -34,24 +42,50 @@ function TenantsScreen() {
   /** id of the tenant currently being mutated, so only its row shows a spinner */
   const [busy, setBusy] = useState<string | null>(null);
   const [invitingFor, setInvitingFor] = useState<Tenant | null>(null);
+  const [usageFor, setUsageFor] = useState<Tenant | null>(null);
+  /**
+   * Filter and sort live in state, not in the URL. They are a way of reading
+   * one screen rather than a place to link someone to, and the search term
+   * beside them is already ephemeral.
+   */
+  const [status, setStatus] = useState<"" | "active" | "suspended">("");
+  const [sort, setSort] = useState<TenantSort>("created");
+  const [order, setOrder] = useState<"asc" | "desc">("desc");
 
-  const load = useCallback(async (term: string) => {
-    try {
-      const res = await listTenants(term || undefined);
-      setTenants(res.items);
-      setError(null);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Could not load institutes");
-      setTenants([]);
-    }
-  }, []);
+  const load = useCallback(
+    async (term: string, query: Omit<TenantQuery, "search">) => {
+      try {
+        // Sorted and filtered on the server so the order is over every tenant,
+        // not just the ones a client-side pass happens to be holding.
+        const res = await listTenants({ search: term || undefined, ...query });
+        setTenants(res.items);
+        setError(null);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Could not load institutes");
+        setTenants([]);
+      }
+    },
+    [],
+  );
 
   // Debounced search doubles as the initial load: the first run fires with an
-  // empty term, so there is no separate mount effect to keep in step.
+  // empty term, so there is no separate mount effect to keep in step. Changing
+  // a filter re-runs it through the same path.
   useEffect(() => {
-    const id = setTimeout(() => void load(search.trim()), 300);
+    const id = setTimeout(
+      () =>
+        void load(search.trim(), {
+          status: status || undefined,
+          sort,
+          order,
+        }),
+      300,
+    );
     return () => clearTimeout(id);
-  }, [search, load]);
+  }, [search, status, sort, order, load]);
+
+  const reload = () =>
+    load(search.trim(), { status: status || undefined, sort, order });
 
   async function toggleActive(t: Tenant) {
     setBusy(t.id);
@@ -111,6 +145,54 @@ function TenantsScreen() {
             className="h-11 w-full rounded-full border border-admin-line bg-white pl-10 pr-4 text-sm outline-none focus:border-admin"
           />
         </div>
+
+        <select
+          value={status}
+          onChange={(e) =>
+            setStatus(e.target.value as "" | "active" | "suspended")
+          }
+          aria-label="Filter by status"
+          className="h-11 rounded-full border border-admin-line bg-white px-4 text-sm text-admin-ink outline-none focus:border-admin"
+        >
+          <option value="">All statuses</option>
+          <option value="active">Active only</option>
+          <option value="suspended">Suspended only</option>
+        </select>
+
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as TenantSort)}
+          aria-label="Sort by"
+          className="h-11 rounded-full border border-admin-line bg-white px-4 text-sm text-admin-ink outline-none focus:border-admin"
+        >
+          <option value="created">Newest first</option>
+          <option value="name">Name</option>
+          <option value="students">Students</option>
+          <option value="exams">Exams</option>
+          <option value="attempts">Attempts</option>
+        </select>
+
+        {/* One button rather than a second dropdown: direction only ever has
+            two values, and the arrow says which one is active. */}
+        <button
+          type="button"
+          onClick={() => setOrder((o) => (o === "asc" ? "desc" : "asc"))}
+          aria-label={
+            order === "asc" ? "Sorted ascending" : "Sorted descending"
+          }
+          title={
+            order === "asc"
+              ? "Ascending — click for descending"
+              : "Descending — click for ascending"
+          }
+          className="flex h-11 items-center gap-1.5 rounded-full border border-admin-line bg-white px-4 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+        >
+          {order === "asc" ? "↑" : "↓"}
+          <span className="text-admin-muted">
+            {order === "asc" ? "Asc" : "Desc"}
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => setCreating(true)}
@@ -205,6 +287,14 @@ function TenantsScreen() {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => setUsageFor(t)}
+                          className="flex items-center gap-1.5 rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg"
+                        >
+                          <BarChartIcon className="size-3.5" />
+                          Usage
+                        </button>
+                        <button
+                          type="button"
                           disabled={busy === t.id}
                           onClick={() => setInvitingFor(t)}
                           className="flex items-center gap-1.5 rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
@@ -250,7 +340,10 @@ function TenantsScreen() {
         <CreateTenantModal
           onClose={() => setCreating(false)}
           onCreated={(t) => {
-            setTenants((prev) => [t, ...(prev ?? [])]);
+            // Refetched rather than prepended: with a sort applied, the top of
+            // the list is not where a new tenant belongs, and putting it there
+            // makes the ordering look broken.
+            void reload();
             setCreating(false);
             // Chain straight into the invite step — an institute with nobody
             // who can sign in to it isn't actually usable yet.
@@ -258,6 +351,12 @@ function TenantsScreen() {
           }}
         />
       )}
+
+      <InstituteUsageModal
+        instituteId={usageFor?.id ?? null}
+        instituteName={usageFor?.name}
+        onClose={() => setUsageFor(null)}
+      />
 
       {invitingFor && (
         <InviteAdminModal
@@ -328,7 +427,7 @@ function CreateTenantModal({
               onChange={(e) => setName(e.target.value)}
               required
               autoFocus
-              placeholder="DRSK Academy"
+              placeholder="Sunrise Academy"
               className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
             />
           </label>
@@ -343,7 +442,7 @@ function CreateTenantModal({
                 setSlug(slugify(e.target.value));
               }}
               required
-              placeholder="drsk-academy"
+              placeholder="sunrise-academy"
               className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
             />
             <span className="text-xs text-admin-muted">

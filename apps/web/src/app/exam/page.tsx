@@ -164,7 +164,7 @@ function StartGate({
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface p-6">
       <div className="w-full max-w-lg border border-line bg-white p-8 shadow-sm">
-        <h1 className="text-2xl font-bold text-brand">DRSK Assessment</h1>
+        <h1 className="text-2xl font-bold text-brand">Codonmind Nexus</h1>
         <p className="mt-1 text-sm text-muted">
           Please read the instructions before starting.
         </p>
@@ -644,14 +644,14 @@ function ExamRunner({
       <header className="flex h-16 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
         <div className="flex items-center gap-4">
           <Image
-            src="/brand/drsk-logo.png"
-            alt="DRSK"
+            src="/brand/codonmind-mark.png"
+            alt=""
             width={39}
             height={39}
             className="size-[39px] object-contain"
           />
           <span className="text-xl font-bold tracking-[-0.5px] text-brand">
-            DRSK ASSESSMENT PORTAL
+            CODON MIND NEXUS
           </span>
         </div>
 
@@ -951,9 +951,7 @@ function ExamRunner({
       </div>
 
       <footer className="flex h-10 shrink-0 items-center justify-between border-t border-line bg-fill px-6 text-xs text-muted">
-        <span className="font-bold">
-          © 2026 DRSK Assessment. Version 4.2.1-SECURE
-        </span>
+        <span className="font-bold">© 2026 Codonmind Nexus</span>
         <div className="flex gap-4 font-semibold">
           <span>Official Disclaimer</span>
           <span className="text-line">|</span>

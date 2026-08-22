@@ -971,7 +971,7 @@ export interface ImportSummary {
 export function downloadStudentTemplate(): Promise<void> {
   return downloadAuthed(
     "/students/import/template",
-    "drsk-students-template.xlsx",
+    "codonmind-students-template.xlsx",
   );
 }
 

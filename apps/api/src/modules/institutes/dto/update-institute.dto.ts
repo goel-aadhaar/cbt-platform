@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class UpdateInstituteDto {
-  @ApiPropertyOptional({ example: 'DRSK Academy (North Campus)' })
+  @ApiPropertyOptional({ example: 'Sunrise Academy (North Campus)' })
   @IsOptional()
   @IsString()
   @MinLength(2)

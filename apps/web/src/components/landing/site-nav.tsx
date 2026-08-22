@@ -23,11 +23,11 @@ export function SiteNav() {
     <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between gap-4 border-b border-site-line bg-white/95 px-5 backdrop-blur md:px-10">
       <Link href="/" className="flex shrink-0 items-center gap-2.5">
         <Image
-          src="/landing/logo-ring.svg"
+          src="/brand/codonmind-mark.png"
           alt=""
-          width={22}
-          height={22}
-          className="size-[22px]"
+          width={26}
+          height={26}
+          className="size-[26px]"
         />
         <span className="flex flex-col gap-px uppercase leading-none text-site-ink">
           <span className="text-[14px] font-extrabold">CODON MIND</span>

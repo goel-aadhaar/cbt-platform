@@ -493,7 +493,7 @@ export function QuestionAuthorDrawer({
                     className={INPUT_CLS}
                   />
                 </Field>
-                <Field label="Practice marks / negative marks">
+                <Field label="Positive marks / negative marks">
                   <div className="flex gap-2">
                     <input
                       type="number"

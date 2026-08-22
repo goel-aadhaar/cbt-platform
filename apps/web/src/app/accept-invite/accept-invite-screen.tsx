@@ -59,15 +59,15 @@ export function AcceptInviteScreen() {
       <div className="w-full max-w-[420px]">
         <div className="mb-8 flex items-center gap-1.5">
           <Image
-            src="/brand/drsk-logo.png"
-            alt="DRSK"
+            src="/brand/codonmind-mark.png"
+            alt=""
             width={39}
             height={39}
             priority
             className="size-[39px] object-contain"
           />
           <span className="text-xl font-semibold tracking-[-0.5px] text-[#1a6a35]">
-            DRSK
+            CODON MIND
           </span>
         </div>
 

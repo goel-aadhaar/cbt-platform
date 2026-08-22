@@ -135,7 +135,7 @@ export function AddStaffDrawer({
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="jane.doe@drsk.edu"
+          placeholder="jane.doe@example.edu"
           className={inputCls}
         />
       </Field>

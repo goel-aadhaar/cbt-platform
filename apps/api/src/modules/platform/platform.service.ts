@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { UserStatus } from '../auth/auth.types';
 import { PlatformUsagePort } from './ports/platform-usage.port';
 
 /**
@@ -20,13 +21,27 @@ export class PlatformService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setUTCDate(thirtyDaysAgo.getUTCDate() - 30);
 
+    /**
+     * A candidate's state lives on their User row, not the Student row, so the
+     * breakdown is counted through the relation. PENDING and DISABLED are kept
+     * apart rather than merged into one "inactive" figure: an invitation nobody
+     * has accepted and an account somebody switched off are different problems
+     * with different fixes, and a platform owner looking at a large inactive
+     * number needs to know which one they are looking at.
+     */
+    const studentsWith = (status: UserStatus) =>
+      this.prisma.student.count({ where: { user: { status } } });
+
     const [
       institutes,
       activeInstitutes,
       students,
+      activeStudents,
+      pendingStudents,
+      disabledStudents,
       staff,
       exams,
-      questions,
+      recentExams,
       attempts,
       recentAttempts,
       newInstitutes,
@@ -36,11 +51,16 @@ export class PlatformService {
       this.prisma.institute.count(),
       this.prisma.institute.count({ where: { isActive: true } }),
       this.prisma.student.count(),
+      studentsWith(UserStatus.ACTIVE),
+      studentsWith(UserStatus.PENDING),
+      studentsWith(UserStatus.DISABLED),
       this.prisma.user.count({
         where: { roles: { hasSome: ['ADMIN', 'TEACHER'] } },
       }),
       this.prisma.exam.count(),
-      this.prisma.question.count(),
+      // Authored in the window, matching how `newInstitutes` reads the same
+      // 30 days — not exams *sat* in it, which is what `attempts` measures.
+      this.prisma.exam.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
       this.prisma.attempt.count(),
       this.prisma.attempt.count({
         where: { startedAt: { gte: thirtyDaysAgo } },
@@ -70,12 +90,18 @@ export class PlatformService {
         activeInstitutes,
         suspendedInstitutes: institutes - activeInstitutes,
         students,
+        activeStudents,
+        pendingStudents,
+        disabledStudents,
         staff,
         exams,
-        questions,
         attempts,
       },
-      last30Days: { attempts: recentAttempts, newInstitutes },
+      last30Days: {
+        attempts: recentAttempts,
+        newInstitutes,
+        exams: recentExams,
+      },
       liveExams,
       busiestInstitutes: busiest.map((b) => ({
         id: b.instituteId,

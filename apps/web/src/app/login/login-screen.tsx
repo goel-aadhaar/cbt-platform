@@ -224,8 +224,8 @@ export function LoginScreen() {
         <div className="flex items-center gap-1.5">
           <span className="flex size-12 items-center justify-center rounded-[2px]">
             <Image
-              src="/brand/drsk-logo.png"
-              alt="DRSK"
+              src="/brand/codonmind-mark.png"
+              alt=""
               width={39}
               height={39}
               priority
@@ -233,7 +233,7 @@ export function LoginScreen() {
             />
           </span>
           <span className="text-xl font-semibold tracking-[-0.5px] text-[#1a6a35]">
-            DRSK
+            CODON MIND
           </span>
         </div>
 
@@ -254,7 +254,7 @@ export function LoginScreen() {
               <>
                 <Heading
                   title="Sign in"
-                  subtitle="Choose how you use DRSK to continue."
+                  subtitle="Choose how you use Codonmind Nexus to continue."
                 />
                 <div className="flex flex-col gap-3">
                   <ChoiceCard
@@ -325,7 +325,7 @@ export function LoginScreen() {
                     id="instituteSlug"
                     value={instituteSlug}
                     onChange={setInstituteSlug}
-                    placeholder="e.g. DRSK789434"
+                    placeholder="e.g. 2601000042"
                     autoComplete="organization"
                     autoFocus={!DEFAULT_INSTITUTE}
                   />

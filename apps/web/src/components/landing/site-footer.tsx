@@ -75,11 +75,11 @@ export function SiteFooter() {
         <div className="flex w-[280px] flex-col gap-6">
           <div className="flex items-center gap-2">
             <Image
-              src="/landing/footer-dot.svg"
+              src="/brand/codonmind-mark.png"
               alt=""
-              width={12}
-              height={12}
-              className="size-3"
+              width={20}
+              height={20}
+              className="size-5"
             />
             <span className="text-[16px] font-extrabold text-white">
               CODON MIND

@@ -101,7 +101,7 @@ export function ImportStudentsModal({
     );
     const a = document.createElement("a");
     a.href = url;
-    a.download = "drsk-student-import-failures.csv";
+    a.download = "codonmind-student-import-failures.csv";
     document.body.appendChild(a);
     a.click();
     a.remove();

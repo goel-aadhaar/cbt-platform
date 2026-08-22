@@ -232,3 +232,85 @@ export function StatusPill({
     </span>
   );
 }
+
+/**
+ * A total with its composition underneath — "1,240 students: 1,102 active,
+ * 138 inactive".
+ *
+ * A bare total on its own invites the wrong conclusion: a platform owner
+ * reading "44 institutes" cannot tell whether that is 44 running or 30 running
+ * and 14 suspended, and those are very different businesses. `StatCard` says
+ * one number and can hint at a second; this says the whole shape.
+ *
+ * Parts with a zero value are dropped rather than rendered, so a healthy
+ * platform is not a row of zeroes.
+ */
+export function BreakdownCard({
+  icon: Icon,
+  label,
+  total,
+  parts,
+  footnote,
+}: {
+  icon?: ComponentType<SVGProps<SVGSVGElement>>;
+  label: string;
+  total: number | undefined;
+  parts: { label: string; value: number | undefined; tone: Tone }[];
+  /** Optional line under the breakdown, e.g. a 30-day figure. */
+  footnote?: string;
+}) {
+  const shown = parts.filter((p) => p.value !== undefined && p.value > 0);
+
+  return (
+    <div className="rounded-2xl border border-admin-line/60 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="flex items-start justify-between">
+        {Icon && (
+          <span className="flex size-12 items-center justify-center rounded-full bg-admin-surface text-admin-muted">
+            <Icon className="size-5" />
+          </span>
+        )}
+      </div>
+      <p className="mt-4 text-3xl font-bold text-admin-ink">
+        {total === undefined ? "…" : total.toLocaleString("en-IN")}
+      </p>
+      <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-admin-muted">
+        {label}
+      </p>
+
+      {total !== undefined && (
+        <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-admin-line/50 pt-3">
+          {shown.length === 0 ? (
+            <span className="text-xs text-admin-subtle">Nothing yet</span>
+          ) : (
+            shown.map((part) => (
+              <span key={part.label} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className={`size-2 rounded-full ${dotFor(part.tone)}`}
+                />
+                <span className="text-sm font-bold text-admin-ink">
+                  {part.value!.toLocaleString("en-IN")}
+                </span>
+                <span className="text-xs text-admin-muted">{part.label}</span>
+              </span>
+            ))
+          )}
+        </div>
+      )}
+
+      {footnote && <p className="mt-2 text-xs text-admin-subtle">{footnote}</p>}
+    </div>
+  );
+}
+
+type Tone = "good" | "warn" | "bad" | "neutral";
+
+function dotFor(tone: Tone) {
+  return tone === "good"
+    ? "bg-admin"
+    : tone === "warn"
+      ? "bg-warn"
+      : tone === "bad"
+        ? "bg-danger"
+        : "bg-admin-line";
+}

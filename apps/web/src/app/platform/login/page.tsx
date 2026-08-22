@@ -109,8 +109,8 @@ export default function PlatformLoginPage() {
       <div className="flex items-center gap-1.5">
         <span className="flex size-12 items-center justify-center rounded-[2px] bg-white/10">
           <Image
-            src="/brand/drsk-logo.png"
-            alt="DRSK"
+            src="/brand/codonmind-mark.png"
+            alt=""
             width={34}
             height={34}
             priority
@@ -118,7 +118,7 @@ export default function PlatformLoginPage() {
           />
         </span>
         <span className="text-xl font-semibold tracking-[-0.5px] text-white">
-          DRSK
+          CODON MIND
         </span>
       </div>
 
@@ -155,7 +155,7 @@ export default function PlatformLoginPage() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="owner@drsk.local"
+                    placeholder="owner@codonmind.in"
                     autoComplete="username"
                     autoFocus
                     className="w-full border border-[#6b7280] bg-white px-[13px] py-2.5 text-base text-ink outline-none placeholder:text-[#6b7280] focus:border-brand focus:ring-1 focus:ring-brand"

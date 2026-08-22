@@ -61,7 +61,6 @@ export function TeacherShell({
       nav={NAV}
       profileHref="/teacher/profile"
       workspace="Teacher workspace"
-      searchPlaceholder="Search questions, exams…"
     >
       {children}
     </StaffShell>

@@ -20,7 +20,7 @@ async function seed(): Promise<void> {
   const prisma = app.get(PrismaService);
   const passwords = app.get(PasswordService);
 
-  const email = process.env.SEED_SUPERADMIN_EMAIL ?? 'superadmin@drsk.local';
+  const email = process.env.SEED_SUPERADMIN_EMAIL ?? 'superadmin@codonmind.in';
   const password = process.env.SEED_SUPERADMIN_PASSWORD ?? 'ChangeMe123!';
 
   const existing = await prisma.user.findUnique({ where: { email } });

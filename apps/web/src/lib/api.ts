@@ -1,5 +1,5 @@
 /**
- * Thin fetch wrapper around the DRSK backend API.
+ * Thin fetch wrapper around the Codonmind Nexus backend API.
  *
  * Spring Boot analogy: this is our RestTemplate/WebClient — one place that knows
  * the base URL, attaches the bearer token, and normalises error handling so

@@ -1,5 +1,5 @@
 /**
- * Icon set — exact vector paths exported from the DRSK Figma design (node 9:1790).
+ * Icon set — exact vector paths exported from the Codonmind Nexus Figma design (node 9:1790).
  * Each icon uses `fill="currentColor"` so it can be coloured with Tailwind
  * `text-*` utilities, and forwards className/props. viewBoxes match the source.
  */

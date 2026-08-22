@@ -92,12 +92,12 @@ export class SesMailService extends MailService {
 
   async sendInvitation(email: InvitationEmail): Promise<void> {
     const subject = email.institute
-      ? `You're invited to join ${email.institute} on DRSK CBT`
-      : "You're invited to DRSK CBT";
+      ? `You're invited to join ${email.institute} on Codonmind Nexus`
+      : "You're invited to Codonmind Nexus";
     const greeting = `Hi ${escapeHtml(email.name)},`;
     const body = email.institute
       ? `You've been invited to join <strong>${escapeHtml(email.institute)}</strong> as ${escapeHtml(roleLabel(email.role))}.`
-      : `You've been invited to DRSK CBT as ${escapeHtml(roleLabel(email.role))}.`;
+      : `You've been invited to Codonmind Nexus as ${escapeHtml(roleLabel(email.role))}.`;
 
     await this.send({
       to: email.to,
@@ -125,7 +125,7 @@ export class SesMailService extends MailService {
    * only because it has no other way to deliver it in development.
    */
   async sendLoginOtp(email: OtpEmail): Promise<void> {
-    const subject = `${email.code} is your DRSK CBT sign-in code`;
+    const subject = `${email.code} is your Codonmind Nexus sign-in code`;
     await this.send({
       to: email.to,
       subject,
@@ -142,7 +142,7 @@ export class SesMailService extends MailService {
       `),
       text:
         `Hi ${email.name},\n\n` +
-        `Your DRSK CBT sign-in code: ${email.code}\n` +
+        `Your Codonmind Nexus sign-in code: ${email.code}\n` +
         `Expires in ${email.expiresInMinutes} minutes.\n\n` +
         `Didn't try to sign in? You can ignore this email.\n`,
     });
@@ -156,8 +156,8 @@ export class SesMailService extends MailService {
    */
   async sendWelcome(email: WelcomeEmail): Promise<void> {
     const subject = email.institute
-      ? `Welcome to ${email.institute} on DRSK CBT`
-      : 'Welcome to DRSK CBT';
+      ? `Welcome to ${email.institute} on Codonmind Nexus`
+      : 'Welcome to Codonmind Nexus';
     const details = [
       email.institute
         ? `<li><strong>Institute:</strong> ${escapeHtml(email.institute)}</li>`
@@ -207,7 +207,7 @@ function layout(inner: string): string {
   <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
     <table role="presentation" width="100%" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px;">
       <tr><td>
-        <p style="font-weight:700;font-size:18px;margin:0 0 20px;">DRSK CBT</p>
+        <p style="font-weight:700;font-size:18px;margin:0 0 20px;">Codonmind Nexus</p>
         ${inner}
       </td></tr>
     </table>

@@ -733,7 +733,7 @@ export class ResultsService {
   async exportResultsXlsx(examId: string) {
     const { title, slug, headers, rows } = await this.buildResultSheet(examId);
     const wb = new Workbook();
-    wb.creator = 'DRSK CBT';
+    wb.creator = 'Codonmind Nexus';
     wb.created = new Date();
     const ws = wb.addWorksheet('Results', {
       views: [{ state: 'frozen', ySplit: 2 }],

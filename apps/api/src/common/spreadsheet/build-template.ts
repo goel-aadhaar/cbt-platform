@@ -23,7 +23,7 @@ export async function buildTemplate(params: {
   notes: string[];
 }): Promise<Buffer> {
   const wb = new Workbook();
-  wb.creator = 'DRSK CBT';
+  wb.creator = 'Codonmind Nexus';
   wb.created = new Date();
 
   const ws = wb.addWorksheet(params.sheetName);

@@ -44,12 +44,58 @@ export interface TenantDetail extends Tenant {
   lastActivityAt: string | null;
 }
 
-export function listTenants(search?: string): Promise<{
+export type TenantSort = "created" | "name" | "students" | "exams" | "attempts";
+
+export interface TenantQuery {
+  search?: string;
+  status?: "active" | "suspended";
+  sort?: TenantSort;
+  order?: "asc" | "desc";
+}
+
+export function listTenants(query: TenantQuery = {}): Promise<{
   items: Tenant[];
   total: number;
 }> {
-  const q = search ? `?search=${encodeURIComponent(search)}` : "";
-  return apiFetch(`/institutes${q}`, { token: token() });
+  const q = new URLSearchParams();
+  if (query.search) q.set("search", query.search);
+  if (query.status) q.set("status", query.status);
+  if (query.sort) q.set("sort", query.sort);
+  if (query.order) q.set("order", query.order);
+  const qs = q.size ? `?${q}` : "";
+  return apiFetch(`/institutes${qs}`, { token: token() });
+}
+
+/** What one tenant consumes — storage included, which the list cannot show. */
+export interface InstituteUsage {
+  institute: {
+    id: string;
+    name: string;
+    slug: string;
+    code: string;
+    isActive: boolean;
+    createdAt: string;
+  };
+  windowDays: number;
+  students: {
+    total: number;
+    active: number;
+    pending: number;
+    disabled: number;
+  };
+  staff: { total: number; admins: number; teachers: number };
+  content: { exams: number; examsInWindow: number; questions: number };
+  activity: {
+    attempts: number;
+    attemptsInWindow: number;
+    liveAttempts: number;
+    lastAttemptAt: string | null;
+  };
+  storage: { mediaCount: number; mediaBytes: number };
+}
+
+export function fetchInstituteUsage(id: string): Promise<InstituteUsage> {
+  return apiFetch(`/institutes/${id}/usage`, { token: token() });
 }
 
 export function getTenant(id: string): Promise<TenantDetail> {
@@ -121,12 +167,14 @@ export interface PlatformOverview {
     activeInstitutes: number;
     suspendedInstitutes: number;
     students: number;
+    activeStudents: number;
+    pendingStudents: number;
+    disabledStudents: number;
     staff: number;
     exams: number;
-    questions: number;
     attempts: number;
   };
-  last30Days: { attempts: number; newInstitutes: number };
+  last30Days: { attempts: number; newInstitutes: number; exams: number };
   liveExams: number;
   busiestInstitutes: {
     id: string;
@@ -171,4 +219,71 @@ export function formatMetric(value: number, unit: UsageMetric["unit"]): string {
   if (unit === "percent") return `${value.toFixed(1)}%`;
   if (unit === "ms") return `${Math.round(value)} ms`;
   return value.toLocaleString();
+}
+
+/* ------------------------------------------------------------------ *
+ * SYSTEM HEALTH — the machine and this process                        *
+ * ------------------------------------------------------------------ */
+
+export interface ApiMetrics {
+  windowMinutes: number;
+  truncated: boolean;
+  since: string | null;
+  requests: number;
+  requestsPerMinute: number;
+  errors: { total: number; client: number; server: number; rate: number };
+  responseTime: { p50: number; p95: number; p99: number; max: number } | null;
+  byStatusFamily: Record<string, number>;
+  processUptimeSeconds: number;
+}
+
+export interface SystemHealth {
+  host: {
+    platform: string;
+    release: string;
+    hostname: string;
+    uptimeSeconds: number;
+    cpu: {
+      cores: number;
+      model: string | null;
+      utilisationPercent: number;
+      loadAverage: [number, number, number] | null;
+    };
+    memory: {
+      totalBytes: number;
+      freeBytes: number;
+      usedBytes: number;
+      usedPercent: number;
+    };
+    disk: {
+      path: string;
+      totalBytes: number;
+      freeBytes: number;
+      usedBytes: number;
+      usedPercent: number;
+    } | null;
+  };
+  process: {
+    pid: number;
+    nodeVersion: string;
+    uptimeSeconds: number;
+    memory: { rssBytes: number; heapUsedBytes: number; heapTotalBytes: number };
+  };
+  api: ApiMetrics;
+}
+
+/** GET /platform/system — SUPERADMIN. */
+export function fetchSystemHealth(): Promise<SystemHealth> {
+  return apiFetch(`/platform/system`, { token: token() });
+}
+
+/** Seconds as "3d 4h" / "2h 15m" / "45s" — uptime is read at a glance. */
+export function formatDuration(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${Math.round(seconds)}s`;
 }

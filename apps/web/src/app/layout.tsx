@@ -51,7 +51,7 @@ const hankenGrotesk = Hanken_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "DRSK Assessment Portal",
+  title: "Codonmind Nexus",
   description: "NTA-style computer-based test platform",
 };
 

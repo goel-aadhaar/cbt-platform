@@ -39,5 +39,5 @@ export const authConfig = registerAs('auth', (): AuthConfig => ({
   otpMaxPerWindow: Number(process.env.OTP_MAX_PER_WINDOW ?? 30),
   otpWindowMinutes: Number(process.env.OTP_WINDOW_MINUTES ?? 15),
   sesFromEmail: process.env.AWS_SES_FROM_EMAIL || undefined,
-  sesFromName: process.env.AWS_SES_FROM_NAME ?? 'DRSK CBT',
+  sesFromName: process.env.AWS_SES_FROM_NAME ?? 'Codonmind Nexus',
 }));

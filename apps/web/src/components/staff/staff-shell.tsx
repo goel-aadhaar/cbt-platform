@@ -9,7 +9,6 @@ import {
   BellIcon,
   HelpCircleIcon,
   LogOutIcon,
-  SearchIcon,
   ShieldCheckIcon,
 } from "@/components/admin/icons";
 import { useAuthUser } from "@/hooks/use-auth";
@@ -32,7 +31,6 @@ export function StaffShell({
   title,
   nav,
   workspace,
-  searchPlaceholder = "Search…",
   profileHref,
   children,
 }: {
@@ -40,7 +38,6 @@ export function StaffShell({
   nav: StaffNavItem[];
   /** Sub-heading under the user's name, e.g. "Institute workspace". */
   workspace: string;
-  searchPlaceholder?: string;
   /** Where this console's profile lives. */
   profileHref: string;
   children: React.ReactNode;
@@ -49,11 +46,7 @@ export function StaffShell({
     <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
       <StaffSidebar nav={nav} workspace={workspace} profileHref={profileHref} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <StaffTopbar
-          title={title}
-          searchPlaceholder={searchPlaceholder}
-          profileHref={profileHref}
-        />
+        <StaffTopbar title={title} profileHref={profileHref} />
         <main className="flex-1 overflow-auto px-8 py-6">{children}</main>
       </div>
     </div>
@@ -84,18 +77,18 @@ function StaffSidebar({
     <aside className="flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5">
       <div className="flex items-center gap-3 px-2">
         <Image
-          src="/brand/drsk-logo.png"
-          alt="DR. SK'S Biology"
+          src="/brand/codonmind-mark.png"
+          alt=""
           width={40}
           height={40}
           className="size-10 object-contain"
         />
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-admin-ink">
-            DR. SK&apos;S
+            CODON MIND
           </p>
           <p className="text-[11px] font-semibold tracking-[0.2em] text-admin-muted">
-            BIOLOGY
+            NEXUS
           </p>
         </div>
       </div>
@@ -165,11 +158,9 @@ function StaffSidebar({
 
 function StaffTopbar({
   title,
-  searchPlaceholder,
   profileHref,
 }: {
   title: string;
-  searchPlaceholder: string;
   profileHref: string;
 }) {
   const user = useAuthUser();
@@ -177,15 +168,6 @@ function StaffTopbar({
   return (
     <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
       <h1 className="text-xl font-bold text-admin-ink">{title}</h1>
-
-      <div className="relative mx-2 hidden max-w-md flex-1 items-center md:flex">
-        <SearchIcon className="pointer-events-none absolute left-4 size-4 text-admin-subtle" />
-        <input
-          type="search"
-          placeholder={searchPlaceholder}
-          className="h-11 w-full rounded-full border border-admin-line bg-white pl-11 pr-4 text-sm text-admin-ink outline-none placeholder:text-admin-subtle focus:border-admin"
-        />
-      </div>
 
       <div className="ml-auto flex items-center gap-3">
         <div className="flex items-center gap-1 text-admin-muted">

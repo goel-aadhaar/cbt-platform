@@ -40,7 +40,7 @@ export function StudentShell({
               href="/student"
               className="font-semibold text-admin-muted hover:text-admin hover:underline"
             >
-              DRSK Student Portal
+              Codonmind Nexus
             </Link>
             {breadcrumb.map((crumb, i) => {
               const label = crumbLabel(crumb);

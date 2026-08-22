@@ -85,9 +85,21 @@ export class InstitutesService {
    * The counts come from a single grouped pass per entity rather than a query
    * per institute, so the list does not degrade as tenants are added.
    */
-  async findAll(params: { search?: string; includeInactive?: boolean } = {}) {
+  async findAll(
+    params: {
+      search?: string;
+      includeInactive?: boolean;
+      /** Narrower than includeInactive, which is only a toggle. */
+      status?: 'active' | 'suspended';
+      sort?: 'created' | 'name' | 'students' | 'exams' | 'attempts';
+      order?: 'asc' | 'desc';
+    } = {},
+  ) {
     const where = {
       ...(params.includeInactive === false ? { isActive: true } : {}),
+      // An explicit status wins over the includeInactive toggle: asking for
+      // suspended tenants must not be silently widened back to "all".
+      ...(params.status ? { isActive: params.status === 'active' } : {}),
       ...(params.search
         ? {
             OR: [
@@ -109,14 +121,40 @@ export class InstitutesService {
     });
 
     const stats = await this.statsByInstitute();
+    const items = institutes.map((i) => ({
+      ...i,
+      stats: stats.get(i.id) ?? emptyStats(),
+    }));
 
-    return {
-      items: institutes.map((i) => ({
-        ...i,
-        stats: stats.get(i.id) ?? emptyStats(),
-      })),
-      total: institutes.length,
-    };
+    /**
+     * Sorted here rather than in the query because four of the five sort keys
+     * are counts from other tables, aggregated after the fact — Prisma cannot
+     * order by them in one statement. The list is one row per tenant, so this
+     * is a handful of rows however large the platform gets.
+     */
+    const key = params.sort ?? 'created';
+    const dir = params.order === 'asc' ? 1 : -1;
+    items.sort((a, b) => {
+      switch (key) {
+        case 'name':
+          // Locale compare so "Ä" sorts next to "A" rather than after "Z".
+          return a.name.localeCompare(b.name) * dir;
+        case 'students':
+          return (a.stats.students - b.stats.students) * dir;
+        case 'exams':
+          return (a.stats.exams - b.stats.exams) * dir;
+        case 'attempts':
+          return (a.stats.attempts - b.stats.attempts) * dir;
+        default:
+          return (
+            (new Date(a.createdAt).getTime() -
+              new Date(b.createdAt).getTime()) *
+            dir
+          );
+      }
+    });
+
+    return { items, total: items.length };
   }
 
   async findOne(id: string) {

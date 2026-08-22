@@ -74,18 +74,18 @@ export function AdminSidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-2">
         <Image
-          src="/brand/drsk-logo.png"
-          alt="DR. SK'S Biology"
+          src="/brand/codonmind-mark.png"
+          alt=""
           width={40}
           height={40}
           className="size-10 object-contain"
         />
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-admin-ink">
-            DR. SK&apos;S
+            CODON MIND
           </p>
           <p className="text-[11px] font-semibold tracking-[0.2em] text-admin-muted">
-            BIOLOGY
+            ADMIN CONSOLE
           </p>
         </div>
       </div>
@@ -148,7 +148,7 @@ export function AdminSidebar() {
           There&apos;s no admin docs site yet — this opens an email to support.
         </p>
         <a
-          href="mailto:support@drsk.in"
+          href="mailto:hello@codonmind.in"
           className="mt-3 block w-full rounded-lg border border-admin-line bg-white py-2 text-center text-xs font-semibold text-admin-ink hover:bg-admin-bg"
         >
           Email support

@@ -43,7 +43,6 @@ export function SuperadminShell({
       nav={NAV}
       profileHref="/superadmin/profile"
       workspace="Platform owner"
-      searchPlaceholder="Search institutes…"
     >
       {children}
     </StaffShell>

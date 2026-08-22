@@ -5,19 +5,23 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
-import { consoleSearch, type SearchHit } from "@/lib/search";
 
-import { HelpCircleIcon, SearchIcon } from "./icons";
+import { HelpCircleIcon } from "./icons";
 
 /**
- * Admin top bar.
+ * Admin top bar: page title, support, profile menu.
  *
- * Previously this rendered four controls that did nothing — a search input with
- * no handler, a "Verified" shield, a bell whose unread badge was the literal
- * "3", and a profile button hardcoded to "Admin / OWNER" (a role this system
- * does not have). The shield and bell are gone: neither has a backing feature,
- * and a control that cannot act is worse than no control. Search, help and the
- * profile menu are now real.
+ * It used to carry four controls that did nothing — a search input with no
+ * handler, a "Verified" shield, a bell whose unread badge was the literal "3",
+ * and a profile button hardcoded to a role this system does not have. Those
+ * were removed or wired up as they were found.
+ *
+ * The global search went too, at the platform owner's request. It worked, but
+ * it duplicated the search each console screen already has over its own data —
+ * students, questions and exams all filter in place — and a second box that
+ * searches everything from the chrome is a different, vaguer promise sitting
+ * above the one people actually use. `consoleSearch()` and `GET /search` are
+ * untouched, so bringing it back is a matter of rendering it again.
  */
 export function AdminTopbar({ title }: { title: string }) {
   const router = useRouter();
@@ -27,56 +31,13 @@ export function AdminTopbar({ title }: { title: string }) {
     () => null,
   );
 
-  const [term, setTerm] = useState("");
-  /**
-   * Results are stored WITH the term they belong to, so "still searching" and
-   * "these hits are stale" are both derived rather than tracked as separate
-   * state — which keeps the effect below free of synchronous setState.
-   */
-  const [results, setResults] = useState<{ term: string; hits: SearchHit[] }>({
-    term: "",
-    hits: [],
-  });
-  const [openResults, setOpenResults] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const q = term.trim();
-  const active = q.length >= 2;
-  const hits = results.term === q ? results.hits : [];
-  const searching = active && results.term !== q;
-
-  // Debounced: the box would query the server on every keystroke otherwise.
-  useEffect(() => {
-    const query = term.trim();
-    if (query.length < 2) return;
-    let cancelled = false;
-    const t = setTimeout(() => {
-      consoleSearch(query)
-        .then((r) => {
-          if (!cancelled) setResults({ term: query, hits: r.hits });
-        })
-        .catch(() => {
-          // A failed lookup shows "no matches" rather than an error banner —
-          // search is an accelerator, not a workflow that can block the admin.
-          if (!cancelled) setResults({ term: query, hits: [] });
-        });
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [term]);
-
-  // Close either popover on an outside click.
+  // Close the profile menu on an outside click.
   useEffect(() => {
     function onDown(e: MouseEvent) {
-      const t = e.target as Node;
-      if (searchRef.current && !searchRef.current.contains(t)) {
-        setOpenResults(false);
-      }
-      if (menuRef.current && !menuRef.current.contains(t)) setMenuOpen(false);
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -95,71 +56,6 @@ export function AdminTopbar({ title }: { title: string }) {
     <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
       <h1 className="text-xl font-bold text-admin-ink">{title}</h1>
 
-      {/* Search */}
-      <div
-        ref={searchRef}
-        className="relative mx-2 hidden max-w-md flex-1 items-center md:flex"
-      >
-        <SearchIcon className="pointer-events-none absolute left-4 size-4 text-admin-subtle" />
-        <input
-          type="search"
-          value={term}
-          onChange={(e) => {
-            setTerm(e.target.value);
-            setOpenResults(true);
-          }}
-          onFocus={() => setOpenResults(true)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setOpenResults(false);
-            // Enter opens the first hit — the common case after typing a name.
-            if (e.key === "Enter" && hits[0]) {
-              setOpenResults(false);
-              router.push(hits[0].href);
-            }
-          }}
-          placeholder="Search students, exams, questions…"
-          aria-label="Search students, exams and questions"
-          className="h-11 w-full rounded-full border border-admin-line bg-white pl-11 pr-4 text-sm text-admin-ink outline-none placeholder:text-admin-subtle focus:border-admin"
-        />
-
-        {openResults && active && (
-          <div className="absolute left-0 top-12 z-50 w-full overflow-hidden rounded-xl border border-admin-line bg-white shadow-lg">
-            {searching && (
-              <p className="px-4 py-3 text-sm text-admin-muted">Searching…</p>
-            )}
-            {!searching && hits.length === 0 && (
-              <p className="px-4 py-3 text-sm text-admin-muted">
-                No students, exams or questions match “{q}”.
-              </p>
-            )}
-            {!searching &&
-              hits.map((h) => (
-                <button
-                  key={`${h.type}-${h.id}`}
-                  type="button"
-                  onClick={() => {
-                    setOpenResults(false);
-                    router.push(h.href);
-                  }}
-                  className="flex w-full items-center gap-3 border-b border-admin-line/40 px-4 py-2.5 text-left last:border-b-0 hover:bg-admin-bg"
-                >
-                  <span className="w-16 shrink-0 rounded bg-admin-surface px-1.5 py-0.5 text-center text-[10px] font-bold uppercase tracking-wide text-admin-muted">
-                    {h.type}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-admin-ink">
-                      {h.title}
-                    </span>
-                    <span className="block truncate text-xs text-admin-subtle">
-                      {h.subtitle}
-                    </span>
-                  </span>
-                </button>
-              ))}
-          </div>
-        )}
-      </div>
-
       <div className="ml-auto flex items-center gap-3">
         {/*
          * The "Verified" shield and the notifications bell used to live here.
@@ -168,9 +64,9 @@ export function AdminTopbar({ title }: { title: string }) {
          * in the approved scope, so both were removed rather than faked.
          */}
         <a
-          href="mailto:support@drsk.in?subject=DRSK%20admin%20console%20support"
+          href="mailto:hello@codonmind.in?subject=Codonmind%20Nexus%20admin%20console%20support"
           aria-label="Contact support"
-          title="Email DRSK support"
+          title="Email Codonmind Nexus support"
           className="flex size-9 items-center justify-center rounded-full text-admin-muted hover:bg-white"
         >
           <HelpCircleIcon className="size-5" />

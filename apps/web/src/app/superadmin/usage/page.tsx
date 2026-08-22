@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { LineChart, Panel, StatusPill } from "@/components/staff/charts";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
+import { SystemHealthPanel } from "@/components/superadmin/system-health-panel";
 import { fetchUsage, formatMetric, type UsageSnapshot } from "@/lib/platform";
 
 const WINDOWS = [7, 30, 90];
@@ -34,6 +35,18 @@ export default function UsagePage() {
 
   return (
     <SuperadminShell title="Usage">
+      {/* Live vitals first: "is it healthy right now" is the question this page
+          gets opened for, and the 7/30/90-day usage below answers a slower one. */}
+      <section className="mb-8">
+        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-admin-muted">
+          System monitoring
+        </h2>
+        <SystemHealthPanel />
+      </section>
+
+      <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-admin-muted">
+        Platform usage
+      </h2>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2">
           {WINDOWS.map((d) => (

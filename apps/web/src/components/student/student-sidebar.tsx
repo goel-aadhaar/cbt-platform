@@ -76,8 +76,8 @@ export function StudentSidebar() {
       <div className="flex items-center gap-3 px-2">
         <span className="flex size-10 items-center justify-center rounded-lg bg-white/95">
           <Image
-            src="/brand/drsk-logo.png"
-            alt="DRSK"
+            src="/brand/codonmind-mark.png"
+            alt=""
             width={30}
             height={30}
             className="size-[30px] object-contain"
@@ -85,7 +85,7 @@ export function StudentSidebar() {
         </span>
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-white">
-            DRSK
+            CODON MIND
           </p>
           <p className="text-[11px] font-semibold tracking-[0.18em] text-white/70">
             STUDENT PORTAL
@@ -129,7 +129,7 @@ export function StudentSidebar() {
               {displayName}
             </span>
             <span className="block truncate text-xs text-white/70">
-              {user?.email ?? "candidate@drsk.local"}
+              {user?.email ?? "candidate@codonmind.in"}
             </span>
           </span>
         </Link>
