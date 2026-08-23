@@ -483,6 +483,40 @@ function ExamRow({
               Reschedule
             </button>
           )}
+
+          {/*
+            Every remaining status gets an action too.
+            Actions only covered REVIEW, APPROVED and SCHEDULED, so a list of
+            drafts and completed papers — the ordinary case — showed a column
+            headed "Actions" with nothing in it, which reads as broken rather
+            than as "nothing to do here". The exam title has always opened the
+            review drawer, but nobody looks for a control in a heading.
+          */}
+          {s === "LIVE" && (
+            <Link
+              href="/admin/monitoring"
+              className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+            >
+              Monitor
+            </Link>
+          )}
+          {(s === "COMPLETED" || s === "PUBLISHED") && (
+            <Link
+              href={`/admin/results?exam=${e.id}`}
+              className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+            >
+              Results
+            </Link>
+          )}
+          {(s === "DRAFT" || s === "REJECTED" || s === "ARCHIVED") && (
+            <button
+              type="button"
+              onClick={onOpen}
+              className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
+            >
+              Review
+            </button>
+          )}
         </div>
       </td>
     </tr>

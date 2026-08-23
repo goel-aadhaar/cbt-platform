@@ -1,7 +1,8 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import type { ComponentType, SVGProps } from "react";
-import { useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ActionButton } from "@/components/action-button";
@@ -99,6 +100,21 @@ function toRow(e: ExamListItem, results: ExamResultRow[]): RRow {
 }
 
 export default function ResultsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResultsScreen />
+    </Suspense>
+  );
+}
+
+function ResultsScreen() {
+  const params = useSearchParams();
+  /**
+   * `?exam=` opens straight onto one paper. The Results action on the exams
+   * list hands off this way: someone who clicked "Results" on a specific exam
+   * means that exam, not the top of the list.
+   */
+  const requestedExam = params.get("exam");
   const [tab, setTab] = useState(0);
   const [detailOpen, setDetailOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
@@ -122,6 +138,18 @@ export default function ResultsPage() {
     () => rows.find((r) => r.examId === selectedId) ?? null,
     [rows, selectedId],
   );
+
+  // Open the deep-linked paper once the rows are in. Ignored if it names an
+  // exam this admin cannot see, which then behaves like a plain visit.
+  useEffect(() => {
+    if (!requestedExam || selectedId || rows.length === 0) return;
+    if (!rows.some((r) => r.examId === requestedExam)) return;
+    const id = setTimeout(() => {
+      setSelectedId(requestedExam);
+      setDetailOpen(true);
+    }, 0);
+    return () => clearTimeout(id);
+  }, [requestedExam, selectedId, rows]);
 
   const visible = useMemo(() => {
     const want = TABS[tab];
