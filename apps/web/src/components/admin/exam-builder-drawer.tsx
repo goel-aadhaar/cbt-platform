@@ -138,6 +138,16 @@ export function ExamBuilderDrawer({
   editing?: ExamDetail | null;
 }) {
   const [step, setStep] = useState(0);
+  /**
+   * The furthest step reached, so the stepper can jump back to anything already
+   * visited. Editing an existing paper starts fully unlocked: every step is
+   * backed by saved data, so making someone walk forward through all five to
+   * change one question was busywork — and with a required field unset on step
+   * one, it was a dead end rather than merely tedious.
+   */
+  const [maxReached, setMaxReached] = useState(() =>
+    editing ? ADMIN_STEPS.length - 1 : 0,
+  );
 
   // Step 1
   const [title, setTitle] = useState(editing?.title ?? "");
@@ -412,22 +422,48 @@ export function ExamBuilderDrawer({
     );
   }
 
-  const canAdvance = (() => {
-    // A category is required: it is what names the paper on approval, so a
-    // paper without one would reach candidates under its working title.
-    if (step === 0)
-      return (
-        title.trim().length >= 2 && durationMinutes > 0 && categoryId !== ""
-      );
-    if (step === 1)
-      return sections.length > 0 && sections.every((s) => s.name.trim());
-    if (step === 2) return totalQuestions > 0;
-    if (step === 3)
-      return isTeacher
-        ? reviewerId !== ""
-        : batchIds.length > 0 && Boolean(startAt) && Boolean(endAt);
-    return true;
+  /**
+   * Why Next is unavailable, in the words of the thing that is missing.
+   *
+   * A greyed button with no explanation is indistinguishable from a broken one
+   * — the report that prompted this was "I can't navigate between sections",
+   * which was really "nothing tells me the category is required".
+   */
+  const blockedReason = (() => {
+    if (step === 0) {
+      if (title.trim().length < 2) return "Give the paper a working title.";
+      if (!(durationMinutes > 0)) return "Set a duration in minutes.";
+      // A category is what names the paper on approval, so a paper without one
+      // would reach candidates under its working title.
+      if (categoryId === "") return "Choose an exam category.";
+      return null;
+    }
+    if (step === 1) {
+      if (sections.length === 0) return "Add at least one section.";
+      if (!sections.every((x) => x.name.trim()))
+        return "Every section needs a name.";
+      return null;
+    }
+    if (step === 2)
+      return totalQuestions > 0 ? null : "Add at least one question.";
+    if (step === 3) {
+      if (isTeacher)
+        return reviewerId !== "" ? null : "Choose who should approve this.";
+      if (batchIds.length === 0) return "Pick at least one batch.";
+      if (!startAt || !endAt) return "Set the exam window.";
+      return null;
+    }
+    return null;
   })();
+  const canAdvance = blockedReason === null;
+
+  /**
+   * Only a paper that is still the author's to send. Anything already with a
+   * reviewer, approved, or live belongs to someone else now, and offering a
+   * button that the API would reject is worse than offering none.
+   */
+  const canSubmitForApproval =
+    editing?.status === "DRAFT" || editing?.status === "REJECTED";
 
   const STEPS = isTeacher ? TEACHER_STEPS : ADMIN_STEPS;
 
@@ -545,7 +581,16 @@ export function ExamBuilderDrawer({
     }
   }
 
-  async function submit() {
+  /**
+   * @param andSubmit send the paper for approval after saving.
+   *
+   * Saving and submitting stay separate on purpose — a teacher part-way through
+   * fixing a sent-back paper must be able to save without bouncing it back to
+   * the reviewer. But "save only" was the ONLY option when editing, which left
+   * a fresh draft with nowhere to go: it could be edited forever and never
+   * sent. This is the second, deliberate action.
+   */
+  async function submit(andSubmit = false) {
     setSubmitting(true);
     setError(null);
     // The API has no bulk-create endpoint, so this is many sequential calls
@@ -556,6 +601,10 @@ export function ExamBuilderDrawer({
     try {
       if (editing) {
         await saveEdit(editing.id);
+        if (andSubmit) {
+          setProgress("Sending for approval…");
+          await submitExamForReview(editing.id, reviewerId);
+        }
         onCreated?.(editing.id, title.trim());
         setSubmitting(false);
         setProgress(null);
@@ -676,26 +725,46 @@ export function ExamBuilderDrawer({
           {STEPS.map((label, i) => {
             const active = i === step;
             const done = i < step;
+            // Anything already reached can be jumped to. Steps ahead stay
+            // locked, so the forward guards still hold.
+            const reachable = i <= maxReached;
             return (
               <li key={label} className="flex items-center gap-2">
-                <span
-                  className={`flex size-6 items-center justify-center rounded-full text-[11px] font-bold ${
-                    done
-                      ? "bg-admin text-white"
-                      : active
-                        ? "bg-admin/15 text-admin"
-                        : "bg-admin-bg text-admin-muted"
+                <button
+                  type="button"
+                  onClick={() => reachable && setStep(i)}
+                  disabled={!reachable}
+                  aria-current={active ? "step" : undefined}
+                  title={
+                    reachable
+                      ? `Go to ${label}`
+                      : "Finish the current step first"
+                  }
+                  className={`flex items-center gap-2 rounded-lg px-1 py-0.5 ${
+                    reachable
+                      ? "cursor-pointer hover:bg-admin-bg"
+                      : "cursor-not-allowed"
                   }`}
                 >
-                  {done ? <CheckIcon className="size-3" /> : i + 1}
-                </span>
-                <span
-                  className={`text-xs font-semibold ${
-                    active ? "text-admin-ink" : "text-admin-muted"
-                  }`}
-                >
-                  {label}
-                </span>
+                  <span
+                    className={`flex size-6 items-center justify-center rounded-full text-[11px] font-bold ${
+                      done
+                        ? "bg-admin text-white"
+                        : active
+                          ? "bg-admin/15 text-admin"
+                          : "bg-admin-bg text-admin-muted"
+                    }`}
+                  >
+                    {done ? <CheckIcon className="size-3" /> : i + 1}
+                  </span>
+                  <span
+                    className={`text-xs font-semibold ${
+                      active ? "text-admin-ink" : "text-admin-muted"
+                    }`}
+                  >
+                    {label}
+                  </span>
+                </button>
                 {i < STEPS.length - 1 && (
                   <span className="mx-1 h-px w-4 bg-admin-line" />
                 )}
@@ -1241,36 +1310,70 @@ export function ExamBuilderDrawer({
             {step === 0 ? "Cancel" : "Back"}
           </button>
           {step < STEPS.length - 1 ? (
-            <button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={!canAdvance}
-              className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-40"
-            >
-              Next
-            </button>
+            <span className="flex items-center gap-3">
+              {blockedReason && (
+                <span className="text-xs font-semibold text-admin-muted">
+                  {blockedReason}
+                </span>
+              )}
+              <button
+                onClick={() =>
+                  setStep((prev) => {
+                    const next = prev + 1;
+                    setMaxReached((m) => Math.max(m, next));
+                    return next;
+                  })
+                }
+                disabled={!canAdvance}
+                title={blockedReason ?? undefined}
+                className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </span>
           ) : (
-            <button
-              onClick={submit}
-              disabled={submitting || preflight.errors.length > 0}
-              title={
-                preflight.errors.length > 0
-                  ? "Fix the pre-flight errors above before continuing"
-                  : undefined
-              }
-              className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            >
-              {submitting
-                ? (progress ?? "Working…")
-                : editing
-                  ? // Editing never re-submits on its own: a teacher fixing a
-                    // sent-back paper saves first and resubmits deliberately
-                    // from the list, so a stray save cannot bounce an
-                    // unfinished exam back to the reviewer.
-                    "Save changes"
-                  : isTeacher
-                    ? "Create & Submit for Approval"
-                    : "Create Exam"}
-            </button>
+            <span className="flex items-center gap-3">
+              {editing && isTeacher && canSubmitForApproval && (
+                <button
+                  onClick={() => void submit(true)}
+                  disabled={
+                    submitting ||
+                    preflight.errors.length > 0 ||
+                    reviewerId === ""
+                  }
+                  title={
+                    reviewerId === ""
+                      ? "Choose a reviewer on the Approval step first"
+                      : "Save the changes and send this paper to the reviewer"
+                  }
+                  className="rounded-lg border border-admin bg-white px-5 py-2.5 text-sm font-semibold text-admin hover:bg-admin/5 disabled:opacity-50"
+                >
+                  {submitting ? "Working…" : "Save & send for approval"}
+                </button>
+              )}
+              <button
+                onClick={() => void submit(false)}
+                disabled={submitting || preflight.errors.length > 0}
+                title={
+                  preflight.errors.length > 0
+                    ? "Fix the pre-flight errors above before continuing"
+                    : undefined
+                }
+                className="rounded-lg bg-admin px-6 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {submitting
+                  ? (progress ?? "Working…")
+                  : editing
+                    ? // Editing never re-submits on its own: a teacher fixing a
+                      // sent-back paper saves first and resubmits deliberately
+                      // from the list, so a stray save cannot bounce an
+                      // unfinished exam back to the reviewer.
+                      "Save changes"
+                    : isTeacher
+                      ? "Create & Submit for Approval"
+                      : "Create Exam"}
+              </button>
+            </span>
           )}
         </footer>
       </div>

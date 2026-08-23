@@ -93,8 +93,8 @@ function ExamsScreen() {
   async function resubmit(e: ExamListItem) {
     if (!e.reviewer?.id) {
       setError(
-        "This exam has no reviewer assigned. Open it with Edit and submit it " +
-          "from the wizard, which asks who should review it.",
+        "This paper has no reviewer yet. Open it with Edit, choose one on the " +
+          "Approval step, then use Save & send for approval.",
       );
       return;
     }
@@ -262,16 +262,30 @@ function ExamsScreen() {
                           {loadingEdit === e.id ? "Opening…" : "Edit"}
                         </button>
                       )}
-                      {e.status === "REJECTED" && (
+                      {/*
+                        Offered for DRAFT as well as REJECTED. A fresh draft —
+                        a duplicate, or one saved part-way — previously had no
+                        way to be sent at all: the list offered only Duplicate
+                        and Edit, and Edit ended at "Save changes". It could be
+                        worked on forever and never submitted.
+                      */}
+                      {(e.status === "DRAFT" || e.status === "REJECTED") && (
                         <button
                           type="button"
                           onClick={() => void resubmit(e)}
                           disabled={resubmitting === e.id}
+                          title={
+                            e.reviewer
+                              ? `Send to ${e.reviewer.name} for approval`
+                              : "Open with Edit to choose a reviewer first"
+                          }
                           className="flex items-center gap-1.5 rounded-lg bg-admin px-2.5 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
                         >
                           {resubmitting === e.id
                             ? "Sending…"
-                            : "Resubmit for approval"}
+                            : e.status === "DRAFT"
+                              ? "Send for approval"
+                              : "Resubmit for approval"}
                         </button>
                       )}
                     </div>
