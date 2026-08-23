@@ -491,22 +491,6 @@ export function createExam(
   return apiFetch(`/exams`, { method: "POST", body, ...auth() });
 }
 
-/**
- * POST /exams/:id/clone — TEACHER only (authoring is the teacher's job, same
- * as create). Copies config, sections and question layout into a fresh
- * DRAFT; batches, schedule and publish state are not carried over.
- */
-export function cloneExam(
-  examId: string,
-  title?: string,
-): Promise<{ id: string; title: string; status: string }> {
-  return apiFetch(`/exams/${examId}/clone`, {
-    method: "POST",
-    body: title ? { title } : {},
-    ...auth(),
-  });
-}
-
 /** POST /exams/:id/sections */
 export function addSection(
   examId: string,

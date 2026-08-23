@@ -180,27 +180,6 @@ describe('Exam lifecycle and results engine', () => {
       );
       expect(res.status).toBe(400);
     });
-
-    it('clones an exam into a fresh draft without batches or schedule (§2.3)', async () => {
-      const res = await api<{
-        title: string;
-        status: string;
-        startAt: string | null;
-        _count: { sections: number; questions: number; batches: number };
-      }>(`/exams/${examId}/clone`, {
-        method: 'POST',
-        token: tenant.teacherToken,
-        body: { title: 'Cloned Mock' },
-      });
-
-      expect(res.status).toBe(201);
-      expect(res.body.title).toBe('Cloned Mock');
-      expect(res.body.status).toBe('DRAFT');
-      expect(res.body._count.sections).toBe(1);
-      expect(res.body._count.questions).toBe(2);
-      expect(res.body._count.batches).toBe(0);
-      expect(res.body.startAt).toBeNull();
-    });
   });
 
   describe('sitting the exam (§2.2)', () => {

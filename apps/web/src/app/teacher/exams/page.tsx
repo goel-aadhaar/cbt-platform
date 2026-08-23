@@ -3,16 +3,11 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-import { CopyStackIcon, PlusIcon } from "@/components/admin/icons";
+import { PlusIcon } from "@/components/admin/icons";
 import { ExamBuilderDrawer } from "@/components/admin/exam-builder-drawer";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
-import {
-  cloneExam,
-  fetchExam,
-  submitExamForReview,
-  type ExamDetail,
-} from "@/lib/admin";
+import { fetchExam, submitExamForReview, type ExamDetail } from "@/lib/admin";
 import { getUserSnapshot } from "@/lib/auth";
 import {
   examDisplayStatus,
@@ -37,7 +32,6 @@ function ExamsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [building, setBuilding] = useState(params.get("new") === "1");
   const [scope, setScope] = useState<"mine" | "all">("mine");
-  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [editingExam, setEditingExam] = useState<ExamDetail | null>(null);
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
   const [resubmitting, setResubmitting] = useState<string | null>(null);
@@ -110,22 +104,6 @@ function ExamsScreen() {
       );
     } finally {
       setResubmitting(null);
-    }
-  }
-
-  async function duplicate(e: ExamListItem) {
-    setDuplicatingId(e.id);
-    setError(null);
-    try {
-      const created = await cloneExam(e.id);
-      setNotice(`"${created.title}" created as a new draft.`);
-      await load();
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Could not duplicate the exam.",
-      );
-    } finally {
-      setDuplicatingId(null);
     }
   }
 
@@ -236,16 +214,6 @@ function ExamsScreen() {
                       >
                         {status === "REVIEW" ? "Awaiting approval" : status}
                       </StatusPill>
-                      <button
-                        type="button"
-                        onClick={() => void duplicate(e)}
-                        disabled={duplicatingId === e.id}
-                        title="Duplicate this exam as a new draft"
-                        className="flex items-center gap-1.5 rounded-lg border border-admin-line px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg disabled:opacity-50"
-                      >
-                        <CopyStackIcon className="size-3.5" />
-                        {duplicatingId === e.id ? "Duplicating…" : "Duplicate"}
-                      </button>
                       {/*
                         Editing is what makes a rejection actionable. Offered
                         only where the API will accept it — anything past
@@ -264,10 +232,9 @@ function ExamsScreen() {
                       )}
                       {/*
                         Offered for DRAFT as well as REJECTED. A fresh draft —
-                        a duplicate, or one saved part-way — previously had no
-                        way to be sent at all: the list offered only Duplicate
-                        and Edit, and Edit ended at "Save changes". It could be
-                        worked on forever and never submitted.
+                        one saved part-way — previously had no way to be
+                        sent at all: Edit ended at "Save changes", so it could
+                        be worked on forever and never submitted.
                       */}
                       {(e.status === "DRAFT" || e.status === "REJECTED") && (
                         <button

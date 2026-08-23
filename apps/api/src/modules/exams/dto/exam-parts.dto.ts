@@ -63,14 +63,6 @@ export class ScheduleExamDto {
   endAt: string;
 }
 
-export class CloneExamDto {
-  /** Title for the clone; defaults to "<source title> (Copy)". */
-  @IsOptional()
-  @IsString()
-  @MinLength(2)
-  title?: string;
-}
-
 /** Hand a finished draft to a named admin for approval (§2.3). */
 export class SubmitExamDto {
   /** Admin of this institute who should review the paper. */

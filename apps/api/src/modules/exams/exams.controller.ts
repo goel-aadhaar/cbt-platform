@@ -18,7 +18,6 @@ import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
   AssignBatchDto,
-  CloneExamDto,
   CreateSectionDto,
   RejectExamDto,
   ReorderQuestionsDto,
@@ -62,14 +61,6 @@ export class ExamsController {
   @Patch(':id')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateExamDto) {
     return this.exams.update(id, dto);
-  }
-
-  /** Clone an exam into a fresh draft (§2.3). */
-  // Cloning creates a paper, so it follows the same rule as creation.
-  @Post(':id/clone')
-  @Roles(Role.TEACHER)
-  clone(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CloneExamDto) {
-    return this.exams.clone(id, dto.title);
   }
 
   @Post(':id/sections')
