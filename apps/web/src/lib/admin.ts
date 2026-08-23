@@ -520,6 +520,71 @@ export function addSection(
 }
 
 /** POST /exams/:id/sections/:sectionId/questions — APPROVED questions only. */
+/**
+ * Amend an exam's own fields (PATCH /exams/:id).
+ *
+ * The endpoint has existed since exams did; nothing in the app called it, which
+ * is why a paper could be authored and then never corrected.
+ */
+export function updateExam(
+  examId: string,
+  body: {
+    title?: string;
+    durationMinutes?: number;
+    passingMarks?: number | null;
+    instructions?: string;
+    programId?: string | null;
+    categoryId?: string | null;
+    maxViolations?: number;
+    calculatorEnabled?: boolean;
+    fullscreenRequired?: boolean;
+  },
+): Promise<ExamDetail> {
+  return apiFetch(`/exams/${examId}`, { method: "PATCH", body, ...auth() });
+}
+
+/**
+ * Amend a section — rename it, or correct its marking scheme.
+ *
+ * Marks live on the section, not the question, so this is the only way to fix a
+ * paper's scoring. Fields are individually optional so renaming and re-marking
+ * do not clobber one another.
+ */
+export function updateSection(
+  examId: string,
+  sectionId: string,
+  body: { name?: string; marksCorrect?: number; marksWrong?: number },
+): Promise<{ id: string; name: string; order: number }> {
+  return apiFetch(`/exams/${examId}/sections/${sectionId}`, {
+    method: "PATCH",
+    body,
+    ...auth(),
+  });
+}
+
+/** Drop a section and its placements. The questions return to the bank. */
+export function removeSection(
+  examId: string,
+  sectionId: string,
+): Promise<{ removed: string }> {
+  return apiFetch(`/exams/${examId}/sections/${sectionId}`, {
+    method: "DELETE",
+    ...auth(),
+  });
+}
+
+/** Take one question off the paper. The question itself is untouched. */
+export function removeQuestionFromSection(
+  examId: string,
+  sectionId: string,
+  questionId: string,
+): Promise<{ removed: string }> {
+  return apiFetch(
+    `/exams/${examId}/sections/${sectionId}/questions/${questionId}`,
+    { method: "DELETE", ...auth() },
+  );
+}
+
 export function addQuestionToSection(
   examId: string,
   sectionId: string,
@@ -1058,6 +1123,69 @@ export function setQuestionScoring(
   return apiFetch(`/exams/${examId}/questions/${questionId}/scoring`, {
     method: "PATCH",
     body: { override },
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Manual evaluation (§2.5).
+ *
+ * A question set to MANUAL is taken out of auto-scoring, so every candidate
+ * scores zero on it until marks are awarded by hand. These two calls are how
+ * that gets done: read the roster with each candidate's actual answer, then
+ * write the awards back in one request.
+ */
+
+export interface ManualRosterItem {
+  attemptId: string;
+  student: { name: string; rollNumber: string; batch: string | null };
+  /** Whatever the candidate submitted — an option key, a list, or a number. */
+  answer: unknown;
+  status: string;
+  /** Null means "not graded yet", which is not the same as graded zero. */
+  awarded: number | null;
+}
+
+export interface ManualRoster {
+  questionId: string;
+  scoring: QuestionScoring;
+  statement: string;
+  type: string;
+  answerKey: unknown;
+  section: string | null;
+  maxMarks: number;
+  items: ManualRosterItem[];
+}
+
+/** GET /exams/:id/questions/:questionId/manual — the grading list. */
+export function getManualRoster(
+  examId: string,
+  questionId: string,
+): Promise<ManualRoster> {
+  return apiFetch(`/exams/${examId}/questions/${questionId}/manual`, {
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * PUT /exams/:id/results/manual/bulk — award marks to many candidates at once.
+ *
+ * Bulk deliberately: the per-candidate route re-evaluates the whole exam on
+ * every call, so grading a cohort one request at a time would re-rank everyone
+ * once per candidate.
+ */
+export function setManualScores(
+  examId: string,
+  questionId: string,
+  awards: { attemptId: string; marks: number }[],
+): Promise<{
+  questionId: string;
+  graded: number;
+  recalculated: { evaluated: number; maxScore: number };
+}> {
+  return apiFetch(`/exams/${examId}/results/manual/bulk`, {
+    method: "PUT",
+    body: { questionId, awards },
     token: getToken() ?? undefined,
   });
 }

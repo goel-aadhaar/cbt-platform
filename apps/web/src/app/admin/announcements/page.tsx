@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
+import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
 import {
@@ -18,6 +20,7 @@ import {
 import { listBatches, type BatchRow } from "@/lib/admin";
 
 import { useBatchPaths } from "@/components/admin/academic-cascade";
+import { AttachmentPicker } from "@/components/admin/attachment-picker";
 
 const CATEGORIES: AnnouncementCategory[] = [
   "GENERAL",
@@ -35,7 +38,6 @@ export default function AdminAnnouncementsPage() {
   const [editing, setEditing] = useState<StaffAnnouncement | null>(null);
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
 
   const reload = useCallback(async () => {
@@ -75,17 +77,25 @@ export default function AdminAnnouncementsPage() {
     };
   }, []);
 
-  async function act(id: string, fn: () => Promise<unknown>) {
-    setBusy(id);
-    setError(null);
-    try {
+  /**
+   * Keyed so one announcement's action cannot release another's lock. The
+   * single-slot id it replaced re-enabled the first row's buttons as soon as a
+   * second row started, leaving a live request behind an enabled control.
+   */
+  const rowAction = useKeyedAsyncAction(
+    async (_id: string, fn: () => Promise<unknown>) => {
       await fn();
       await reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "That action failed");
-    } finally {
-      setBusy(null);
-    }
+    },
+    {
+      onError: (_id, message) => setError(message),
+      fallbackMessage: "That action did not complete. Try again.",
+    },
+  );
+
+  function act(id: string, fn: () => Promise<unknown>) {
+    setError(null);
+    void rowAction.run(id, fn);
   }
 
   return (
@@ -192,9 +202,14 @@ export default function AdminAnnouncementsPage() {
                 </p>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy === a.id}
+                  <ActionButton
+                    loading={rowAction.isPending(a.id)}
+                    // Names which of the two directions is under way — the
+                    // button toggles, so "Working…" left the reader guessing
+                    // whether they had just published or withdrawn it.
+                    loadingText={
+                      a.publishedAt ? "Unpublishing…" : "Publishing…"
+                    }
                     onClick={() =>
                       void act(a.id, () =>
                         a.publishedAt
@@ -202,14 +217,10 @@ export default function AdminAnnouncementsPage() {
                           : publishAnnouncement(a.id),
                       )
                     }
-                    className="rounded-lg border border-admin-line px-4 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-admin-line px-4 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                   >
-                    {busy === a.id
-                      ? "Working…"
-                      : a.publishedAt
-                        ? "Unpublish"
-                        : "Publish"}
-                  </button>
+                    {a.publishedAt ? "Unpublish" : "Publish"}
+                  </ActionButton>
                   <button
                     type="button"
                     onClick={() => {
@@ -222,7 +233,7 @@ export default function AdminAnnouncementsPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={busy === a.id}
+                    disabled={rowAction.isPending(a.id)}
                     onClick={() => {
                       if (
                         window.confirm(
@@ -280,6 +291,9 @@ function Composer({
   const [expiresAt, setExpiresAt] = useState(
     editing?.expiresAt ? editing.expiresAt.slice(0, 16) : "",
   );
+  const [attachmentKeys, setAttachmentKeys] = useState<string[]>(
+    editing?.attachmentKeys ?? [],
+  );
   const [saving, setSaving] = useState(false);
 
   async function save(publish: boolean) {
@@ -295,6 +309,9 @@ function Composer({
         body: body.trim(),
         category,
         pinned,
+        // Always sent, including empty: on an edit this is how attachments are
+        // removed, and the API distinguishes "omitted" from "cleared".
+        attachmentKeys,
         // An empty audience select means institute-wide, which is an explicit
         // clear on an edit rather than "leave the old batch alone".
         ...(batchId
@@ -410,6 +427,14 @@ function Composer({
         />
         Pin to the top of the students&apos; list
       </label>
+
+      <div className="mt-5 rounded-xl border border-admin-line/60 p-4">
+        <AttachmentPicker
+          selected={attachmentKeys}
+          onChange={setAttachmentKeys}
+          disabled={saving}
+        />
+      </div>
 
       <div className="mt-5 flex flex-wrap gap-3">
         <button

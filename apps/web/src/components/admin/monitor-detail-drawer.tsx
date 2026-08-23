@@ -53,7 +53,9 @@ const STATUS_LOOK: Record<
 };
 
 interface Student {
+  id: string;
   name: string;
+  rollNumber: string;
   initials: string;
   status: Status;
 }
@@ -105,7 +107,12 @@ export function MonitorDetailDrawer({
             : "on-track"
           : "submitted";
     return {
+      id: s.studentId,
       name: s.name,
+      // The identifier an invigilator actually works from. Names repeat in a
+      // hall of two hundred; roll numbers are what gets called out and written
+      // on an incident report.
+      rollNumber: s.rollNumber,
       initials: s.flagged ? "!" : initialsOf(s.name),
       status,
     };
@@ -241,7 +248,9 @@ export function MonitorDetailDrawer({
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {STUDENTS.map((s) => (
-                  <StudentCard key={s.name} student={s} />
+                  // Keyed by student, not by name: two candidates called
+                  // the same thing would otherwise collide into one card.
+                  <StudentCard key={s.id} student={s} />
                 ))}
               </div>
             </>
@@ -293,8 +302,11 @@ function StudentCard({ student }: { student: Student }) {
       >
         {student.initials}
       </span>
-      <span className="text-sm font-semibold text-admin-ink">
+      <span className="text-center text-sm font-semibold text-admin-ink">
         {student.name}
+      </span>
+      <span className="[font-family:var(--font-courier-prime)] text-[11px] text-admin-subtle">
+        {student.rollNumber}
       </span>
       {/* The state in words, not only in colour — the four non-flagged states
           were previously indistinguishable to anyone reading the grid. */}

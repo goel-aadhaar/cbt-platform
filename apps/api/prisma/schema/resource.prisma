@@ -1,0 +1,44 @@
+/// Study material a teacher shares with a batch (§2.12).
+///
+/// Grouped by subject so it lands in the same taxonomy the question bank uses —
+/// a student looking for "Physics notes" should find them under Physics, not in
+/// a flat list of filenames — and addressed to a batch, because that is the
+/// unit a teacher actually teaches.
+///
+/// The bytes live in the media library under `mediaKey`, exactly as question
+/// diagrams and notice attachments do. Nothing here stores a URL: moving the
+/// bucket or putting a CDN in front must never invalidate a resource that has
+/// already been shared.
+model Resource {
+  id          String @id @default(uuid()) @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+
+  /// Which subject this belongs under. Deleting a subject takes its resources
+  /// with it — a file filed under nothing is unreachable in this UI anyway.
+  subjectId String @map("subject_id") @db.Uuid
+
+  /// Who it is for. Required rather than optional: "shared with everyone" is
+  /// not a thing a teacher can do here, and leaving it nullable would make the
+  /// permission question ambiguous at exactly the point it must not be.
+  batchId String @map("batch_id") @db.Uuid
+
+  title       String
+  description String?
+
+  /// Storage key in the media library. The Media row carries the filename,
+  /// size and MIME type, so none of it is duplicated here.
+  mediaKey String @map("media_key")
+
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  subject   Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  createdBy User      @relation("ResourceAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([instituteId, subjectId])
+  @@index([instituteId, batchId])
+  @@map("resources")
+}

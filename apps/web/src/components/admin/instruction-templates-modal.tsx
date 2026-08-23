@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
+
 import {
   archiveInstructionTemplate,
   createInstructionTemplate,
@@ -95,9 +98,13 @@ export function InstructionTemplatesModal({
     }
   }
 
-  async function toggleActive(t: InstructionTemplate) {
-    setError(null);
-    try {
+  /**
+   * Archive or restore a template. Wrapped so the button can say which of the
+   * two is happening and refuse a second click — archiving twice is harmless
+   * but the silence made people click again to check it had worked.
+   */
+  const toggle = useAsyncAction(
+    async (t: InstructionTemplate) => {
       const updated = t.isActive
         ? await archiveInstructionTemplate(t.id)
         : await updateInstructionTemplate(t.id, { isActive: true });
@@ -105,12 +112,13 @@ export function InstructionTemplatesModal({
         sortByName((prev ?? []).map((x) => (x.id === t.id ? updated : x))),
       );
       if (selectedId === t.id) select(updated);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not update the template.",
-      );
-    }
-  }
+      return updated;
+    },
+    {
+      onError: setError,
+      fallbackMessage: "Could not update the template.",
+    },
+  );
 
   if (!open) return null;
 
@@ -224,18 +232,23 @@ export function InstructionTemplatesModal({
 
               <div className="mt-auto flex items-center justify-between gap-3 border-t border-admin-line/60 pt-4">
                 {!creating && selectedId && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    loading={toggle.pending}
+                    loadingText={
+                      items?.find((x) => x.id === selectedId)?.isActive
+                        ? "Archiving…"
+                        : "Restoring…"
+                    }
                     onClick={() => {
                       const t = items?.find((x) => x.id === selectedId);
-                      if (t) void toggleActive(t);
+                      if (t) void toggle.run(t);
                     }}
-                    className="rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-muted hover:bg-admin-bg"
+                    className="flex items-center gap-2 rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-muted hover:bg-admin-bg disabled:opacity-60"
                   >
                     {items?.find((x) => x.id === selectedId)?.isActive
                       ? "Archive"
                       : "Restore"}
-                  </button>
+                  </ActionButton>
                 )}
                 <button
                   type="button"

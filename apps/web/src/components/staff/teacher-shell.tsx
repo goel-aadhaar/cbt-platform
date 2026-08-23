@@ -5,6 +5,7 @@ import {
   BarChartIcon,
   ClipboardIcon,
   DatabaseIcon,
+  FileTextIcon,
   GridIcon,
   UserIcon,
   UsersIcon,
@@ -26,6 +27,7 @@ const NAV: StaffNavItem[] = [
   { label: "My Exams", href: "/teacher/exams", icon: ClipboardIcon },
   { label: "Student Reports", href: "/teacher/reports", icon: BarChartIcon },
   { label: "Students", href: "/teacher/students", icon: UsersIcon },
+  { label: "Resources", href: "/teacher/resources", icon: FileTextIcon },
   {
     label: "Live Monitoring",
     href: "/teacher/monitoring",

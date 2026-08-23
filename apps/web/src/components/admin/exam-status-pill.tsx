@@ -9,6 +9,7 @@ export const EXAM_STATUS_COLOR: Record<ExamDisplayStatus, string> = {
   APPROVED: "bg-admin/10 text-admin",
   COMPLETED: "bg-admin-mint/50 text-admin",
   PUBLISHED: "bg-admin-mint/50 text-admin",
+  REJECTED: "bg-danger-soft text-danger",
   ARCHIVED: "bg-admin-surface text-admin-muted",
 };
 
@@ -19,13 +20,19 @@ export const EXAM_STATUS_DOT: Record<ExamDisplayStatus, string> = {
   DRAFT: "bg-admin-subtle",
   REVIEW: "bg-warn",
   APPROVED: "bg-admin",
+  REJECTED: "bg-danger",
   COMPLETED: "bg-admin",
   PUBLISHED: "bg-admin",
   ARCHIVED: "bg-admin-subtle",
 };
 
 export function ExamStatusPill({ status }: { status: ExamDisplayStatus }) {
-  const label = status === "APPROVED" ? "QUALIFIED" : status;
+  const label =
+    status === "APPROVED"
+      ? "QUALIFIED"
+      : status === "REJECTED"
+        ? "SENT BACK"
+        : status;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${EXAM_STATUS_COLOR[status]}`}

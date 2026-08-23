@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
 import { actOnQuestion, type QuestionAction } from "@/lib/admin";
 import { ApiError } from "@/lib/api";
 import {
@@ -18,6 +19,7 @@ const STATUS_LABEL: Record<QuestionDetail["status"], string> = {
   DRAFT: "Draft",
   REVIEW: "Pending Review",
   APPROVED: "Approved",
+  REJECTED: "Rejected Draft",
   ARCHIVED: "Archived",
 };
 
@@ -25,6 +27,7 @@ const STATUS_TONE: Record<QuestionDetail["status"], string> = {
   DRAFT: "bg-admin-surface text-admin-muted",
   REVIEW: "bg-danger-soft text-danger",
   APPROVED: "bg-admin-mint/50 text-admin",
+  REJECTED: "bg-danger-soft text-danger",
   ARCHIVED: "bg-admin-surface text-admin-muted",
 };
 
@@ -249,25 +252,33 @@ export function QuestionDetailDrawer({
                 />
                 {mediaNote && (
                   <p className="mt-2 text-xs font-semibold text-admin-muted">
-                    {mediaSaving ? "Saving…" : mediaNote}
+                    {mediaNote}
                   </p>
                 )}
-                {confirmKeys && !mediaSaving && (
+                {/*
+                  Kept mounted while saving rather than unmounted. Hiding the
+                  row was a kind of feedback, but it put the progress somewhere
+                  other than where the click landed, and left a window in which
+                  a second click could fire before the re-render removed it.
+                */}
+                {confirmKeys && (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
+                    <ActionButton
+                      loading={mediaSaving}
+                      loadingText="Attaching…"
                       onClick={() => void saveMedia(confirmKeys, true)}
-                      className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-60"
                     >
                       Attach anyway
-                    </button>
+                    </ActionButton>
                     <button
                       type="button"
+                      disabled={mediaSaving}
                       onClick={() => {
                         setConfirmKeys(null);
                         setMediaNote(null);
                       }}
-                      className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg"
+                      className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                     >
                       Cancel
                     </button>

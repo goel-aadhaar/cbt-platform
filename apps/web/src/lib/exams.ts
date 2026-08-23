@@ -2,13 +2,20 @@ import { apiFetch } from "./api";
 import { getToken } from "./auth";
 
 export type ExamStatus =
-  "DRAFT" | "REVIEW" | "APPROVED" | "PUBLISHED" | "ARCHIVED";
+  | "DRAFT"
+  | "REVIEW"
+  | "APPROVED"
+  /** Sent back by an admin with a reason; editable and re-submittable. */
+  | "REJECTED"
+  | "PUBLISHED"
+  | "ARCHIVED";
 
 /** Derived, display-level status used across the exam screens. */
 export type ExamDisplayStatus =
   | "DRAFT"
   | "REVIEW"
   | "APPROVED"
+  | "REJECTED"
   | "SCHEDULED"
   | "LIVE"
   | "COMPLETED"
@@ -49,6 +56,9 @@ export function listExams(): Promise<ExamListItem[]> {
 export function examDisplayStatus(e: ExamListItem): ExamDisplayStatus {
   if (e.status === "DRAFT") return "DRAFT";
   if (e.status === "REVIEW") return "REVIEW";
+  // Kept distinct from DRAFT all the way to the screen: the point of the state
+  // is that a teacher can pick their sent-back work out of the drafts pile.
+  if (e.status === "REJECTED") return "REJECTED";
   // "Qualified" — approved but not yet started by an admin.
   if (e.status === "APPROVED") return "APPROVED";
   if (e.status === "ARCHIVED") return "ARCHIVED";

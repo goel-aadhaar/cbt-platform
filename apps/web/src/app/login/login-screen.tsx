@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { LoadingSpinner } from "@/components/loading-spinner";
 import { ExamPreviewMockup } from "@/components/exam-preview-mockup";
 import {
   ArrowRightIcon,
@@ -383,7 +384,11 @@ export function LoginScreen() {
                     type="submit"
                     disabled={submitting || code.length !== 6}
                     className="flex items-center justify-center gap-2 rounded-[2px] bg-brand px-5 py-3 text-base font-bold uppercase text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-busy={submitting || undefined}
                   >
+                    {submitting && (
+                      <LoadingSpinner size={14} tone="current" label="" />
+                    )}
                     {submitting ? "Verifying…" : "Verify and sign in"}
                   </button>
                 </form>
@@ -557,7 +562,9 @@ function SubmitButton({ submitting }: { submitting: boolean }) {
       type="submit"
       disabled={submitting}
       className="mt-2 flex w-full items-center justify-center gap-2 rounded bg-brand px-6 py-3.5 text-sm font-bold uppercase text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+      aria-busy={submitting || undefined}
     >
+      {submitting && <LoadingSpinner size={14} tone="current" label="" />}
       {submitting ? "Signing in…" : "Login"}
       {!submitting && <ArrowRightIcon className="size-3" />}
     </button>

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
 import { switchRole, type Role } from "@/lib/auth";
 
 const ROLE_LABEL: Record<Role, string> = {
@@ -33,7 +34,13 @@ export function RoleSwitcher({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  /**
+   * Which role is being switched TO, not merely "something is happening".
+   * Switching is session-wide so every option is locked while it runs, but the
+   * one that was chosen now says so instead of the whole menu greying out with
+   * no explanation.
+   */
+  const [busy, setBusy] = useState<Role | null>(null);
   const [error, setError] = useState<string | null>(null);
   const popover = useRef<HTMLDivElement>(null);
 
@@ -50,7 +57,7 @@ export function RoleSwitcher({
 
   const choose = useCallback(
     async (role: Role) => {
-      setBusy(true);
+      setBusy(role);
       setError(null);
       try {
         await switchRole(role);
@@ -62,7 +69,7 @@ export function RoleSwitcher({
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not switch role");
       } finally {
-        setBusy(false);
+        setBusy(null);
         setOpen(false);
       }
     },
@@ -100,13 +107,15 @@ export function RoleSwitcher({
           className="absolute right-0 z-50 mt-2 w-44 overflow-hidden rounded-xl border border-admin-line/60 bg-white py-1 shadow-lg"
         >
           {roles.map((role) => (
-            <button
+            <ActionButton
               key={role}
-              type="button"
               role="menuitem"
-              disabled={busy || role === activeRole}
+              disabled={busy !== null || role === activeRole}
+              loading={busy === role}
+              loadingText={`Switching to ${ROLE_LABEL[role]}…`}
+              spinnerSize={12}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
               onClick={() => void choose(role)}
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-admin-bg disabled:opacity-50"
             >
               <span className="font-semibold text-admin-ink">
                 {ROLE_LABEL[role]}
@@ -114,7 +123,7 @@ export function RoleSwitcher({
               {role === activeRole && (
                 <span className="text-xs font-bold text-admin">·</span>
               )}
-            </button>
+            </ActionButton>
           ))}
           {error && (
             <p className="border-t border-admin-line/60 px-3 py-2 text-xs text-danger">

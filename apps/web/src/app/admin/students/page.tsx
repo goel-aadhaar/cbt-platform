@@ -34,6 +34,7 @@ import {
   type Program,
 } from "@/lib/admin";
 import { ApiError } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { getToken } from "@/lib/auth";
 import {
   deactivateStudent,
@@ -130,15 +131,33 @@ function StudentsPageInner() {
   const [programs, setPrograms] = useState<Program[]>([]);
 
   // Typing re-queries the server, so debounce rather than firing per keystroke.
+  /**
+   * Bumped after a write to re-run the query above. This page loads through a
+   * bespoke effect rather than useAdminData, so it needs its own handle —
+   * previously it called window.location.reload(), which threw away the open
+   * drawer and every filter the user had set.
+   */
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const refresh = () => setRefreshNonce((n) => n + 1);
+
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchInput), 300);
     return () => clearTimeout(t);
   }, [searchInput]);
 
   async function copyRollNumber(id: string, rollNumber: string) {
-    await navigator.clipboard.writeText(rollNumber);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 1500);
+    // Reports failure rather than showing a tick regardless: over plain HTTP
+    // the modern clipboard API does not exist, and the silent version of this
+    // looked like it had worked every time.
+    if (await copyText(rollNumber)) {
+      setCopiedId(id);
+      setTimeout(
+        () => setCopiedId((prev) => (prev === id ? null : prev)),
+        1500,
+      );
+    } else {
+      setNotice(`Could not copy ${rollNumber} — select it and copy manually.`);
+    }
   }
 
   useEffect(() => {
@@ -198,7 +217,17 @@ function StudentsPageInner() {
     return () => {
       active = false;
     };
-  }, [hydrated, router, batchId, classId, programId, activeTab, search, sort]);
+  }, [
+    hydrated,
+    router,
+    batchId,
+    classId,
+    programId,
+    activeTab,
+    search,
+    sort,
+    refreshNonce,
+  ]);
 
   async function handleDeactivate(row: StudentListItem) {
     if (
@@ -725,7 +754,7 @@ function StudentsPageInner() {
               ? `Invite sent to ${studentName} — roll number ${rollNumber}.`
               : `Invite sent to ${studentName}.`,
           );
-          setTimeout(() => window.location.reload(), 900);
+          refresh();
         }}
       />
       <ImportStudentsModal

@@ -91,4 +91,5 @@ model User {
   /// GIN, because staff listings ask "has this role" against an array.
   @@index([roles], type: Gin)
   @@map("users")
+  resourcesCreated Resource[] @relation("ResourceAuthor")
 }

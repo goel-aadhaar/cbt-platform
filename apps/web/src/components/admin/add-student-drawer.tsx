@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { LoadingSpinner } from "@/components/loading-spinner";
+
 import {
   inviteStudent,
   listBatches,
@@ -260,8 +262,10 @@ export function AddStudentDrawer({
             type="submit"
             form="add-student-form"
             disabled={!valid || submitting}
-            className="rounded-lg bg-admin px-6 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg bg-admin px-6 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-40"
+            aria-busy={submitting || undefined}
           >
+            {submitting && <LoadingSpinner size={14} tone="current" label="" />}
             {submitting ? "Inviting…" : "Send Invite"}
           </button>
         </footer>

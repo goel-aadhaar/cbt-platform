@@ -58,6 +58,7 @@ model Batch {
   @@index([instituteId])
   @@index([classId])
   @@map("batches")
+  resources Resource[]
 }
 
 /// Assigns a teacher (a User with role TEACHER) to a batch — the set of

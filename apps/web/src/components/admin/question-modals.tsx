@@ -8,6 +8,8 @@ import {
   type ChapterRow,
   type Subject,
 } from "@/lib/admin";
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   type QuestionImportSummary,
@@ -146,15 +148,11 @@ export function QuestionImportModal({
    * reads, so it cannot drift out of date. It ships with worked example rows
    * for all three question types and a "How to use" sheet.
    */
-  async function downloadTemplate() {
-    try {
-      await downloadQuestionTemplate();
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not download the template.",
-      );
-    }
-  }
+  /** An authenticated download, so it can take a moment and must not double-fire. */
+  const templateDownload = useAsyncAction(downloadQuestionTemplate, {
+    onError: setError,
+    fallbackMessage: "Could not download the template.",
+  });
 
   async function upload() {
     if (!file || !subjectId || !chapterId) return;
@@ -280,14 +278,14 @@ export function QuestionImportModal({
             }}
           />
           <p className="mt-4">
-            <button
-              type="button"
-              onClick={() => void downloadTemplate()}
-              className="text-sm font-semibold text-admin-2"
+            <ActionButton
+              loading={templateDownload.pending}
+              loadingText="Preparing…"
+              onClick={() => void templateDownload.run()}
+              className="inline-flex items-center gap-1 text-sm font-semibold text-admin-2 disabled:opacity-60"
             >
-              <DownloadIcon className="mr-1 inline size-4" /> Download Excel
-              template
-            </button>
+              <DownloadIcon className="inline size-4" /> Download Excel template
+            </ActionButton>
           </p>
 
           <p className="mt-6 text-sm font-bold text-admin-ink">

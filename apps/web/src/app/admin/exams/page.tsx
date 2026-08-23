@@ -67,7 +67,7 @@ export default function ExamsPage() {
     try {
       await approveExam(exam.id);
       setNotice(`"${exam.title}" approved — it is now a qualified test.`);
-      setTimeout(() => window.location.reload(), 1000);
+      reload();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Action failed.");
     } finally {
@@ -88,7 +88,7 @@ export default function ExamsPage() {
       await rejectExam(exam.id, reason);
       setRejectingExam(null);
       setNotice(`"${exam.title}" sent back to the author.`);
-      setTimeout(() => window.location.reload(), 1000);
+      reload();
     } catch (err) {
       setRejectError(err instanceof Error ? err.message : "Action failed.");
     } finally {
@@ -96,7 +96,7 @@ export default function ExamsPage() {
     }
   }
 
-  const { data, loading, error } = useAdminData(() => listExams());
+  const { data, loading, error, reload } = useAdminData(() => listExams());
   const exams = useMemo(() => data ?? [], [data]);
 
   const withStatus = useMemo(
@@ -163,7 +163,10 @@ export default function ExamsPage() {
             icon={FileTextIcon}
             tint="bg-admin-surface text-admin-muted"
             label="Draft Exams"
-            value={pad(countS("DRAFT"))}
+            // Sent-back exams are counted here too: to an admin they are both
+            // "not yet with me", and splitting them into a sixth card buys
+            // less than the row of five already shows.
+            value={pad(countS("DRAFT") + countS("REJECTED"))}
           />
           <ExamStat
             icon={AlertTriangleIcon}
@@ -345,7 +348,7 @@ export default function ExamsPage() {
               ? "Exam approved — it is now a qualified test."
               : "Exam sent back to the author.",
           );
-          setTimeout(() => window.location.reload(), 1000);
+          reload();
         }}
       />
       <ExamScheduleModal
@@ -361,7 +364,7 @@ export default function ExamsPage() {
               ? `"${scheduling.title}" scheduled and published.`
               : `"${scheduling?.title}" rescheduled.`,
           );
-          setTimeout(() => window.location.reload(), 1000);
+          reload();
         }}
       />
       {rejectingExam && (
@@ -433,7 +436,10 @@ function ExamRow({
             for {e.reviewer.name}
           </p>
         )}
-        {s === "DRAFT" && e.rejectionReason && (
+        {/* Follows the status the reason now belongs to. Left on "DRAFT" this
+            silently stopped showing the moment rejection stopped meaning draft,
+            hiding the one piece of text the teacher needs. */}
+        {(s === "REJECTED" || s === "DRAFT") && e.rejectionReason && (
           <p className="mt-1 max-w-[180px] text-xs text-danger">
             Sent back: {e.rejectionReason}
           </p>

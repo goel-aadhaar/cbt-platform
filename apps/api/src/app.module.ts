@@ -34,6 +34,7 @@ import { ProgramsModule } from './modules/programs/programs.module';
 import { QuestionsModule } from './modules/questions/questions.module';
 import { SubjectsModule } from './modules/subjects/subjects.module';
 import { TopicsModule } from './modules/topics/topics.module';
+import { ResourcesModule } from './modules/resources/resources.module';
 import { ResultsModule } from './modules/results/results.module';
 import { PracticeModule } from './modules/practice/practice.module';
 import { StaffModule } from './modules/staff/staff.module';
@@ -99,6 +100,7 @@ import { StudentsModule } from './modules/students/students.module';
     QuestionsModule,
     ExamsModule,
     AttemptsModule,
+    ResourcesModule,
     ResultsModule,
     MonitoringModule,
     AnalyticsModule,

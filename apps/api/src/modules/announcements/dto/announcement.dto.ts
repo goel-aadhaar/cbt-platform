@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsISO8601,
@@ -55,6 +56,18 @@ export class CreateAnnouncementDto {
   @IsOptional()
   @IsISO8601()
   expiresAt?: string;
+
+  /**
+   * Media keys for files attached to this notice.
+   *
+   * Keys, not URLs: the file lives in the media library and is addressed by
+   * key, so moving the bucket or putting a CDN in front never invalidates a
+   * notice that has already gone out.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachmentKeys?: string[];
 }
 
 export class UpdateAnnouncementDto {
@@ -87,4 +100,16 @@ export class UpdateAnnouncementDto {
   @IsOptional()
   @IsISO8601()
   expiresAt?: string | null;
+
+  /**
+   * Omit to leave the notice's attachments untouched; send `[]` to clear them.
+   *
+   * The distinction matters: an admin fixing a typo in the title sends only
+   * `title`, and treating that as "no attachments" would strip the files off a
+   * notice that has already gone out.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  attachmentKeys?: string[];
 }

@@ -18,6 +18,8 @@ import type {
   QuestionType,
 } from "@/lib/questions";
 
+import { LoadingSpinner } from "@/components/loading-spinner";
+
 import { FilterIcon, SearchIcon, XIcon } from "./icons";
 
 const DIFFICULTIES: Difficulty[] = ["EASY", "MEDIUM", "HARD"];
@@ -38,12 +40,20 @@ export function QuestionFilterBar({
   onChange,
   facetSource,
   resultCount,
+  searching = false,
 }: {
   value: QuestionFilters;
   onChange: (next: QuestionFilters) => void;
   /** Questions used to build the tag option list (typically an unfiltered page). */
   facetSource: QuestionListItem[];
   resultCount?: number;
+  /**
+   * A query for the current search term is still on its way. Shown in the box
+   * itself rather than over the results: the list below stays readable while
+   * the new one is fetched, and a full-panel loader for a keystroke would be
+   * more disruptive than the wait it describes.
+   */
+  searching?: boolean;
 }) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
@@ -99,8 +109,14 @@ export function QuestionFilterBar({
             value={value.search ?? ""}
             onChange={(e) => set({ search: e.target.value || undefined })}
             placeholder="Search question text…"
-            className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
+            aria-busy={searching || undefined}
+            className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-9 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
           />
+          {searching && (
+            <span className="pointer-events-none absolute right-3 flex items-center">
+              <LoadingSpinner size={14} label="Searching" />
+            </span>
+          )}
         </div>
 
         <IdSelect

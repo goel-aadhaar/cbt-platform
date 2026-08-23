@@ -16,6 +16,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
+import { MediaKind } from '../../generated/prisma/enums';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MediaService } from './media.service';
 
@@ -42,11 +43,18 @@ export class MediaController {
   upload(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('altText') altText?: string,
+    @Body('kind') kind?: string,
   ) {
     if (!file) {
-      throw new BadRequestException('An image is required (form field "file")');
+      throw new BadRequestException('A file is required (form field "file")');
     }
-    return this.media.upload(file, altText);
+    // Anything but an explicit DOCUMENT is an image: the question picker is by
+    // far the busier caller and predates this, so it keeps sending nothing.
+    return this.media.upload(
+      file,
+      altText,
+      kind === 'DOCUMENT' ? MediaKind.DOCUMENT : MediaKind.IMAGE,
+    );
   }
 
   /**
@@ -64,7 +72,18 @@ export class MediaController {
     const row = await this.media.read(decodeURIComponent(key));
     return new StreamableFile(row.body, {
       type: row.mimeType,
-      disposition: `inline; filename="${row.fileName}"`,
+      /**
+       * A diagram is shown in place; a document is meant to be kept.
+       *
+       * `inline` on a PDF opens the browser's viewer, which is fine, but on a
+       * .docx or .xlsx it makes the browser download it under an opaque name
+       * — the key's UUID — because nothing tells it otherwise. `attachment`
+       * carries the original filename through.
+       */
+      disposition:
+        row.kind === MediaKind.DOCUMENT
+          ? `attachment; filename="${row.fileName.replace(/"/g, '')}"`
+          : `inline; filename="${row.fileName.replace(/"/g, '')}"`,
     });
   }
 

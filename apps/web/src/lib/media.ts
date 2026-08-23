@@ -20,6 +20,7 @@ export interface MediaItem {
   uploadedBy: { name: string };
   /** Absolute (CDN) or API-relative — see `mediaSrc`. */
   url: string;
+  kind?: "IMAGE" | "DOCUMENT";
 }
 
 function token(): string {
@@ -58,10 +59,19 @@ export function listMedia(): Promise<{
 export async function uploadMedia(
   file: File,
   altText?: string,
+  /**
+   * DOCUMENT for notice and resource files, IMAGE for question diagrams.
+   *
+   * The two have different allow-lists and size caps, because a diagram is
+   * rendered inline and a document is downloaded. Defaulting to IMAGE keeps
+   * every existing caller — the question picker — working unchanged.
+   */
+  kind: "IMAGE" | "DOCUMENT" = "IMAGE",
 ): Promise<MediaItem> {
   const form = new FormData();
   form.append("file", file);
   if (altText) form.append("altText", altText);
+  form.append("kind", kind);
 
   const res = await fetch(`${apiBase()}/media`, {
     method: "POST",
@@ -104,4 +114,41 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/**
+ * Download an attachment to disk.
+ *
+ * `GET /media/file/:key` needs an Authorization header, which a plain
+ * `<a href download>` cannot send — the same constraint that made AuthedImage
+ * necessary for diagrams. So the bytes are fetched with the token and handed
+ * to the browser as an object URL, mirroring `downloadResultExport`.
+ */
+export async function downloadAttachment(
+  key: string,
+  fileName?: string,
+): Promise<void> {
+  const res = await fetch(mediaSrc(`/media/file/${encodeURIComponent(key)}`), {
+    headers: { Authorization: `Bearer ${token()}` },
+  });
+  if (!res.ok) {
+    // A refusal here is a 404 by design — the server does not confirm that a
+    // key it will not serve exists at all.
+    throw new ApiError(res.status, {
+      message:
+        res.status === 404
+          ? "That file is no longer available."
+          : `Could not download the file (${res.status}).`,
+    });
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName ?? key.split("/").pop() ?? "attachment";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }

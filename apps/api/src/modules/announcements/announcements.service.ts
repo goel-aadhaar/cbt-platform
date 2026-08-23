@@ -23,6 +23,7 @@ const studentSelect = {
   category: true,
   pinned: true,
   publishedAt: true,
+  attachmentKeys: true,
   createdBy: { select: { name: true } },
 } satisfies Prisma.AnnouncementSelect;
 
@@ -80,9 +81,45 @@ export class AnnouncementsService {
         pinned: dto.pinned ?? false,
         publishedAt: dto.publish ? new Date() : null,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
+        attachmentKeys: await this.checkedAttachments(
+          dto.attachmentKeys,
+          instituteId,
+        ),
       },
       select: staffSelect,
     });
+  }
+
+  /**
+   * Keep only keys that are real documents in this institute.
+   *
+   * `attachmentKeys` is a plain String[] with no foreign key, so nothing in the
+   * database stops a caller attaching another tenant's file, or a key that
+   * never existed. Checking here rather than trusting the client means a notice
+   * cannot be used to hand out a file its author could not otherwise reach —
+   * and a typo fails at authoring time instead of becoming a broken download
+   * for every student who opens it.
+   */
+  private async checkedAttachments(
+    keys: string[] | undefined,
+    instituteId: string,
+  ): Promise<string[]> {
+    if (!keys?.length) return [];
+    const found = await this.prisma.media.findMany({
+      where: { instituteId, key: { in: keys }, kind: 'DOCUMENT' },
+      select: { key: true },
+    });
+    const usable = new Set(found.map((m) => m.key));
+    const rejected = keys.filter((k) => !usable.has(k));
+    if (rejected.length > 0) {
+      throw new BadRequestException(
+        `${rejected.length} attachment(s) could not be found in your ` +
+          `institute's library. Upload them again and retry.`,
+      );
+    }
+    // De-duplicated, keeping the caller's order: attaching the same file twice
+    // is a slip, and two identical download links help nobody.
+    return [...new Set(keys)];
   }
 
   /** Everything in the tenant, drafts included — this is the authoring view. */
@@ -124,6 +161,17 @@ export class AnnouncementsService {
         ...(dto.pinned !== undefined ? { pinned: dto.pinned } : {}),
         ...(dto.expiresAt !== undefined
           ? { expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null }
+          : {}),
+        // Omitted means "leave them alone"; an empty array means "remove them
+        // all". Treating undefined as empty would silently strip every
+        // attachment from a notice edited only to fix a typo in its title.
+        ...(dto.attachmentKeys !== undefined
+          ? {
+              attachmentKeys: await this.checkedAttachments(
+                dto.attachmentKeys,
+                instituteId,
+              ),
+            }
           : {}),
       },
       select: staffSelect,

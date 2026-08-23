@@ -45,6 +45,22 @@
   --color-admin-surface: #edeeef; /* subtle panels / icon chips */
   --color-danger-soft: #ffdad6; /* negative delta pill */
 
+  /* Leaderboard (Performance Reports / Leaderboard). A three-step green ramp
+     for the podium, which the admin palette does not carry: the tiers have to
+     read as first/second/third at a glance, and that needs three deliberately
+     spaced greens rather than three opacities of one. Separate tokens for the
+     same reason the palettes above are separate — restyling a podium must not
+     move a button. */
+  --color-champion: #1b5e43; /* rank 1 — hero card and tallest block */
+  --color-champion-mint: #aef1cd; /* accent on champion green */
+  --color-champion-ink: #002114; /* text on the mint accent */
+  --color-rank-2: #296a4e; /* second place */
+  --color-rank-3: #93d4b2; /* third place */
+  --color-board-accent: #00452e; /* deep green — percentiles, "you" row */
+  --color-board-surface: #f4fbf6; /* leaderboard cards and table */
+  --color-board-head: #eef5f0; /* table header and filter chips */
+  --color-board-line: #dde4df; /* table rules and avatar fill */
+
   /* Marketing site palette (`/`) — the third and outermost of the three
      visual systems here: candidates get navy, the admin console gets teal, and
      the public page gets this. Deliberately separate tokens rather than reused
@@ -153,6 +169,30 @@ body {
   animation-delay: -0.525s;
 }
 
+/**
+ * On-button variant.
+ *
+ * The dots above are fixed to the brand greens, which vanish inside a filled
+ * green button. This variant inherits the button's own text colour and steps
+ * the same four shades with opacity instead, so the ring reads on any
+ * background without a second set of colour tokens.
+ */
+.loading-spinner--current .dot {
+  fill: currentColor;
+}
+.loading-spinner--current .d2 {
+  fill: currentColor;
+  opacity: 0.8;
+}
+.loading-spinner--current .d3 {
+  fill: currentColor;
+  opacity: 0.6;
+}
+.loading-spinner--current .d4 {
+  fill: currentColor;
+  opacity: 0.4;
+}
+
 @keyframes spinner-rotate {
   to { transform: rotate(360deg); }
 }
@@ -160,6 +200,81 @@ body {
 @keyframes spinner-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
+}
+
+/**
+ * Visible keyboard focus, everywhere.
+ *
+ * Inputs and buttons across this app set Tailwind's `outline-none` and then
+ * signal focus with a border-colour change — which a mouse user never notices
+ * and a keyboard user cannot follow, and on six controls there was no focus
+ * signal at all. This restores a real focus ring for keyboard navigation only,
+ * so pointer users see no change.
+ *
+ * Deliberately unlayered: Tailwind v4 puts utilities in `@layer utilities`, and
+ * unlayered rules beat layered ones in the cascade regardless of specificity —
+ * so this wins over `outline-none` without needing `!important` or edits at 73
+ * call sites.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-admin);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* On the deep-green surfaces the admin token disappears; use the mint accent. */
+.bg-champion :focus-visible,
+.bg-admin :focus-visible,
+[data-surface="dark"] :focus-visible {
+  outline-color: var(--color-champion-mint);
+}
+
+/**
+ * Press feedback.
+ *
+ * Hover and disabled states were everywhere (398 and 203 uses); a press state
+ * appeared six times in the whole app. It is the one piece of feedback that
+ * lands in the SAME interaction cycle as the click — before any request has
+ * been made, let alone a spinner rendered — so on a slow connection it is what
+ * answers "did that register?" for the first second.
+ *
+ * Deliberately tiny, and applied centrally rather than at three hundred call
+ * sites so it cannot drift. Excluded from anything disabled, which must not
+ * look pressable.
+ */
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active,
+a[href]:active {
+  transform: translateY(1px);
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the confirmation, drop the movement. */
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  a[href]:active {
+    transform: none;
+  }
+}
+
+/**
+ * Respect a reduced-motion preference.
+ *
+ * Only the loading spinner honoured it; the 53 pulsing skeletons and every
+ * colour transition kept animating. The spinner is excluded here because it has
+ * its own deliberate reduced-motion fallback below — a blanket rule would cut
+ * that off after one cycle and leave it frozen mid-fade.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.loading-spinner):not(.loading-spinner *) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

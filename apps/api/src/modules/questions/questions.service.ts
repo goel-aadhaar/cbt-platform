@@ -125,6 +125,18 @@ const detailSelect = {
  * author (DRAFT) and submit; admins approve/reject/archive. Only APPROVED
  * questions are eligible for exams (enforced later by the exam builder).
  */
+/**
+ * Statuses an author may still change, and re-submit from.
+ *
+ * DRAFT is "not finished"; REJECTED is "finished, read, and sent back". They
+ * behave identically for the author and are told apart only so the returned
+ * work is findable — which was the entire problem with rejecting into DRAFT.
+ */
+const AUTHOR_EDITABLE: QuestionStatus[] = [
+  QuestionStatus.DRAFT,
+  QuestionStatus.REJECTED,
+];
+
 @Injectable()
 export class QuestionsService {
   constructor(
@@ -149,7 +161,7 @@ export class QuestionsService {
   }
 
   async create(dto: CreateQuestionDto) {
-    const { userId, instituteId } = this.ctx();
+    const { userId, role, instituteId } = this.ctx();
     this.validateContent(dto.type, dto.options, dto.answerKey);
     const tax = await this.resolveTaxonomy(instituteId, {
       subjectId: dto.subjectId,
@@ -185,7 +197,22 @@ export class QuestionsService {
         marks: dto.marks ?? 4,
         negativeMarks: dto.negativeMarks ?? 1,
         mediaKeys: dto.mediaKeys ?? [],
-        status: QuestionStatus.DRAFT,
+        /**
+         * An administrator's own question skips the queue.
+         *
+         * Approval exists so that somebody with authority reviews what a
+         * teacher wrote. An admin *is* that somebody, so routing their question
+         * into a queue only they can clear means approving their own work — a
+         * ceremony that adds a step and checks nothing. Teachers are unchanged:
+         * their questions are still drafts until an admin approves them.
+         *
+         * `publish: false` lets an admin keep a work-in-progress as a draft,
+         * so the shortcut is a default rather than a rule.
+         */
+        status:
+          role === Role.ADMIN && dto.publish !== false
+            ? QuestionStatus.APPROVED
+            : QuestionStatus.DRAFT,
         createdById: userId,
       },
       select: detailSelect,
@@ -593,12 +620,15 @@ export class QuestionsService {
       }
     }
     const isAdmin = role === Role.ADMIN;
-    const isAuthorDraft =
+    // A rejected question is a draft that has been read: the whole point of
+    // sending it back is that the author fixes it, so it has to be editable.
+    const isAuthorEditable =
       existing.createdById === userId &&
-      existing.status === QuestionStatus.DRAFT;
-    if (!isAdmin && !isAuthorDraft) {
+      AUTHOR_EDITABLE.includes(existing.status);
+    if (!isAdmin && !isAuthorEditable) {
       throw new ForbiddenException(
-        'You can only edit your own draft questions',
+        `You can only edit your own questions while they are a draft or have ` +
+          `been sent back. This one is ${existing.status.toLowerCase()}.`,
       );
     }
 
@@ -723,7 +753,7 @@ export class QuestionsService {
   async submit(id: string) {
     const { userId, role } = this.ctx();
     const question = await this.getOwned(id);
-    if (question.status !== QuestionStatus.DRAFT) {
+    if (!AUTHOR_EDITABLE.includes(question.status)) {
       throw new BadRequestException('Only draft questions can be submitted');
     }
     if (role !== Role.ADMIN && question.createdById !== userId) {
@@ -754,7 +784,7 @@ export class QuestionsService {
     if (question.status !== QuestionStatus.REVIEW) {
       throw new BadRequestException('Only questions in review can be rejected');
     }
-    return this.setStatus(id, QuestionStatus.DRAFT);
+    return this.setStatus(id, QuestionStatus.REJECTED);
   }
 
   /**

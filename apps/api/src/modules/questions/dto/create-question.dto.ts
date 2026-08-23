@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsDefined,
   IsEnum,
   IsNumber,
@@ -93,4 +94,14 @@ export class CreateQuestionDto {
   @IsArray()
   @IsString({ each: true })
   mediaKeys?: string[];
+
+  /**
+   * ADMIN only, and true by default for them: an administrator's question goes
+   * straight into the bank rather than into a queue only they can clear.
+   * Send `false` to keep it as a draft instead. Ignored for a teacher, whose
+   * questions are always drafts until an admin approves them.
+   */
+  @IsOptional()
+  @IsBoolean()
+  publish?: boolean;
 }

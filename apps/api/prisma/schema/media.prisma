@@ -5,6 +5,16 @@
 /// key plus enough metadata to list, validate and serve it. Records are
 /// tenant-scoped and follow the same isolation rules as everything else.
 
+/// What a stored file is for. Kept apart because the rules genuinely differ:
+/// a question diagram must be an image and small enough to render inline, while
+/// a notice attachment is a document nobody renders and may be much larger.
+/// Sharing one bucket with one allow-list would mean either rejecting PDFs or
+/// offering them in the question picker, where they make no sense.
+enum MediaKind {
+  IMAGE
+  DOCUMENT
+}
+
 model Media {
   id          String @id @default(uuid()) @db.Uuid
   instituteId String @map("institute_id") @db.Uuid
@@ -14,6 +24,8 @@ model Media {
   /// Original upload name, shown when picking media.
   fileName String @map("file_name")
   mimeType String @map("mime_type")
+  /// IMAGE for question diagrams, DOCUMENT for notice and resource files.
+  kind     MediaKind @default(IMAGE)
   /// Bytes, kept so the UI can warn before a large question loads.
   size     Int
 

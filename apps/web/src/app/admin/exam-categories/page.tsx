@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
 import { Panel, StatusPill } from "@/components/staff/charts";
@@ -25,7 +26,6 @@ export default function ExamCategoriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +45,31 @@ export default function ExamCategoriesPage() {
     };
   }, []);
 
-  async function toggle(c: ExamCategory) {
-    setBusy(c.id);
+  /**
+   * Keyed so a second row cannot steal the lock.
+   *
+   * The single-slot `busy` id had a hole: starting an action on another row
+   * overwrote the id, which re-enabled the first row's button while its request
+   * was still in flight, and the first request finishing then re-enabled the
+   * second the same way. The keyed lock is synchronous and only ever releases
+   * the row it belongs to.
+   */
+  const rowAction = useKeyedAsyncAction(
+    async (_id: string, work: () => Promise<void>) => work(),
+    {
+      onError: (_id, message) => setError(message),
+      fallbackMessage: "That did not complete. Try again.",
+    },
+  );
+
+  function start(c: ExamCategory, work: () => Promise<void>) {
     setError(null);
     setNotice(null);
-    try {
+    void rowAction.run(c.id, work);
+  }
+
+  function toggle(c: ExamCategory) {
+    start(c, async () => {
       const updated = await updateExamCategory(c.id, { isActive: !c.isActive });
       setItems((prev) =>
         (prev ?? []).map((x) => (x.id === c.id ? { ...x, ...updated } : x)),
@@ -59,31 +79,15 @@ export default function ExamCategoriesPage() {
           ? `${updated.name} is offered again.`
           : `${updated.name} retired — existing papers keep it, new ones cannot use it.`,
       );
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "Could not update the category",
-      );
-    } finally {
-      setBusy(null);
-    }
+    });
   }
 
-  async function remove(c: ExamCategory) {
-    setBusy(c.id);
-    setError(null);
-    setNotice(null);
-    try {
+  function remove(c: ExamCategory) {
+    start(c, async () => {
       await deleteExamCategory(c.id);
       setItems((prev) => (prev ?? []).filter((x) => x.id !== c.id));
       setNotice(`${c.name} deleted.`);
-    } catch (e: unknown) {
-      // The API refuses once papers reference it, and explains why.
-      setError(
-        e instanceof Error ? e.message : "Could not delete the category",
-      );
-    } finally {
-      setBusy(null);
-    }
+    });
   }
 
   return (
@@ -152,7 +156,7 @@ export default function ExamCategoriesPage() {
               <li
                 key={c.id}
                 className={`flex flex-wrap items-start justify-between gap-4 rounded-xl border border-admin-line/60 p-4 ${
-                  busy === c.id ? "opacity-50" : ""
+                  rowAction.isPending(c.id) ? "opacity-50" : ""
                 }`}
               >
                 <div className="min-w-0">
@@ -178,7 +182,7 @@ export default function ExamCategoriesPage() {
                 <div className="flex shrink-0 gap-2">
                   <button
                     type="button"
-                    disabled={busy === c.id}
+                    disabled={rowAction.isPending(c.id)}
                     onClick={() => void toggle(c)}
                     className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                   >
@@ -186,7 +190,7 @@ export default function ExamCategoriesPage() {
                   </button>
                   <button
                     type="button"
-                    disabled={busy === c.id}
+                    disabled={rowAction.isPending(c.id)}
                     onClick={() => {
                       if (
                         window.confirm(

@@ -24,6 +24,7 @@ import {
   ReorderQuestionsDto,
   ReorderSectionsDto,
   ScheduleExamDto,
+  UpdateSectionDto,
   SubmitExamDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
@@ -104,6 +105,43 @@ export class ExamsController {
     @Body() dto: ReorderQuestionsDto,
   ) {
     return this.exams.reorderQuestions(id, sectionId, dto);
+  }
+
+  /**
+   * Amend a section. Marks live here, not on the question, so this is the only
+   * way to correct a paper's scoring before it is sat.
+   *
+   * Declared AFTER the literal `sections/reorder` routes above. Express
+   * matches in declaration order, so a `:sectionId` route placed first would
+   * swallow "reorder" as an id — and ParseUUIDPipe would then 400 every
+   * drag-and-drop reorder instead of performing it.
+   */
+  @Patch(':id/sections/:sectionId')
+  updateSection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sectionId', ParseUUIDPipe) sectionId: string,
+    @Body() dto: UpdateSectionDto,
+  ) {
+    return this.exams.updateSection(id, sectionId, dto);
+  }
+
+  /** Drop a section and its placements. The questions return to the bank. */
+  @Delete(':id/sections/:sectionId')
+  removeSection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sectionId', ParseUUIDPipe) sectionId: string,
+  ) {
+    return this.exams.removeSection(id, sectionId);
+  }
+
+  /** Take one question off the paper. The question itself is untouched. */
+  @Delete(':id/sections/:sectionId/questions/:questionId')
+  removeQuestion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('sectionId', ParseUUIDPipe) sectionId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+  ) {
+    return this.exams.removeQuestion(id, sectionId, questionId);
   }
 
   /**

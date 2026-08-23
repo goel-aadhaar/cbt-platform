@@ -54,19 +54,33 @@ function useMonitoring() {
   const loader = useCallback(async () => {
     const exams = await listExams();
     const live = exams.filter((e) => examDisplayStatus(e) === "LIVE");
+    /**
+     * Recently-concluded exams are fetched in full, not just named.
+     *
+     * The roster and the incident log used to exist only while an exam was
+     * running: the moment the window closed the exam dropped out of this
+     * screen and took both with it. That is exactly backwards — during the
+     * exam an invigilator is watching the hall, and it is afterwards that
+     * anyone asks who was flagged and what they did. Five is enough to cover
+     * "the one that just finished" without turning this into a report.
+     */
     const closed = exams
       .filter((e) => examDisplayStatus(e) === "COMPLETED")
+      .sort((a, b) => (b.endAt ?? "").localeCompare(a.endAt ?? ""))
       .slice(0, 5);
 
-    const monitors = await Promise.all(
-      live.map(async (e) => {
-        try {
-          return await fetchExamMonitor(e.id);
-        } catch {
-          return null;
-        }
-      }),
-    );
+    const load = async (e: (typeof exams)[number]) => {
+      try {
+        return await fetchExamMonitor(e.id);
+      } catch {
+        // One unreadable exam must not blank the whole screen.
+        return null;
+      }
+    };
+    const [monitors, closedMonitors] = await Promise.all([
+      Promise.all(live.map(load)),
+      Promise.all(closed.map(load)),
+    ]);
 
     const sessions: Session[] = monitors
       .filter((m): m is ExamMonitor => m !== null)
@@ -92,10 +106,20 @@ function useMonitoring() {
 
     return {
       sessions,
-      concluded: closed.map((e) => ({
-        name: e.title,
-        meta: `Ended ${relative(e.endAt)} · ${e._count.batches} batch(es)`,
-      })),
+      concluded: closed.map((e, i) => {
+        const monitor = closedMonitors[i];
+        const flagged = monitor
+          ? monitor.students.filter((st) => st.violations > 0 || st.flagged)
+              .length
+          : 0;
+        return {
+          id: e.id,
+          name: e.title,
+          meta: `Ended ${relative(e.endAt)} · ${e._count.batches} batch(es)`,
+          flagged,
+          monitor,
+        };
+      }),
     };
   }, []);
 
@@ -114,7 +138,8 @@ function useMonitoring() {
 
 export default function MonitoringPage() {
   const [detailOpen, setDetailOpen] = useState(false);
-  const [active, setActive] = useState<Session | null>(null);
+  /** Whichever exam's roster the drawer is showing — live or concluded. */
+  const [active, setActive] = useState<ExamMonitor | null>(null);
   const { data, loading, error, refreshedAt } = useMonitoring();
 
   const SESSIONS = useMemo(() => data?.sessions ?? [], [data]);
@@ -123,24 +148,37 @@ export default function MonitoringPage() {
   /** Flatten flagged / violating candidates across live exams into a feed. */
   const INCIDENTS = useMemo(
     () =>
-      SESSIONS.flatMap((s) =>
-        s.monitor.students
-          .filter((st) => st.violations > 0 || st.flagged)
-          .slice(0, 6)
-          .map((st) => ({
-            title: st.flagged
-              ? "Attempt flagged for review"
-              : `${st.violations} proctoring violation(s)`,
-            who: `${st.name}, ${s.name}`,
-            ago: relative(st.lastActivityAt),
-            action: st.flagged ? "Review Attempt" : "Monitor",
-            severe: st.flagged,
-            /** The exam this incident belongs to, so the row can open its
-             * monitor drawer — the action label used to be inert text. */
-            session: s,
-          })),
-      ).slice(0, 8),
-    [SESSIONS],
+      // Live sessions first, then the exams that have just finished — the feed
+      // is about who needs looking at, and an exam ending does not answer that.
+      [
+        ...SESSIONS,
+        ...CONCLUDED.filter((c) => c.monitor).map((c) => ({
+          examId: c.id,
+          name: c.name,
+          monitor: c.monitor!,
+          concluded: true,
+        })),
+      ]
+        .flatMap((s) =>
+          s.monitor.students
+            .filter((st) => st.violations > 0 || st.flagged)
+            .slice(0, 6)
+            .map((st) => ({
+              title: st.flagged
+                ? "Attempt flagged for review"
+                : `${st.violations} proctoring violation(s)`,
+              who: `${st.name}, ${s.name}`,
+              ago: relative(st.lastActivityAt),
+              action: st.flagged ? "Review Attempt" : "Monitor",
+              severe: st.flagged,
+              /** The exam this incident belongs to, so the row can open its
+               * monitor drawer — the action label used to be inert text. */
+              /** The roster to open when this incident is clicked. */
+              monitor: s.monitor,
+            })),
+        )
+        .slice(0, 8),
+    [SESSIONS, CONCLUDED],
   );
 
   const totalAttempting = SESSIONS.reduce((n, s) => n + s.attempting, 0);
@@ -204,7 +242,7 @@ export default function MonitoringPage() {
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  setActive(s);
+                  setActive(s.monitor);
                   setDetailOpen(true);
                 }}
                 className="flex cursor-pointer items-center gap-4 rounded-2xl border border-admin-line/60 border-l-4 border-l-admin bg-white p-5 hover:bg-admin-bg/40"
@@ -251,8 +289,8 @@ export default function MonitoringPage() {
             {/* Incident feed */}
             <div className="mt-2 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-lg font-bold text-admin-ink">
-                <AlertTriangleIcon className="size-5 text-danger" /> Live
-                Incident Feed
+                <AlertTriangleIcon className="size-5 text-danger" /> Incident
+                Feed
               </h3>
             </div>
             <div className="overflow-hidden rounded-2xl border border-admin-line/60 bg-white">
@@ -260,7 +298,7 @@ export default function MonitoringPage() {
                 <p className="p-6 text-center text-sm text-admin-muted">
                   {loading
                     ? "Loading incidents…"
-                    : "No proctoring incidents reported in live sessions."}
+                    : "No proctoring incidents in any live or recently-concluded exam."}
                 </p>
               )}
               {INCIDENTS.map((it, i) => (
@@ -285,7 +323,7 @@ export default function MonitoringPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setActive(it.session);
+                          setActive(it.monitor);
                           setDetailOpen(true);
                         }}
                         className="ml-1 font-sans font-semibold text-admin-2 underline-offset-2 hover:underline"
@@ -318,18 +356,43 @@ export default function MonitoringPage() {
                   </p>
                 )}
                 {CONCLUDED.map((c) => (
-                  <div
-                    key={c.name}
-                    className="flex items-center justify-between rounded-xl border border-admin-line/60 bg-white p-4"
+                  <button
+                    key={c.id}
+                    type="button"
+                    disabled={!c.monitor}
+                    onClick={() => {
+                      if (!c.monitor) return;
+                      setActive(c.monitor);
+                      setDetailOpen(true);
+                    }}
+                    title={
+                      c.monitor
+                        ? "Open the participant roster"
+                        : "Roster unavailable for this exam"
+                    }
+                    className="flex w-full items-center justify-between rounded-xl border border-admin-line/60 bg-white p-4 text-left enabled:hover:border-admin/50 enabled:hover:bg-admin/5 disabled:opacity-60"
                   >
-                    <div>
-                      <p className="font-bold text-admin-ink">{c.name}</p>
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-admin-ink">
+                        {c.name}
+                      </p>
                       <p className="text-xs text-admin-subtle">{c.meta}</p>
                     </div>
-                    {/* The external-link icon that used to sit here implied a
-                        destination these rows do not have — removed rather
-                        than left as a control that does nothing when clicked. */}
-                  </div>
+                    {/*
+                      A concluded exam is now a real destination: its roster and
+                      violations are exactly what gets asked about after the
+                      hall empties, and they used to disappear with the window.
+                    */}
+                    <span className="flex shrink-0 items-center gap-2">
+                      {c.flagged > 0 && (
+                        <span className="flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-[11px] font-bold text-danger">
+                          <AlertTriangleIcon className="size-3" />
+                          {c.flagged}
+                        </span>
+                      )}
+                      <ChevronRightIcon className="size-5 text-admin-muted" />
+                    </span>
+                  </button>
                 ))}
               </div>
             </section>
@@ -340,7 +403,7 @@ export default function MonitoringPage() {
       <MonitorDetailDrawer
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
-        monitor={active?.monitor}
+        monitor={active ?? undefined}
       />
     </AdminShell>
   );

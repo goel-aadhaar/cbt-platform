@@ -2,7 +2,13 @@ import { ApiError, apiFetch } from "./api";
 import { getToken } from "./auth";
 import type { Paginated } from "./students";
 
-export type QuestionStatus = "DRAFT" | "REVIEW" | "APPROVED" | "ARCHIVED";
+export type QuestionStatus =
+  | "DRAFT"
+  | "REVIEW"
+  | "APPROVED"
+  /** Sent back by an admin; editable and re-submittable exactly like a draft. */
+  | "REJECTED"
+  | "ARCHIVED";
 export type QuestionType = "MCQ" | "MSQ" | "INTEGER";
 export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 

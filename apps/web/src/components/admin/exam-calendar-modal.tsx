@@ -61,9 +61,37 @@ export function ExamCalendarModal({
   onOpenExam: (examId: string) => void;
 }) {
   const today = new Date();
-  const [viewMonth, setViewMonth] = useState(
-    new Date(today.getFullYear(), today.getMonth(), 1),
-  );
+  /**
+   * Open on the month the exams are actually in.
+   *
+   * Opening on "today" is only right when something is scheduled around now.
+   * A calendar that opens on an empty month is indistinguishable from one that
+   * is broken, and the fix — paging back through months to find anything — is
+   * the work the calendar was supposed to save.
+   */
+  const [viewMonth, setViewMonth] = useState(() => {
+    const scheduled = exams
+      .map((e) => (e.startAt ? new Date(e.startAt) : null))
+      .filter((d): d is Date => d !== null);
+    if (scheduled.length === 0) {
+      return new Date(today.getFullYear(), today.getMonth(), 1);
+    }
+    const thisMonth = scheduled.some(
+      (d) =>
+        d.getFullYear() === today.getFullYear() &&
+        d.getMonth() === today.getMonth(),
+    );
+    if (thisMonth) return new Date(today.getFullYear(), today.getMonth(), 1);
+    // Otherwise the nearest month to now, in either direction — the next exam
+    // if there is one, the most recent if everything is behind us.
+    const nearest = scheduled.reduce((best, d) =>
+      Math.abs(d.getTime() - today.getTime()) <
+      Math.abs(best.getTime() - today.getTime())
+        ? d
+        : best,
+    );
+    return new Date(nearest.getFullYear(), nearest.getMonth(), 1);
+  });
   const [selected, setSelected] = useState<Date>(today);
 
   const byDay = useMemo(() => {
@@ -77,6 +105,9 @@ export function ExamCalendarModal({
     }
     return map;
   }, [exams]);
+
+  /** Exams the grid cannot place, because they have no window yet. */
+  const unscheduled = exams.filter((e) => !e.startAt);
 
   if (!open) return null;
 
@@ -159,31 +190,60 @@ export function ExamCalendarModal({
                   key={d.toISOString()}
                   type="button"
                   onClick={() => setSelected(d)}
-                  className={`flex min-h-20 flex-col items-start gap-1 bg-white p-2 text-left hover:bg-admin-bg/60 ${
-                    isSelected ? "ring-2 ring-inset ring-admin" : ""
-                  } ${!inMonth ? "opacity-40" : ""}`}
+                  aria-label={`${d.toDateString()}${
+                    dayExams.length
+                      ? `, ${dayExams.length} exam(s)`
+                      : ", no exams"
+                  }`}
+                  /* A day with exams is tinted, not just dotted. Six-pixel dots
+                     on a white cell were technically present and effectively
+                     invisible, which is the same as the calendar being empty. */
+                  className={`flex min-h-24 flex-col items-stretch gap-1 p-2 text-left transition-colors ${
+                    dayExams.length > 0
+                      ? "bg-admin-mint/25 hover:bg-admin-mint/40"
+                      : "bg-white hover:bg-admin-bg/60"
+                  } ${isSelected ? "ring-2 ring-inset ring-admin" : ""} ${
+                    !inMonth ? "opacity-40" : ""
+                  }`}
                 >
-                  <span
-                    className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold ${
-                      isToday ? "bg-admin text-white" : "text-admin-ink"
-                    }`}
-                  >
-                    {d.getDate()}
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {dayExams.slice(0, 4).map((e) => (
-                      <span
-                        key={e.id}
-                        title={e.title}
-                        className={`size-1.5 rounded-full ${EXAM_STATUS_DOT[examDisplayStatus(e)]}`}
-                      />
-                    ))}
-                    {dayExams.length > 4 && (
-                      <span className="text-[10px] font-semibold text-admin-subtle">
-                        +{dayExams.length - 4}
+                  <span className="flex items-center justify-between">
+                    <span
+                      className={`flex size-6 items-center justify-center rounded-full text-xs font-semibold ${
+                        isToday ? "bg-admin text-white" : "text-admin-ink"
+                      }`}
+                    >
+                      {d.getDate()}
+                    </span>
+                    {dayExams.length > 0 && (
+                      <span className="rounded-full bg-admin px-1.5 text-[10px] font-bold text-white">
+                        {dayExams.length}
                       </span>
                     )}
-                  </div>
+                  </span>
+
+                  {/* Named, not dotted: on a month grid the useful question is
+                      "which exam is that", and a colour alone cannot answer it. */}
+                  <span className="flex flex-col gap-0.5">
+                    {dayExams.slice(0, 2).map((e) => (
+                      <span
+                        key={e.id}
+                        title={`${e.title} — ${examDisplayStatus(e)}`}
+                        className="flex items-center gap-1"
+                      >
+                        <span
+                          className={`size-2 shrink-0 rounded-full ${EXAM_STATUS_DOT[examDisplayStatus(e)]}`}
+                        />
+                        <span className="truncate text-[10px] font-semibold text-admin-ink">
+                          {e.title}
+                        </span>
+                      </span>
+                    ))}
+                    {dayExams.length > 2 && (
+                      <span className="text-[10px] font-semibold text-admin-muted">
+                        +{dayExams.length - 2} more
+                      </span>
+                    )}
+                  </span>
                 </button>
               );
             })}
@@ -213,7 +273,8 @@ export function ExamCalendarModal({
               <p className="text-sm text-admin-muted">
                 No exams scheduled this day.
               </p>
-            ) : (
+            ) : null}
+            {selectedExams.length === 0 ? null : (
               <ul className="flex flex-col gap-3">
                 {selectedExams.map((e) => (
                   <li key={e.id}>
@@ -242,6 +303,63 @@ export function ExamCalendarModal({
                 ))}
               </ul>
             )}
+
+            {/*
+              An exam with no window never lands on a day, so without this it is
+              simply absent — and "my exam is missing from the calendar" reads as
+              a broken calendar rather than an unscheduled exam.
+            */}
+            {unscheduled.length > 0 && (
+              <div className="mt-5 border-t border-admin-line/60 pt-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                  Not scheduled yet ({unscheduled.length})
+                </p>
+                <ul className="mt-2 flex flex-col gap-1.5">
+                  {unscheduled.slice(0, 6).map((e) => (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenExam(e.id)}
+                        className="w-full truncate text-left text-xs text-admin-muted hover:text-admin hover:underline"
+                      >
+                        {e.title}
+                      </button>
+                    </li>
+                  ))}
+                  {unscheduled.length > 6 && (
+                    <li className="text-xs text-admin-subtle">
+                      +{unscheduled.length - 6} more
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
+
+            <div className="mt-5 border-t border-admin-line/60 pt-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+                Legend
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5">
+                {(
+                  [
+                    "SCHEDULED",
+                    "LIVE",
+                    "COMPLETED",
+                    "REVIEW",
+                    "REJECTED",
+                  ] as const
+                ).map((st) => (
+                  <span key={st} className="flex items-center gap-1.5">
+                    <span
+                      className={`size-2 rounded-full ${EXAM_STATUS_DOT[st]}`}
+                    />
+                    <span className="text-[11px] text-admin-muted">
+                      {st === "COMPLETED" ? "Completed" : st.toLowerCase()}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

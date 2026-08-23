@@ -22,6 +22,8 @@ export interface StudentAnnouncement {
   category: AnnouncementCategory;
   pinned: boolean;
   publishedAt: string;
+  /** Media keys for downloadable files on this notice. */
+  attachmentKeys: string[];
   createdBy: { name: string };
 }
 
@@ -67,6 +69,8 @@ export interface CreateAnnouncementInput {
   /** Publish straight away; omit to save as a draft. */
   publish?: boolean;
   expiresAt?: string;
+  /** Media keys of uploaded documents to attach. */
+  attachmentKeys?: string[];
 }
 
 export function createAnnouncement(
@@ -96,6 +100,8 @@ export interface UpdateAnnouncementInput {
   batchId?: string | null;
   pinned?: boolean;
   expiresAt?: string | null;
+  /** Omit to leave attachments alone; `[]` clears them. */
+  attachmentKeys?: string[];
 }
 
 export function updateAnnouncement(

@@ -9,6 +9,10 @@ import {
   type QuestionScoring,
 } from "@/lib/admin";
 
+import { LoadingSpinner } from "@/components/loading-spinner";
+
+import { ManualGradingDrawer } from "./manual-grading-drawer";
+
 /**
  * Answer-key corrections (§2.9).
  *
@@ -61,6 +65,8 @@ export function AnswerKeyPanel({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The question being graded by hand, if any. */
+  const [grading, setGrading] = useState<ExamQuestionScoringRow | null>(null);
 
   const load = useCallback(async () => {
     const data = await listQuestionScoring(examId);
@@ -96,9 +102,13 @@ export function AnswerKeyPanel({
     try {
       const res = await setQuestionScoring(examId, row.questionId, next);
       setNotice(
-        res.recalculated
-          ? `Q${row.order + 1} set to ${next.toLowerCase()} — ${res.recalculated.evaluated} result(s) recalculated, max now ${res.recalculated.maxScore}.`
-          : `Q${row.order + 1} set to ${next.toLowerCase()}. It will apply when the exam is evaluated.`,
+        next === "MANUAL"
+          ? // Say the consequence out loud. Manual takes the question out of
+            // auto-scoring, so leaving it here scores everyone zero on it.
+            `Q${row.order + 1} is now graded by hand. Until you award marks, every candidate scores 0 on it — use Grade to enter them.`
+          : res.recalculated
+            ? `Q${row.order + 1} set to ${next.toLowerCase()} — ${res.recalculated.evaluated} result(s) recalculated, max now ${res.recalculated.maxScore}.`
+            : `Q${row.order + 1} set to ${next.toLowerCase()}. It will apply when the exam is evaluated.`,
       );
       await load();
       onChanged?.();
@@ -185,9 +195,32 @@ export function AnswerKeyPanel({
                 {r.scoring}
               </span>
 
+              {r.scoring === "MANUAL" && (
+                <button
+                  type="button"
+                  onClick={() => setGrading(r)}
+                  className="shrink-0 rounded-lg bg-admin px-3 py-1.5 text-xs font-bold text-white hover:opacity-95"
+                >
+                  Grade
+                </button>
+              )}
+
+              {/*
+                A correction re-scores the whole paper, so every row's select is
+                locked while one is applied — but until now nothing said WHICH
+                row was doing it, and the panel just greyed out. This names it.
+              */}
+              {busy === r.questionId && (
+                <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-admin">
+                  <LoadingSpinner size={12} label="" />
+                  Applying…
+                </span>
+              )}
+
               <select
                 value={r.scoring}
                 disabled={busy !== null}
+                aria-busy={busy === r.questionId || undefined}
                 onChange={(e) =>
                   void apply(r, e.target.value as QuestionScoring)
                 }
@@ -205,6 +238,20 @@ export function AnswerKeyPanel({
             </div>
           ))}
         </div>
+      )}
+
+      {grading && (
+        <ManualGradingDrawer
+          examId={examId}
+          questionId={grading.questionId}
+          questionNumber={grading.order + 1}
+          onClose={() => setGrading(null)}
+          onGraded={(message) => {
+            setNotice(message);
+            void load();
+            onChanged?.();
+          }}
+        />
       )}
     </section>
   );

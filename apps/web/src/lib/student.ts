@@ -363,6 +363,83 @@ export async function fetchAttemptCohort(
   return apiFetch<AttemptCohort>(`/attempts/${attemptId}/cohort`, { token });
 }
 
+/* ------------------------------------------------------------------ *
+ * LEADERBOARD — the one student payload that names other candidates   *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Peers arrive already abbreviated ("Priya S.") and without roll numbers; the
+ * caller's own row carries their full name and `you: true`. That shaping is the
+ * server's job, not this client's — there is nothing here to re-anonymise, and
+ * nothing that could accidentally render more than the server chose to send.
+ */
+export interface LeaderboardEntry {
+  rank: number | null;
+  you: boolean;
+  name: string;
+  initials: string;
+  totalScore: number;
+  maxScore: number;
+  percentile: number | null;
+  batch: string | null;
+  sections: SectionScore[];
+}
+
+export interface SubjectTopper {
+  sectionId: string;
+  subject: string;
+  student: string;
+  initials: string;
+  score: number;
+  maxScore: number | null;
+}
+
+export type LeaderboardScope = "overall" | "batch";
+
+/** Withheld when the cohort is too small for a ranking to be an aggregate. */
+export interface LeaderboardUnavailable {
+  available: false;
+  cohortSize: number;
+  minimum: number;
+  scope: "OVERALL" | "BATCH";
+  exam: { id: string; title: string };
+}
+
+export interface LeaderboardAvailable {
+  available: true;
+  cohortSize: number;
+  scope: "OVERALL" | "BATCH";
+  /**
+   * Which cohort `percentile` counts — batch-scoped boards recompute it from
+   * the batch's own scores, so a rank and a percentile in the same row always
+   * describe the same set of candidates.
+   */
+  percentileBasis: "OVERALL" | "BATCH";
+  exam: { id: string; title: string };
+  champion: LeaderboardEntry | null;
+  podium: LeaderboardEntry[];
+  subjectToppers: SubjectTopper[];
+  rows: LeaderboardEntry[];
+  me: LeaderboardEntry | null;
+  truncated: boolean;
+}
+
+export type Leaderboard = LeaderboardAvailable | LeaderboardUnavailable;
+
+/** GET /attempts/:id/leaderboard — published results only. */
+export async function fetchAttemptLeaderboard(
+  attemptId: string,
+  scope: LeaderboardScope = "overall",
+  limit = 10,
+): Promise<Leaderboard> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<Leaderboard>(
+    `/attempts/${attemptId}/leaderboard?scope=${scope}&limit=${limit}`,
+    { token },
+  );
+}
+
 export interface HistoryItem {
   totalScore: number;
   maxScore: number;

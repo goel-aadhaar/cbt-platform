@@ -31,6 +31,13 @@ model Announcement {
   /// Required when `audience` is BATCH; ignored otherwise.
   batchId  String?              @map("batch_id") @db.Uuid
 
+  /// Media keys for files attached to this notice (§2.12).
+  ///
+  /// A plain String[] rather than a relation, matching Question.mediaKeys: the
+  /// files live in the media library and are addressed by key, so moving the
+  /// bucket or putting a CDN in front never invalidates a notice.
+  attachmentKeys String[] @default([]) @map("attachment_keys")
+
   /// Pinned notices sort above the rest regardless of date.
   pinned Boolean @default(false)
 

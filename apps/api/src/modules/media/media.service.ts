@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -20,8 +21,8 @@ import { MediaStoragePort } from './ports/media-storage.port';
  * a leak.
  */
 
-/** Diagrams and photographs only — questions embed images, nothing else. */
-const ALLOWED = new Set([
+/** Diagrams and photographs — what a question can embed and render. */
+const ALLOWED_IMAGES = new Set([
   'image/png',
   'image/jpeg',
   'image/webp',
@@ -29,7 +30,39 @@ const ALLOWED = new Set([
   'image/svg+xml',
 ]);
 
-const MAX_BYTES = 5 * 1024 * 1024;
+/**
+ * Documents — what a notice or a resource can carry.
+ *
+ * Deliberately a short list of things a browser or a phone can open without
+ * help. Anything executable is absent on purpose: these files are handed
+ * straight to students, so the upload is the boundary at which "an admin can
+ * distribute anything" has to stop.
+ */
+const ALLOWED_DOCUMENTS = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+  // A scan of a worksheet is a photograph, and refusing it here would send
+  // people back to the question picker, which is the wrong place for it.
+  'image/png',
+  'image/jpeg',
+]);
+
+/** A diagram renders inline, so it stays small. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** A document is downloaded, not rendered; a scanned paper runs large. */
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
+const LABELS: Record<MediaKind, string> = {
+  IMAGE: 'PNG, JPEG, WebP, GIF or SVG',
+  DOCUMENT: 'PDF, Word, Excel, PowerPoint, TXT, CSV, PNG or JPEG',
+};
 
 @Injectable()
 export class MediaService {
@@ -55,17 +88,26 @@ export class MediaService {
       buffer: Buffer;
     },
     altText?: string,
+    kind: MediaKind = MediaKind.IMAGE,
   ) {
     const { instituteId, userId } = this.ctx();
 
-    if (!ALLOWED.has(file.mimetype)) {
+    const allowed =
+      kind === MediaKind.DOCUMENT ? ALLOWED_DOCUMENTS : ALLOWED_IMAGES;
+    const maxBytes =
+      kind === MediaKind.DOCUMENT ? MAX_DOCUMENT_BYTES : MAX_IMAGE_BYTES;
+    const noun = kind === MediaKind.DOCUMENT ? 'File' : 'Image';
+
+    if (!allowed.has(file.mimetype)) {
       throw new BadRequestException(
-        `Unsupported image type "${file.mimetype}". Allowed: PNG, JPEG, WebP, GIF, SVG.`,
+        `${noun} type "${file.mimetype}" is not accepted here. ` +
+          `Allowed: ${LABELS[kind]}.`,
       );
     }
-    if (file.size > MAX_BYTES) {
+    if (file.size > maxBytes) {
       throw new BadRequestException(
-        `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_BYTES / 1024 / 1024} MB.`,
+        `${noun} is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ` +
+          `${maxBytes / 1024 / 1024} MB.`,
       );
     }
 
@@ -82,6 +124,7 @@ export class MediaService {
         key,
         fileName: file.originalname,
         mimeType: file.mimetype,
+        kind,
         size: file.size,
         altText: altText ?? null,
         uploadedById: userId,
@@ -110,7 +153,7 @@ export class MediaService {
     const { instituteId } = this.ctx();
     const row = await this.prisma.media.findFirst({
       where: { instituteId, key },
-      select: { key: true, mimeType: true, fileName: true },
+      select: { key: true, mimeType: true, fileName: true, kind: true },
     });
     if (!row) throw new NotFoundException('Media not found');
     await this.assertReadableByCaller(row.key);
@@ -141,7 +184,7 @@ export class MediaService {
 
     const student = await this.prisma.student.findUnique({
       where: { userId: ctx.userId },
-      select: { id: true },
+      select: { id: true, batchId: true },
     });
     if (!student) throw new ForbiddenException('Not a student account');
 
@@ -156,7 +199,55 @@ export class MediaService {
       },
       select: { id: true },
     });
-    if (!entitled) throw new NotFoundException('Media not found');
+    if (entitled) return;
+
+    /**
+     * Or an attachment on a notice actually addressed to them.
+     *
+     * The same three conditions the student announcement feed applies, and for
+     * the same reason: a notice that is still a draft, has expired, or is aimed
+     * at another batch is not theirs to read, and neither is the file on it.
+     * Repeating the rule here rather than trusting the feed is the point —
+     * this route is reachable with nothing but a guessed key.
+     */
+    const now = new Date();
+    const onATheirNotice = await this.prisma.announcement.findFirst({
+      where: {
+        instituteId: ctx.instituteId ?? undefined,
+        attachmentKeys: { has: key },
+        publishedAt: { not: null, lte: now },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        AND: [
+          {
+            OR: [
+              { audience: 'ALL_STUDENTS' },
+              { audience: 'BATCH', batchId: student.batchId },
+            ],
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    if (onATheirNotice) return;
+
+    /**
+     * Or study material shared with their batch.
+     *
+     * The batch is the whole permission: a resource is addressed to exactly
+     * one, and `Resource.batchId` is non-nullable precisely so this check has
+     * no ambiguous case to handle.
+     */
+    const sharedWithTheirBatch = await this.prisma.resource.findFirst({
+      where: {
+        instituteId: ctx.instituteId ?? undefined,
+        mediaKey: key,
+        batchId: student.batchId,
+      },
+      select: { id: true },
+    });
+    if (sharedWithTheirBatch) return;
+
+    throw new NotFoundException('Media not found');
   }
 
   async remove(id: string, confirm?: boolean) {

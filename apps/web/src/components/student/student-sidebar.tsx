@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 
 import {
@@ -34,6 +36,7 @@ const NAV: NavItem[] = [
   { label: "Home", href: "/student", icon: HomeIcon, exact: true },
   { label: "Exams", href: "/student/exams", icon: FileTextIcon },
   { label: "Practice Library", href: "/student/practice", icon: BookOpenIcon },
+  { label: "Resources", href: "/student/resources", icon: FileTextIcon },
   {
     label: "Updates & Announcements",
     href: "/student/updates",
@@ -56,10 +59,16 @@ export function StudentSidebar() {
     () => null,
   );
 
-  async function handleLogout() {
-    await logout();
-    router.replace("/login");
-  }
+  /**
+   * Signing out revokes the session server-side, so it is a round trip. Left
+   * bare the button looked inert and a second click revoked a session that had
+   * already gone. The redirect runs either way — a failed revoke should still
+   * get the candidate off the screen.
+   */
+  const signOut = useAsyncAction(logout, {
+    onSuccess: () => router.replace("/login"),
+    onError: () => router.replace("/login"),
+  });
 
   const displayName = user?.name ?? "Candidate";
   const initials = displayName
@@ -133,14 +142,15 @@ export function StudentSidebar() {
             </span>
           </span>
         </Link>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 py-2 text-xs font-semibold text-white hover:bg-white/20"
+        <ActionButton
+          loading={signOut.pending}
+          loadingText="Signing out…"
+          onClick={() => void signOut.run()}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 py-2 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-70"
         >
           <LogOutIcon className="size-4" />
           Logout
-        </button>
+        </ActionButton>
       </div>
     </aside>
   );

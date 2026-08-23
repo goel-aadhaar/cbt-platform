@@ -26,6 +26,7 @@ import {
   UploadIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { QuestionFilterBar } from "@/components/admin/question-filters";
 import { addToPracticeLibrary, removeFromPracticeLibrary } from "@/lib/admin";
 import {
@@ -40,6 +41,7 @@ const STATUS_LABEL: Record<QuestionStatus, string> = {
   DRAFT: "Draft",
   REVIEW: "In Review",
   APPROVED: "Approved",
+  REJECTED: "Rejected Draft",
   ARCHIVED: "Archived",
 };
 
@@ -66,6 +68,16 @@ export default function QuestionBankPage() {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
   const [filters, setFilters] = useState<QuestionFilters>({});
+  /**
+   * Only the typed term is debounced. The dropdown filters resolve in a single
+   * change, so delaying those would be lag with nothing to gain; the search box
+   * is the one that used to fire a request per keystroke.
+   */
+  const debouncedSearch = useDebouncedValue(filters.search, 250);
+  const query = useMemo(
+    () => ({ ...filters, search: debouncedSearch }),
+    [filters, debouncedSearch],
+  );
   const [busyId, setBusyId] = useState<string | null>(null);
 
   /** Curate (or un-curate) a question for the student practice library. */
@@ -80,7 +92,7 @@ export default function QuestionBankPage() {
         await addToPracticeLibrary(q.id);
         setNotice("Added to the practice library — students can drill it now.");
       }
-      setTimeout(() => window.location.reload(), 800);
+      reload();
     } catch (e) {
       setNotice(
         e instanceof Error ? e.message : "Could not update the library.",
@@ -91,10 +103,17 @@ export default function QuestionBankPage() {
   }
 
   // Filters are applied server-side; `deps` re-runs the query when they change.
-  const { data, loading, error } = useAdminData(
-    () => listQuestions({ ...filters, limit: 200 }),
-    [JSON.stringify(filters)],
+  const { data, loading, error, refreshing, reload } = useAdminData(
+    () => listQuestions({ ...query, limit: 200 }),
+    [JSON.stringify(query)],
   );
+  /**
+   * True from the first keystroke until the matching results are on screen —
+   * both while the debounce is still settling and while the request runs, so
+   * the box never looks idle between the two.
+   */
+  const searchPending =
+    (filters.search ?? "") !== (debouncedSearch ?? "") || refreshing;
   const all = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
 
@@ -189,6 +208,7 @@ export default function QuestionBankPage() {
             <QuestionFilterBar
               value={filters}
               onChange={setFilters}
+              searching={searchPending}
               facetSource={facetSource}
               resultCount={all.length}
             />
@@ -288,8 +308,8 @@ export default function QuestionBankPage() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => {
-          setNotice("Questions imported — refreshing the bank.");
-          setTimeout(() => window.location.reload(), 800);
+          setNotice("Questions imported.");
+          reload();
         }}
       />
       <QuestionExportModal
@@ -311,7 +331,7 @@ export default function QuestionBankPage() {
               ? "Question updated."
               : "Question saved as a draft.",
           );
-          setTimeout(() => window.location.reload(), 800);
+          reload();
         }}
       />
       <QuestionDetailDrawer
@@ -326,7 +346,7 @@ export default function QuestionBankPage() {
         onActioned={(action, status) => {
           setNotice(`Question ${action}d — now ${status}.`);
           // Counts and tab filters derive from the fetched list, so re-read it.
-          setTimeout(() => window.location.reload(), 800);
+          reload();
         }}
       />
     </AdminShell>
@@ -520,6 +540,7 @@ function StatusPill({ status }: { status: QuestionStatus }) {
     APPROVED: "bg-admin-mint/50 text-admin",
     REVIEW: "bg-warn/15 text-[#c77700]",
     DRAFT: "bg-admin-surface text-admin-muted",
+    REJECTED: "bg-danger-soft text-danger",
     ARCHIVED: "bg-danger/10 text-danger",
   };
   return (

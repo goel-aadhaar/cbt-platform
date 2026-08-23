@@ -28,8 +28,10 @@ export default function StudentReportsPage() {
   const [tab, setTab] = useState<Tab>("overall");
   return (
     <StudentShell breadcrumb={["Performance Reports"]}>
-      {/* Tabs */}
-      <div className="mb-6 flex gap-6 border-b border-admin-line/60">
+      {/* Tabs. The leaderboard is a sibling page rather than a fourth tab: it
+          is per-paper and has its own controls, so it does not share this
+          page's state. */}
+      <div className="mb-6 flex items-center gap-6 border-b border-admin-line/60">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -44,6 +46,13 @@ export default function StudentReportsPage() {
             {t.label}
           </button>
         ))}
+        <Link
+          href="/student/reports/leaderboard"
+          className="ml-auto mb-3 inline-flex items-center gap-1.5 rounded-full bg-admin px-4 py-2 text-xs font-bold text-white hover:opacity-95"
+        >
+          <TrophyIcon className="size-3.5" />
+          Leaderboard
+        </Link>
       </div>
 
       {tab === "overall" && <OverallTab />}

@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
+import { SetManualScoresDto } from './dto/set-manual-scores.dto';
 import { SetScoringDto } from './dto/set-scoring.dto';
 import { ResultsService } from './results.service';
 
@@ -94,6 +95,37 @@ export class AdminResultsController {
     @Body() dto: SetScoringDto,
   ) {
     return this.results.setQuestionScoring(id, questionId, dto.override);
+  }
+
+  /**
+   * Manual evaluation (§2.5): the grading list for one question — every
+   * candidate, their submitted answer, and what they have been awarded so far.
+   * A read, so it follows the same ADMIN+TEACHER gate as the hit-rate list and
+   * is batch-scoped for a teacher.
+   */
+  @Roles(Role.ADMIN, Role.TEACHER)
+  @Get(':id/questions/:questionId/manual')
+  manualRoster(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+  ) {
+    return this.results.manualRoster(id, questionId);
+  }
+
+  /**
+   * Manual evaluation (§2.5): award marks to many candidates in one call.
+   *
+   * Declared before the single-candidate route below — Nest matches in
+   * declaration order, the same reason `/students/import` precedes
+   * `/students/:id`.
+   */
+  @Put(':id/results/manual/bulk')
+  @HttpCode(HttpStatus.OK)
+  setManualScores(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetManualScoresDto,
+  ) {
+    return this.results.setManualScores(id, dto);
   }
 
   /** Manual evaluation (§2.5): award marks to one candidate for one question. */

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -20,13 +21,14 @@ import { PrismaService } from '../../database/prisma.service';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
+import { SetManualScoresDto } from './dto/set-manual-scores.dto';
 import {
   assignCompetitionRanks,
   isCorrect,
   percentilesByScore,
 } from './scoring';
 
-interface SectionScore {
+export interface SectionScore {
   sectionId: string;
   name: string;
   score: number;
@@ -50,6 +52,44 @@ interface SectionScore {
  * candidates' scores too far — see {@link ResultsService.getCohortForStudent}.
  */
 const COHORT_MIN = 5;
+
+/**
+ * "Priya Sharma" -> "Priya S."
+ *
+ * How a peer is named on the leaderboard. A surname initial is enough for a
+ * classmate to recognise who is meant without the board becoming a published
+ * list of full names attached to scores. A single-word name is left as it is —
+ * there is nothing to abbreviate, and truncating it would just be wrong.
+ */
+function abbreviateName(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
+
+/** "Akash Verma" -> "AV". Falls back to one letter for a single-word name. */
+function initialsOf(full: string): string {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/**
+ * `Result.sectionScores` is Json, so it can be anything the column happens to
+ * hold — including null for a row written before sections were recorded.
+ * Readers must not assume an array.
+ */
+function readSectionScores(value: unknown): SectionScore[] {
+  if (!Array.isArray(value)) return [];
+  // Narrowed through `unknown[]` rather than trusting the `any[]` Prisma hands
+  // back for a Json column: an `any` here would quietly switch off type
+  // checking on every field read downstream.
+  return (value as unknown[]).filter(
+    (v): v is SectionScore =>
+      typeof v === 'object' && v !== null && 'sectionId' in v && 'score' in v,
+  );
+}
 
 interface ScoredAttempt {
   attemptId: string;
@@ -588,6 +628,205 @@ export class ResultsService {
     };
   }
 
+  /**
+   * The grading list for one MANUAL question (§2.5).
+   *
+   * Setting a question to MANUAL takes it out of auto-scoring, which means
+   * every candidate scores zero on it until somebody awards marks by hand.
+   * That is the whole reason this exists: without a roster showing each
+   * candidate's actual answer, "manual evaluation" is a switch that silently
+   * zeroes a question and offers no way to undo the damage.
+   *
+   * Batch-scoped for a TEACHER, exactly like the hit-rate list — a teacher must
+   * not read another batch's answers, and grading is the most revealing view of
+   * an answer there is.
+   */
+  async manualRoster(examId: string, questionId: string) {
+    const instituteId = this.instituteId();
+    const { batchIds } = await this.requireExam(examId);
+
+    const examQuestion = await this.prisma.examQuestion.findFirst({
+      where: { examId, questionId, instituteId },
+      select: {
+        scoring: true,
+        section: { select: { name: true, marksCorrect: true } },
+        question: {
+          select: {
+            id: true,
+            statement: true,
+            type: true,
+            marks: true,
+            answerKey: true,
+          },
+        },
+      },
+    });
+    if (!examQuestion) {
+      throw new NotFoundException('Question is not part of this exam');
+    }
+
+    const attempts = await this.prisma.attempt.findMany({
+      where: {
+        examId,
+        instituteId,
+        status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] },
+        ...(batchIds && { student: { batchId: { in: batchIds } } }),
+      },
+      select: {
+        id: true,
+        student: {
+          select: {
+            rollNumber: true,
+            user: { select: { name: true } },
+            batch: { select: { id: true, name: true } },
+          },
+        },
+        responses: {
+          where: { questionId },
+          select: { answer: true, status: true },
+        },
+      },
+      orderBy: { student: { rollNumber: 'asc' } },
+    });
+
+    const awards = await this.prisma.manualScore.findMany({
+      where: { examId, instituteId, questionId },
+      select: { attemptId: true, marks: true },
+    });
+    const awardByAttempt = new Map(awards.map((a) => [a.attemptId, a.marks]));
+
+    return {
+      questionId,
+      scoring: examQuestion.scoring,
+      statement: examQuestion.question.statement,
+      type: examQuestion.question.type,
+      answerKey: examQuestion.question.answerKey,
+      section: examQuestion.section?.name ?? null,
+      /**
+       * The section's own marks win over the question's default: an exam can
+       * re-mark a question when it attaches it, and grading against the wrong
+       * ceiling is how a candidate ends up with more marks than the paper has.
+       */
+      maxMarks:
+        examQuestion.section?.marksCorrect ?? examQuestion.question.marks,
+      items: attempts.map((a) => ({
+        attemptId: a.id,
+        student: {
+          name: a.student.user.name,
+          rollNumber: a.student.rollNumber,
+          batch: a.student.batch?.name ?? null,
+        },
+        // `responses` is filtered to this question, so there is at most one.
+        answer: a.responses[0]?.answer ?? null,
+        status: a.responses[0]?.status ?? 'NOT_VISITED',
+        // null, not 0 — "not graded yet" and "graded zero" are different
+        // states, and only the grader can tell them apart.
+        awarded: awardByAttempt.get(a.id) ?? null,
+      })),
+    };
+  }
+
+  /**
+   * Award manual marks to many candidates at once (§2.5).
+   *
+   * The per-candidate {@link setManualScore} re-evaluates the whole exam on
+   * every call, which is correct but unusable for grading: a 200-candidate
+   * question would run 200 full evaluations, each one re-ranking every
+   * candidate. This writes every award in one transaction and evaluates once
+   * at the end, so ranks move a single time, from one consistent state to the
+   * next.
+   */
+  async setManualScores(examId: string, dto: SetManualScoresDto) {
+    const instituteId = this.instituteId();
+    const { batchIds } = await this.requireExam(examId);
+
+    const examQuestion = await this.prisma.examQuestion.findFirst({
+      where: { examId, questionId: dto.questionId, instituteId },
+      select: {
+        scoring: true,
+        section: { select: { marksCorrect: true } },
+        question: { select: { marks: true } },
+      },
+    });
+    if (!examQuestion) {
+      throw new NotFoundException('Question is not part of this exam');
+    }
+    if (examQuestion.scoring !== 'MANUAL') {
+      throw new BadRequestException(
+        'That question is not set to manual evaluation, so awarding marks by ' +
+          'hand would be overwritten the next time the exam is scored. Set it ' +
+          'to Manual first.',
+      );
+    }
+
+    const max =
+      examQuestion.section?.marksCorrect ?? examQuestion.question.marks;
+    const over = dto.awards.filter((a) => a.marks > max || a.marks < 0);
+    if (over.length > 0) {
+      throw new BadRequestException(
+        `Marks must be between 0 and ${max} for this question. ` +
+          `${over.length} award(s) were outside that range.`,
+      );
+    }
+
+    /**
+     * Every attempt must belong to this exam AND be in scope. Checked as a set
+     * rather than per row: a single query settles it, and a request naming one
+     * attempt from another batch is rejected whole rather than half-applied.
+     */
+    const attemptIds = [...new Set(dto.awards.map((a) => a.attemptId))];
+    const valid = await this.prisma.attempt.findMany({
+      where: {
+        id: { in: attemptIds },
+        examId,
+        instituteId,
+        ...(batchIds && { student: { batchId: { in: batchIds } } }),
+      },
+      select: { id: true },
+    });
+    if (valid.length !== attemptIds.length) {
+      throw new NotFoundException(
+        'One or more of those candidates are not part of this exam.',
+      );
+    }
+
+    await this.prisma.$transaction(
+      dto.awards.map((a) =>
+        this.prisma.manualScore.upsert({
+          where: {
+            attemptId_questionId: {
+              attemptId: a.attemptId,
+              questionId: dto.questionId,
+            },
+          },
+          create: {
+            examId,
+            instituteId,
+            attemptId: a.attemptId,
+            questionId: dto.questionId,
+            marks: a.marks,
+          },
+          update: { marks: a.marks },
+        }),
+      ),
+    );
+
+    // Same treatment as every other correction: apply now, and never pull a
+    // published result back into review because it was re-scored.
+    const recalculated = await this.evaluate(examId, {
+      preservePublished: true,
+    });
+
+    return {
+      questionId: dto.questionId,
+      graded: dto.awards.length,
+      recalculated: {
+        evaluated: recalculated.evaluated,
+        maxScore: recalculated.maxScore,
+      },
+    };
+  }
+
   /** Publish results (§2.8). Pass `batchId` to release one batch (BATCH_WISE). */
   async publish(examId: string, batchId?: string) {
     await this.requireExam(examId);
@@ -977,6 +1216,217 @@ export class ResultsService {
         name: acc.name,
         averageScore: acc.sum / acc.n,
       })),
+    };
+  }
+
+  /**
+   * Leaderboard for the paper this attempt belongs to (Figma: Performance
+   * Reports / Leaderboard).
+   *
+   * This is the one student-facing payload that names OTHER candidates, so the
+   * disclosure rules are the whole design of it:
+   *
+   *  - Peers appear as "Priya S." — given name plus surname initial, never a
+   *    full name and never a roll number. The caller sees their OWN name in
+   *    full, flagged `you`, which is what makes their row findable.
+   *  - Suppressed entirely below {@link COHORT_MIN}, for the same reason
+   *    {@link getCohortForStudent} is: in a cohort of three, "rank 2 scored
+   *    88%" is a named individual's result, whatever the label says.
+   *  - Gated on the CALLER's own result being published. A leaderboard is a
+   *    result, so it must not appear before results are released.
+   *  - Ranks come from the stored `overallRank` / `batchRank`, never recomputed
+   *    here, so the board can never disagree with the result page.
+   *
+   * `scope` picks which cohort the ranking is within: the whole institute, or
+   * the caller's own batch.
+   */
+  async getLeaderboardForStudent(
+    attemptId: string,
+    scope: 'OVERALL' | 'BATCH' = 'OVERALL',
+    limit = 10,
+  ) {
+    const ctx = this.tenant.get();
+    if (!ctx?.instituteId) {
+      throw new ForbiddenException('No institute in the current context');
+    }
+    const student = await this.prisma.student.findUnique({
+      where: { userId: ctx.userId },
+      select: { id: true },
+    });
+    if (!student) throw new ForbiddenException('Not a student account');
+
+    const mine = await this.prisma.result.findFirst({
+      where: { attemptId, studentId: student.id, published: true },
+      select: { examId: true, batchId: true, maxScore: true },
+    });
+    if (!mine) throw new NotFoundException('Result not available yet');
+
+    const exam = await this.prisma.exam.findFirst({
+      where: { id: mine.examId, instituteId: ctx.instituteId },
+      select: { id: true, title: true },
+    });
+    if (!exam) throw new NotFoundException('Exam not found');
+
+    const rows = await this.prisma.result.findMany({
+      where: {
+        examId: mine.examId,
+        instituteId: ctx.instituteId,
+        ...(scope === 'BATCH' ? { batchId: mine.batchId } : {}),
+      },
+      select: {
+        studentId: true,
+        totalScore: true,
+        maxScore: true,
+        percentile: true,
+        overallRank: true,
+        batchRank: true,
+        sectionScores: true,
+        batch: { select: { name: true } },
+        student: {
+          select: { id: true, user: { select: { name: true } } },
+        },
+      },
+    });
+
+    const cohortSize = rows.length;
+    if (cohortSize < COHORT_MIN) {
+      return {
+        available: false as const,
+        cohortSize,
+        minimum: COHORT_MIN,
+        scope,
+        exam,
+      };
+    }
+
+    const rank = (r: (typeof rows)[number]) =>
+      scope === 'BATCH' ? r.batchRank : r.overallRank;
+
+    /**
+     * Percentile is recomputed for a batch-scoped board.
+     *
+     * `Result.percentile` is always institute-wide, so showing it beside a
+     * batch rank put two different cohorts in the same row — "4th in your
+     * batch, 78th percentile" where the percentile counted candidates the rank
+     * had excluded. Recomputed here from the same scores the ranking uses, with
+     * the same function `evaluate` uses, so the two numbers always describe one
+     * cohort. Overall scope keeps the stored value, which is what the
+     * candidate's own result page shows.
+     */
+    const batchPercentiles =
+      scope === 'BATCH'
+        ? percentilesByScore(rows.map((r) => r.totalScore))
+        : null;
+    const percentileFor = (r: (typeof rows)[number]) =>
+      batchPercentiles
+        ? (batchPercentiles.get(r.totalScore) ?? null)
+        : r.percentile;
+
+    const entries = rows
+      .map((r) => {
+        const isMe = r.studentId === student.id;
+        return {
+          rank: rank(r) ?? null,
+          you: isMe,
+          // Full name for the caller, abbreviated for everyone else.
+          name: isMe
+            ? r.student.user.name
+            : abbreviateName(r.student.user.name),
+          initials: initialsOf(r.student.user.name),
+          totalScore: r.totalScore,
+          maxScore: r.maxScore,
+          percentile: percentileFor(r),
+          batch: r.batch?.name ?? null,
+          sections: readSectionScores(r.sectionScores),
+        };
+      })
+      // Unranked rows (evaluated but never ranked) sort last rather than
+      // colliding at the top as rank 0.
+      .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
+
+    const champion = entries[0] ?? null;
+
+    /**
+     * Best score in each section, which is what "subject-wise topper" means
+     * here — exam sections are named after taxonomy subjects.
+     *
+     * Ties resolve to whoever is ranked higher overall, because `entries` is
+     * already in rank order and only a strictly better score replaces the
+     * incumbent.
+     */
+    const bySection = new Map<
+      string,
+      {
+        sectionId: string;
+        subject: string;
+        student: string;
+        initials: string;
+        score: number;
+        maxScore: number | null;
+      }
+    >();
+    for (const e of entries) {
+      for (const s of e.sections) {
+        const held = bySection.get(s.sectionId);
+        if (!held || s.score > held.score) {
+          bySection.set(s.sectionId, {
+            sectionId: s.sectionId,
+            subject: s.name,
+            student: e.name,
+            initials: e.initials,
+            score: s.score,
+            maxScore: s.maxScore ?? null,
+          });
+        }
+      }
+    }
+
+    /**
+     * Per-section detail is stripped from peer rows.
+     *
+     * The board renders section scores in exactly two places — the champion's
+     * chips and the subject-topper cards, both computed above — so carrying
+     * every peer's per-subject correct/incorrect counts in the list would hand
+     * out detail no part of the screen asks for. The caller's own row keeps it;
+     * that is their own result.
+     */
+    const listed = entries.map((e) =>
+      e.you ? e : { ...e, sections: [] as SectionScore[] },
+    );
+
+    const top = listed.slice(0, limit);
+    const me = listed.find((e) => e.you) ?? null;
+
+    return {
+      available: true as const,
+      cohortSize,
+      scope,
+      /**
+       * Which cohort `percentile` counts. Tracks `scope`, but stated
+       * separately so a caller reads the basis rather than inferring it.
+       */
+      percentileBasis: scope,
+      exam,
+      champion,
+      // The podium is the first three; fewer if the cohort somehow has fewer
+      // ranked rows than that.
+      podium: listed.slice(0, 3),
+      /**
+       * Left in the order the sections appear on the paper, not sorted
+       * alphabetically: a candidate reads "Physics, Chemistry, Biology"
+       * because that is the order they sat them, and re-sorting would put
+       * Biology first for no reason a reader could infer. `sectionScores` is
+       * written in section order, and a Map keeps insertion order.
+       */
+      subjectToppers: [...bySection.values()],
+      /**
+       * The visible list. The caller's own row is appended when they placed
+       * outside the top slice — a leaderboard that cannot show you your own
+       * position is not much of a leaderboard.
+       */
+      rows: me && !top.some((e) => e.you) ? [...top, me] : top,
+      me,
+      truncated: listed.length > top.length,
     };
   }
 

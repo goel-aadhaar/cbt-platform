@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import {
   downloadStudentTemplate,
   importStudentRoster,
@@ -70,15 +72,15 @@ export function ImportStudentsModal({
    * columns are generated from the same names the parser reads and cannot
    * drift out of date. It carries worked example rows and a "How to use" sheet.
    */
-  async function downloadTemplate() {
-    try {
-      await downloadStudentTemplate();
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Could not download the template.",
-      );
-    }
-  }
+  /**
+   * Fetching the template is an authenticated download, not a local file — on
+   * a slow link it is several seconds of nothing. `useAsyncAction` supplies the
+   * pending flag and stops a second click starting a second download.
+   */
+  const templateDownload = useAsyncAction(downloadStudentTemplate, {
+    onError: setError,
+    fallbackMessage: "Could not download the template.",
+  });
 
   /**
    * Hand back the rejected rows as a file.
@@ -244,7 +246,7 @@ export function ImportStudentsModal({
             <>
               <div className="mb-4 grid gap-3 sm:grid-cols-3">
                 <Picker
-                  label="Programme"
+                  label="Program"
                   value={org.programId}
                   onChange={org.pickProgram}
                   options={org.programs}
@@ -297,12 +299,14 @@ export function ImportStudentsModal({
               />
 
               <div className="mt-4 flex items-center gap-6 text-sm font-semibold text-admin">
-                <button
-                  onClick={() => void downloadTemplate()}
-                  className="flex items-center gap-2 hover:underline"
+                <ActionButton
+                  loading={templateDownload.pending}
+                  loadingText="Preparing…"
+                  onClick={() => void templateDownload.run()}
+                  className="flex items-center gap-2 hover:underline disabled:opacity-60"
                 >
                   <DownloadIcon className="size-4" /> Download template
-                </button>
+                </ActionButton>
                 <a
                   href="/admin/imports"
                   className="flex items-center gap-2 hover:underline"

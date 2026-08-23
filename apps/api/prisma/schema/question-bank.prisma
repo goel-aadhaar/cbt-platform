@@ -18,6 +18,11 @@ enum QuestionStatus {
   DRAFT
   REVIEW
   APPROVED
+  /// Sent back by an admin. Editable exactly like a DRAFT, but distinct from
+  /// one so a teacher can tell "not finished yet" apart from "returned to me",
+  /// which are different queues with different urgency. Rejection used to
+  /// return the question to DRAFT, where it vanished among the unfinished ones.
+  REJECTED
   ARCHIVED
 }
 
@@ -38,6 +43,7 @@ model Subject {
   @@unique([instituteId, name])
   @@index([instituteId])
   @@map("subjects")
+  resources Resource[]
 }
 
 /// A chapter within a subject. Admin-managed; mirrors Class (academic.prisma).

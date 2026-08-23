@@ -10,6 +10,7 @@ import {
   type Subject,
   type TopicRow,
 } from "@/lib/admin";
+import { useAuthUser } from "@/hooks/use-auth";
 import { ApiError } from "@/lib/api";
 import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
@@ -121,6 +122,12 @@ export function QuestionAuthorDrawer({
   const [mediaKeys, setMediaKeys] = useState<string[]>(
     editing?.mediaKeys ?? [],
   );
+  /**
+   * An admin's question is approved on save rather than queued, so the button
+   * must not promise a draft. Saying "Save as draft" and then publishing it is
+   * the same class of untruth as a control that does nothing.
+   */
+  const isAdmin = useAuthUser()?.role === "ADMIN";
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -314,7 +321,11 @@ export function QuestionAuthorDrawer({
           {done ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <p className="text-lg font-bold text-admin-ink">
-                {editing ? "Changes saved" : "Saved as a draft"}
+                {editing
+                  ? "Changes saved"
+                  : isAdmin
+                    ? "Added to the question bank"
+                    : "Saved as a draft"}
               </p>
               <p className="max-w-sm text-sm text-admin-muted">
                 {editing
@@ -664,7 +675,13 @@ export function QuestionAuthorDrawer({
               disabled={!valid || saving}
               className="rounded-lg bg-admin px-6 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {saving ? "Saving…" : editing ? "Save changes" : "Save as draft"}
+              {saving
+                ? "Saving…"
+                : editing
+                  ? "Save changes"
+                  : isAdmin
+                    ? "Add to question bank"
+                    : "Save as draft"}
             </button>
           )}
         </footer>

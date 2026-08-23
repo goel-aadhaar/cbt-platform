@@ -42,4 +42,5 @@ model Institute {
   sectionTimes     AttemptSectionTime[]
 
   @@map("institutes")
+  resources        Resource[]
 }

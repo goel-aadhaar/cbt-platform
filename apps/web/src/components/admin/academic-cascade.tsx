@@ -110,7 +110,7 @@ export function useAcademicCascade(active: boolean): AcademicCascade {
     listPrograms()
       .then((p) => !cancelled && setPrograms(p))
       .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Could not load programmes."),
+        setError(e instanceof Error ? e.message : "Could not load programs."),
       );
     return () => {
       cancelled = true;
@@ -177,11 +177,11 @@ export function useAcademicCascade(active: boolean): AcademicCascade {
     pickProgram,
     pickClass,
     programPlaceholder:
-      programs.length === 0 ? "No programmes yet" : "Select programme",
+      programs.length === 0 ? "No programs yet" : "Select program",
     classPlaceholder: !programId
-      ? "Choose a programme first"
+      ? "Choose a program first"
       : classes.length === 0
-        ? "No classes in this programme"
+        ? "No classes in this program"
         : "Select class",
     batchPlaceholder: !classId
       ? "Choose a class first"

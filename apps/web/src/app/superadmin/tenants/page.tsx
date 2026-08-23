@@ -9,10 +9,10 @@ import {
   SearchIcon,
   UserPlusIcon,
 } from "@/components/admin/icons";
+import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { InstituteUsageModal } from "@/components/superadmin/institute-usage-modal";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
-import { ApiError } from "@/lib/api";
 import {
   createTenant,
   deleteTenant,
@@ -40,7 +40,6 @@ function TenantsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(params.get("new") === "1");
   /** id of the tenant currently being mutated, so only its row shows a spinner */
-  const [busy, setBusy] = useState<string | null>(null);
   const [invitingFor, setInvitingFor] = useState<Tenant | null>(null);
   const [usageFor, setUsageFor] = useState<Tenant | null>(null);
   /**
@@ -87,11 +86,30 @@ function TenantsScreen() {
   const reload = () =>
     load(search.trim(), { status: status || undefined, sort, order });
 
-  async function toggleActive(t: Tenant) {
-    setBusy(t.id);
+  /**
+   * One lock per institute, shared by both actions.
+   *
+   * The single-slot `busy` id it replaced was released by whichever action
+   * finished first, so starting a second row re-enabled the first row's buttons
+   * while its request was still running — and on this screen those buttons
+   * suspend and delete whole tenants.
+   */
+  const rowAction = useKeyedAsyncAction(
+    async (_id: string, work: () => Promise<void>) => work(),
+    {
+      onError: (_id, message) => setError(message),
+      fallbackMessage: "That did not complete. Try again.",
+    },
+  );
+
+  function start(t: Tenant, work: () => Promise<void>) {
     setError(null);
     setNotice(null);
-    try {
+    void rowAction.run(t.id, work);
+  }
+
+  function toggleActive(t: Tenant) {
+    start(t, async () => {
       const updated = await updateTenant(t.id, { isActive: !t.isActive });
       setTenants((prev) =>
         (prev ?? []).map((x) => (x.id === t.id ? { ...x, ...updated } : x)),
@@ -101,36 +119,18 @@ function TenantsScreen() {
           ? `${updated.name} restored — its users can sign in again.`
           : `${updated.name} suspended — nobody in it can sign in.`,
       );
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "Could not update the institute",
-      );
-    } finally {
-      setBusy(null);
-    }
+    });
   }
 
-  async function remove(t: Tenant, force: boolean) {
-    setBusy(t.id);
-    setError(null);
-    setNotice(null);
-    try {
+  function remove(t: Tenant, force: boolean) {
+    start(t, async () => {
+      // The API refuses to delete a populated tenant; that refusal surfaces
+      // through the shared error path rather than being retried with force,
+      // which is not reversible.
       await deleteTenant(t.id, force);
       setTenants((prev) => (prev ?? []).filter((x) => x.id !== t.id));
       setNotice(`${t.name} deleted.`);
-    } catch (e: unknown) {
-      // The API refuses to delete a populated tenant. Surface that refusal
-      // rather than quietly retrying with force — it is not reversible.
-      setError(
-        e instanceof ApiError
-          ? e.message
-          : e instanceof Error
-            ? e.message
-            : "Could not delete the institute",
-      );
-    } finally {
-      setBusy(null);
-    }
+    });
   }
 
   return (
@@ -253,7 +253,7 @@ function TenantsScreen() {
                 {tenants.map((t) => (
                   <tr
                     key={t.id}
-                    className={`border-b border-admin-line/50 ${busy === t.id ? "opacity-50" : ""}`}
+                    className={`border-b border-admin-line/50 ${rowAction.isPending(t.id) ? "opacity-50" : ""}`}
                   >
                     <td className="px-3 py-4">
                       <p className="font-bold text-admin-ink">{t.name}</p>
@@ -295,7 +295,7 @@ function TenantsScreen() {
                         </button>
                         <button
                           type="button"
-                          disabled={busy === t.id}
+                          disabled={rowAction.isPending(t.id)}
                           onClick={() => setInvitingFor(t)}
                           className="flex items-center gap-1.5 rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                         >
@@ -304,7 +304,7 @@ function TenantsScreen() {
                         </button>
                         <button
                           type="button"
-                          disabled={busy === t.id}
+                          disabled={rowAction.isPending(t.id)}
                           onClick={() => void toggleActive(t)}
                           className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                         >
@@ -312,7 +312,7 @@ function TenantsScreen() {
                         </button>
                         <button
                           type="button"
-                          disabled={busy === t.id}
+                          disabled={rowAction.isPending(t.id)}
                           onClick={() => {
                             if (
                               window.confirm(

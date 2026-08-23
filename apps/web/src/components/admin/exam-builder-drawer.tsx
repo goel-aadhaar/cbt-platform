@@ -20,6 +20,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addQuestionToSection,
   addSection,
+  listSubjects,
+  removeQuestionFromSection,
+  removeSection,
+  unassignBatch,
+  updateExam,
+  updateSection,
+  type ExamDetail,
   assignBatch,
   createExam,
   listAdmins,
@@ -29,6 +36,7 @@ import {
   scheduleExam,
   submitExamForReview,
   type BatchRow,
+  type Subject,
   type Program,
   type StaffRow,
 } from "@/lib/admin";
@@ -50,6 +58,7 @@ import {
 } from "@/lib/questions";
 
 import { CheckIcon, EyeIcon, GripVerticalIcon, PlusIcon, XIcon } from "./icons";
+import { planExamEdit } from "@/lib/exam-edit-plan";
 import { PreFlightPanel } from "./preflight-panel";
 import { QuestionFilterBar } from "./question-filters";
 import { QuestionPreviewModal } from "./question-preview-modal";
@@ -76,9 +85,17 @@ const TEACHER_STEPS = [
 ] as const;
 
 interface DraftSection {
-  /** Local-only stable id (nothing is persisted until Review → Create), used
-   * as the drag-and-drop identity — the array index shifts on every reorder. */
+  /** Local-only stable id, used as the drag-and-drop identity — the array
+   * index shifts on every reorder, so it cannot serve as one. */
   key: string;
+  /**
+   * The server's id, present only when this section already exists.
+   *
+   * This is what makes saving an edit different from saving a new exam: a
+   * section with an id is amended in place, one without is created, and one
+   * that has vanished from this array is deleted.
+   */
+  id?: string;
   name: string;
   marksCorrect: number;
   marksWrong: number;
@@ -105,40 +122,102 @@ export function ExamBuilderDrawer({
   open,
   onClose,
   onCreated,
+  editing,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: (examId: string, title: string) => void;
+  /**
+   * Provide to edit an existing exam instead of authoring a new one.
+   *
+   * Until this existed there was no way to change an exam at all once it left
+   * the wizard — which made rejecting one a dead end, since the teacher could
+   * read the reason and do nothing about it. The parent remounts this via
+   * `key`, so the state below seeds once per target rather than resyncing.
+   */
+  editing?: ExamDetail | null;
 }) {
   const [step, setStep] = useState(0);
 
   // Step 1
-  const [title, setTitle] = useState("");
-  const [durationMinutes, setDuration] = useState(180);
-  const [passingMarks, setPassingMarks] = useState("");
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [durationMinutes, setDuration] = useState(
+    editing?.durationMinutes ?? 180,
+  );
+  const [passingMarks, setPassingMarks] = useState(
+    editing?.passingMarks != null ? String(editing.passingMarks) : "",
+  );
   const [maxViolations, setMaxViolations] = useState(3);
-  const [programId, setProgramId] = useState("");
-  const [categoryId, setCategoryId] = useState("");
+  const [programId, setProgramId] = useState(editing?.programId ?? "");
+  const [categoryId, setCategoryId] = useState(editing?.category?.id ?? "");
   const [categories, setCategories] = useState<ExamCategory[]>([]);
   const [templates, setTemplates] = useState<InstructionTemplate[]>([]);
-  const [instructions, setInstructions] = useState("");
+  const [instructions, setInstructions] = useState(editing?.instructions ?? "");
   const [calculatorEnabled, setCalculator] = useState(false);
   const [fullscreenRequired, setFullscreen] = useState(true);
 
   // Step 2/3
-  const [sections, setSections] = useState<DraftSection[]>([
-    {
-      key: nextDraftKey(),
-      name: "Physics",
-      marksCorrect: 4,
-      marksWrong: 1,
-      questionIds: [],
-    },
-  ]);
+  /**
+   * Existing sections keep their server id, so saving can tell an amendment
+   * from an addition. A section authored here has no id until it is created.
+   */
+  const [sections, setSections] = useState<DraftSection[]>(
+    editing?.sections.length
+      ? [...editing.sections]
+          .sort((a, b) => a.order - b.order)
+          .map((sec) => ({
+            key: nextDraftKey(),
+            id: sec.id,
+            name: sec.name,
+            marksCorrect: sec.marksCorrect,
+            marksWrong: sec.marksWrong,
+            questionIds: [...sec.questions]
+              .sort((a, b) => a.order - b.order)
+              .map((q) => q.question.id),
+          }))
+      : [
+          {
+            key: nextDraftKey(),
+            name: "",
+            marksCorrect: 4,
+            marksWrong: 1,
+            questionIds: [],
+          },
+        ],
+  );
+  /** The paper as it was loaded, to diff against on save. */
+  const [original] = useState(() =>
+    editing
+      ? {
+          sections: editing.sections.map((sec) => ({
+            id: sec.id,
+            name: sec.name,
+            marksCorrect: sec.marksCorrect,
+            marksWrong: sec.marksWrong,
+            questionIds: [...sec.questions]
+              .sort((a, b) => a.order - b.order)
+              .map((q) => q.question.id),
+          })),
+          batchIds: editing.batches.map((b) => b.batch.id),
+        }
+      : null,
+  );
   const [activeSection, setActiveSection] = useState(0);
 
   // Step 4
-  const [batchIds, setBatchIds] = useState<string[]>([]);
+  const [batchIds, setBatchIds] = useState<string[]>(
+    editing?.batches.map((b) => b.batch.id) ?? [],
+  );
+  /**
+   * Section names come from the subject taxonomy rather than free text.
+   *
+   * A section *is* a subject on an NTA-style paper, and typing the name by hand
+   * produced "Physics", "physics" and "Phy" across three exams — which reads
+   * fine on the page and makes every cross-exam report treat them as different
+   * things. This is the same list the question bank is tagged against, so a
+   * section and the questions inside it can no longer disagree.
+   */
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const { path: batchPath } = useBatchPaths(open);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -190,13 +269,15 @@ export function ExamBuilderDrawer({
       // Only categories still on offer — a retired one would be refused.
       listExamCategories(true),
       listInstructionTemplates(true),
-    ]).then(([p, b, q, a, c, t]) => {
+      listSubjects(),
+    ]).then(([p, b, q, a, c, t, subj]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPrograms(p.value);
       if (b.status === "fulfilled") setBatches(b.value);
       if (a.status === "fulfilled") setAdmins(a.value);
       if (c.status === "fulfilled") setCategories(c.value.items);
       if (t.status === "fulfilled") setTemplates(t.value.items);
+      if (subj.status === "fulfilled") setSubjects(subj.value);
       if (q.status === "fulfilled") {
         setApproved(q.value.items);
         setFacetSource(q.value.items);
@@ -378,6 +459,92 @@ export function ExamBuilderDrawer({
   }
 
   /** Runs the full authoring chain in dependency order. */
+  /**
+   * Apply an edit as a diff rather than a rebuild.
+   *
+   * The obvious implementation — delete every section and re-add them — would
+   * be far shorter and would throw away each question's placement history, and
+   * briefly leave the paper with no sections at all. So each part is compared
+   * with how it was loaded and only what actually changed is sent.
+   *
+   * Order matters. Removals run before additions so a question moved between
+   * sections is not momentarily in both, which the API rejects as a duplicate.
+   */
+  async function saveEdit(examId: string) {
+    const before = original;
+    if (!before) return;
+
+    setProgress("Saving details…");
+    await updateExam(examId, {
+      title: title.trim(),
+      durationMinutes,
+      passingMarks: passingMarks.trim() ? Number(passingMarks) : null,
+      instructions: isRichTextEmpty(instructions) ? "" : instructions,
+      programId: programId || null,
+      categoryId: categoryId || null,
+      maxViolations,
+      calculatorEnabled,
+      fullscreenRequired,
+    });
+
+    const plan = planExamEdit(before, {
+      sections: sections.map((sec) => ({
+        id: sec.id,
+        name: sec.name.trim(),
+        marksCorrect: sec.marksCorrect,
+        marksWrong: sec.marksWrong,
+        questionIds: sec.questionIds,
+      })),
+      batchIds,
+    });
+
+    // The order below is the plan's contract, not an implementation detail —
+    // see lib/exam-edit-plan.ts for why removals must precede additions.
+    for (const sectionId of plan.removeSections) {
+      setProgress("Removing a section…");
+      await removeSection(examId, sectionId);
+    }
+    for (const { sectionId, questionId } of plan.removeQuestions) {
+      setProgress("Removing a question…");
+      await removeQuestionFromSection(examId, sectionId, questionId);
+    }
+    for (const section of plan.updateSections) {
+      setProgress(`Updating "${section.name}"…`);
+      await updateSection(examId, section.id, {
+        name: section.name,
+        marksCorrect: section.marksCorrect,
+        marksWrong: section.marksWrong,
+      });
+    }
+    for (const section of plan.createSections) {
+      setProgress(`Adding "${section.name}"…`);
+      const made = await addSection(examId, {
+        name: section.name,
+        marksCorrect: section.marksCorrect,
+        marksWrong: section.marksWrong,
+      });
+      for (const questionId of section.questionIds) {
+        await addQuestionToSection(examId, made.id, questionId);
+      }
+    }
+    for (const { sectionId, questionId } of plan.addQuestions) {
+      setProgress("Adding a question…");
+      await addQuestionToSection(examId, sectionId, questionId);
+    }
+
+    if (!isTeacher) {
+      for (const b of plan.batches.remove) await unassignBatch(examId, b);
+      for (const b of plan.batches.add) await assignBatch(examId, b);
+      if (startAt && endAt) {
+        setProgress("Scheduling…");
+        await scheduleExam(examId, {
+          startAt: new Date(startAt).toISOString(),
+          endAt: new Date(endAt).toISOString(),
+        });
+      }
+    }
+  }
+
   async function submit() {
     setSubmitting(true);
     setError(null);
@@ -387,6 +554,15 @@ export function ExamBuilderDrawer({
     // of leaving an orphaned draft with no explanation.
     let created: { id: string; title: string } | null = null;
     try {
+      if (editing) {
+        await saveEdit(editing.id);
+        onCreated?.(editing.id, title.trim());
+        setSubmitting(false);
+        setProgress(null);
+        onClose();
+        return;
+      }
+
       setProgress("Creating exam…");
       const exam = await createExam({
         title: title.trim(),
@@ -480,10 +656,10 @@ export function ExamBuilderDrawer({
         <header className="flex items-start justify-between border-b border-admin-line/60 px-8 py-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
-              Exams / New
+              {editing ? "Exams / Edit" : "Exams / New"}
             </p>
             <h2 className="mt-1 text-xl font-bold text-admin-ink">
-              Create New Exam
+              {editing ? `Edit ${editing.title}` : "Create New Exam"}
             </h2>
           </div>
           <button
@@ -689,6 +865,7 @@ export function ExamBuilderDrawer({
                       key={s.key}
                       id={s.key}
                       section={s}
+                      subjects={subjects}
                       removeDisabled={sections.length === 1}
                       onChange={(patch) =>
                         setSections((prev) =>
@@ -1084,9 +1261,15 @@ export function ExamBuilderDrawer({
             >
               {submitting
                 ? (progress ?? "Working…")
-                : isTeacher
-                  ? "Create & Submit for Approval"
-                  : "Create Exam"}
+                : editing
+                  ? // Editing never re-submits on its own: a teacher fixing a
+                    // sent-back paper saves first and resubmits deliberately
+                    // from the list, so a stray save cannot bounce an
+                    // unfinished exam back to the reviewer.
+                    "Save changes"
+                  : isTeacher
+                    ? "Create & Submit for Approval"
+                    : "Create Exam"}
             </button>
           )}
         </footer>
@@ -1108,12 +1291,14 @@ export function ExamBuilderDrawer({
 function SortableSectionRow({
   id,
   section,
+  subjects,
   removeDisabled,
   onChange,
   onRemove,
 }: {
   id: string;
   section: DraftSection;
+  subjects: Subject[];
   removeDisabled: boolean;
   onChange: (patch: Partial<DraftSection>) => void;
   onRemove: () => void;
@@ -1140,12 +1325,34 @@ function SortableSectionRow({
       >
         <GripVerticalIcon className="size-4" />
       </button>
-      <Field label="Section name">
-        <input
+      <Field label="Section">
+        <select
           value={section.name}
           onChange={(e) => onChange({ name: e.target.value })}
           className={inputCls}
-        />
+        >
+          <option value="">
+            {subjects.length === 0
+              ? "No subjects in the taxonomy yet"
+              : "Select a subject"}
+          </option>
+          {subjects.map((subject) => (
+            <option key={subject.id} value={subject.name}>
+              {subject.name}
+            </option>
+          ))}
+          {/*
+            A section already named something outside the taxonomy — an older
+            exam, or a subject since renamed — keeps its value instead of being
+            silently blanked into "Select a subject" the moment it is opened.
+          */}
+          {section.name &&
+            !subjects.some((subject) => subject.name === section.name) && (
+              <option value={section.name}>
+                {section.name} (not in taxonomy)
+              </option>
+            )}
+        </select>
       </Field>
       <Field label="Correct (+)">
         <input

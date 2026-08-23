@@ -12,6 +12,8 @@ import {
   ShieldCheckIcon,
 } from "@/components/admin/icons";
 import { useAuthUser } from "@/hooks/use-auth";
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 import { logout, type Role } from "@/lib/auth";
 
 export interface StaffNavItem {
@@ -68,10 +70,11 @@ function StaffSidebar({
   const router = useRouter();
   const user = useAuthUser();
 
-  async function handleLogout() {
-    await logout();
-    router.replace("/login?as=staff");
-  }
+  /** Same round trip as the other shells; see student-sidebar for the why. */
+  const signOut = useAsyncAction(logout, {
+    onSuccess: () => router.replace("/login?as=staff"),
+    onError: () => router.replace("/login?as=staff"),
+  });
 
   return (
     <aside className="flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5">
@@ -144,14 +147,15 @@ function StaffSidebar({
         })}
       </nav>
 
-      <button
-        type="button"
-        onClick={handleLogout}
-        className="mt-auto flex items-center gap-3 px-3 py-2 text-sm font-semibold text-admin-muted hover:text-admin-ink"
+      <ActionButton
+        loading={signOut.pending}
+        loadingText="Signing out…"
+        onClick={() => void signOut.run()}
+        className="mt-auto flex items-center gap-3 px-3 py-2 text-sm font-semibold text-admin-muted hover:text-admin-ink disabled:opacity-60"
       >
         <LogOutIcon className="size-5" />
         Logout
-      </button>
+      </ActionButton>
     </aside>
   );
 }

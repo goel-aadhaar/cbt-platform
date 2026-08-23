@@ -6,6 +6,9 @@ enum ExamStatus {
   DRAFT
   REVIEW
   APPROVED
+  /// Returned by an admin with a reason. Editable and re-submittable exactly
+  /// like a DRAFT — see QuestionStatus.REJECTED for why it is not one.
+  REJECTED
   PUBLISHED
   ARCHIVED
 }

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { ActionButton } from "@/components/action-button";
 import { AuthedImage } from "@/components/authed-image";
+import { LoadingSpinner } from "@/components/loading-spinner";
 import { ApiError } from "@/lib/api";
 import {
   deleteMedia,
@@ -169,25 +171,29 @@ export function MediaPicker({
           <p>{error}</p>
           {confirmDeleteId && (
             <div className="mt-2 flex gap-3">
-              <button
-                type="button"
+              <ActionButton
+                loading={deletingId === confirmDeleteId}
+                loadingText="Deleting…"
                 onClick={() => {
                   const item = (items ?? []).find(
                     (m) => m.id === confirmDeleteId,
                   );
                   if (item) void handleDelete(item, true);
                 }}
-                className="font-bold uppercase text-red-700 hover:underline"
+                className="flex items-center gap-1.5 font-bold uppercase text-red-700 hover:underline disabled:no-underline disabled:opacity-70"
               >
                 Delete anyway
-              </button>
+              </ActionButton>
               <button
                 type="button"
+                // Nothing to cancel once the delete is under way, and leaving
+                // it live invites a click that cannot take effect.
+                disabled={deletingId === confirmDeleteId}
                 onClick={() => {
                   setConfirmDeleteId(null);
                   setError(null);
                 }}
-                className="font-semibold text-admin-muted hover:text-admin-ink"
+                className="font-semibold text-admin-muted hover:text-admin-ink disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -301,7 +307,11 @@ export function MediaPicker({
                   title="Delete from the library"
                   className="absolute bottom-1 right-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-xs font-bold text-white opacity-0 transition-opacity hover:bg-red-600 focus:opacity-100 disabled:opacity-50 group-hover:opacity-100"
                 >
-                  {busy ? "…" : "×"}
+                  {busy ? (
+                    <LoadingSpinner size={12} tone="current" label="Deleting" />
+                  ) : (
+                    "×"
+                  )}
                 </button>
               </div>
             );

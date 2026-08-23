@@ -113,7 +113,7 @@ function IdentityCard({ profile }: { profile: MyProfile }) {
         {s && <Row label="Candidate ID" value={s.rollNumber} />}
         {s && <Row label="Batch" value={s.batch} />}
         {s && <Row label="Class" value={s.class} />}
-        {s && <Row label="Programme" value={s.program} />}
+        {s && <Row label="Program" value={s.program} />}
         {profile.institute && (
           <Row label="Institute code" value={profile.institute.slug} />
         )}

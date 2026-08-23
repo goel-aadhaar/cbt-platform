@@ -21,6 +21,7 @@ import {
   ReorderQuestionsDto,
   ReorderSectionsDto,
   ScheduleExamDto,
+  UpdateSectionDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
 import { ExamStatus } from './exam.types';
@@ -95,6 +96,9 @@ const examDetailSelect = {
  * sections (each with its own marking scheme), assign batches, schedule, and —
  * admin only — publish. Tenant-scoped; exam children scope via their parent exam.
  */
+/** Statuses an author may still edit, and submit for approval from. */
+const AUTHOR_EDITABLE: ExamStatus[] = [ExamStatus.DRAFT, ExamStatus.REJECTED];
+
 @Injectable()
 export class ExamsService {
   constructor(
@@ -309,6 +313,107 @@ export class ExamsService {
         marksWrong: true,
       },
     });
+  }
+
+  /**
+   * Rename a section, or change its marking scheme.
+   *
+   * Marks live on the section, not the question (§2.3) — an exam scores every
+   * question by its section's `marksCorrect`/`marksWrong`. So this is the only
+   * place a paper's scoring can be corrected before it is sat, and without it
+   * a typo in the scheme meant rebuilding the exam.
+   */
+  async updateSection(
+    examId: string,
+    sectionId: string,
+    dto: UpdateSectionDto,
+  ) {
+    await this.getDraft(examId);
+    const section = await this.prisma.examSection.findFirst({
+      where: { id: sectionId, examId },
+    });
+    if (!section) throw new NotFoundException('Section not found in this exam');
+
+    return this.prisma.examSection.update({
+      where: { id: sectionId },
+      data: {
+        name: dto.name ?? undefined,
+        marksCorrect: dto.marksCorrect ?? undefined,
+        marksWrong: dto.marksWrong ?? undefined,
+      },
+      select: {
+        id: true,
+        name: true,
+        order: true,
+        marksCorrect: true,
+        marksWrong: true,
+      },
+    });
+  }
+
+  /**
+   * Remove a section and everything in it.
+   *
+   * The questions themselves are untouched — an ExamQuestion is a placement,
+   * not the question, so dropping a section returns its questions to the bank
+   * rather than deleting anyone's work.
+   *
+   * Orders are closed up afterwards so the remaining sections stay 0..n-1;
+   * leaving a hole would not break `@@unique([examId, order])` but would make
+   * every later reorder start from an inconsistent baseline.
+   */
+  async removeSection(examId: string, sectionId: string) {
+    await this.getDraft(examId);
+    const section = await this.prisma.examSection.findFirst({
+      where: { id: sectionId, examId },
+      select: { id: true, order: true },
+    });
+    if (!section) throw new NotFoundException('Section not found in this exam');
+
+    const remaining = await this.prisma.examSection.count({
+      where: { examId },
+    });
+    if (remaining <= 1) {
+      throw new BadRequestException(
+        'An exam needs at least one section. Add another before removing this one.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.examQuestion.deleteMany({ where: { sectionId } });
+      await tx.examSection.delete({ where: { id: sectionId } });
+      // Close the gap. Done as a decrement over the tail rather than a
+      // rewrite of every row, so it stays one statement.
+      await tx.examSection.updateMany({
+        where: { examId, order: { gt: section.order } },
+        data: { order: { decrement: 1 } },
+      });
+    });
+    return { removed: sectionId };
+  }
+
+  /**
+   * Take a question off the paper. Same idea as removeSection: this deletes the
+   * placement, never the question.
+   */
+  async removeQuestion(examId: string, sectionId: string, questionId: string) {
+    await this.getDraft(examId);
+    const placement = await this.prisma.examQuestion.findFirst({
+      where: { examId, sectionId, questionId },
+      select: { id: true, order: true },
+    });
+    if (!placement) {
+      throw new NotFoundException('That question is not in this section');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.examQuestion.delete({ where: { id: placement.id } });
+      await tx.examQuestion.updateMany({
+        where: { sectionId, order: { gt: placement.order } },
+        data: { order: { decrement: 1 } },
+      });
+    });
+    return { removed: questionId };
   }
 
   async addQuestion(examId: string, sectionId: string, dto: AddQuestionDto) {
@@ -583,8 +688,11 @@ export class ExamsService {
     ]);
 
     if (!exam) throw new NotFoundException('Exam not found');
-    if (exam.status !== ExamStatus.DRAFT) {
-      throw new BadRequestException('Only draft exams can be submitted');
+    if (!AUTHOR_EDITABLE.includes(exam.status)) {
+      throw new BadRequestException(
+        `Only a draft or sent-back exam can be submitted for approval. ` +
+          `This one is ${exam.status.toLowerCase()}.`,
+      );
     }
     if (!reviewer) {
       throw new BadRequestException(
@@ -708,7 +816,9 @@ export class ExamsService {
     return this.prisma.exam.update({
       where: { id: examId },
       data: {
-        status: 'DRAFT',
+        // Its own state, not back into the drafts pile — the reason attached
+        // below is no use to a teacher who cannot find the exam it belongs to.
+        status: 'REJECTED',
         rejectionReason: reason ?? null,
         submittedAt: null,
       },
@@ -808,10 +918,17 @@ export class ExamsService {
     return exam;
   }
 
+  /**
+   * The mutable states. A sent-back exam has to be editable or the rejection
+   * reason is advice nobody can act on.
+   */
   private async getDraft(id: string) {
     const exam = await this.getOwned(id);
-    if (exam.status !== ExamStatus.DRAFT) {
-      throw new BadRequestException('Exam is not editable (not a draft)');
+    if (!AUTHOR_EDITABLE.includes(exam.status)) {
+      throw new BadRequestException(
+        `This exam can no longer be edited — it is ${exam.status.toLowerCase()}. ` +
+          `Only drafts and exams sent back for changes can be modified.`,
+      );
     }
     return exam;
   }

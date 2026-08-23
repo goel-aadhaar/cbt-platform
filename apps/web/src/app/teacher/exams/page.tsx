@@ -7,7 +7,12 @@ import { CopyStackIcon, PlusIcon } from "@/components/admin/icons";
 import { ExamBuilderDrawer } from "@/components/admin/exam-builder-drawer";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
-import { cloneExam } from "@/lib/admin";
+import {
+  cloneExam,
+  fetchExam,
+  submitExamForReview,
+  type ExamDetail,
+} from "@/lib/admin";
 import { getUserSnapshot } from "@/lib/auth";
 import {
   examDisplayStatus,
@@ -33,6 +38,9 @@ function ExamsScreen() {
   const [building, setBuilding] = useState(params.get("new") === "1");
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [editingExam, setEditingExam] = useState<ExamDetail | null>(null);
+  const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
+  const [resubmitting, setResubmitting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +60,58 @@ function ExamsScreen() {
   const visible = (exams ?? []).filter(
     (e) => scope === "all" || e.createdBy?.id === me?.id,
   );
+
+  /**
+   * Open an existing exam in the wizard.
+   *
+   * The list row is a summary; the wizard needs the full paper — sections,
+   * their questions and the batches — so it is fetched before opening rather
+   * than opening empty and filling in underneath the author.
+   */
+  async function openForEdit(examId: string) {
+    setLoadingEdit(examId);
+    setError(null);
+    try {
+      const detail = await fetchExam(examId);
+      setEditingExam(detail);
+      setBuilding(true);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not open that exam.",
+      );
+    } finally {
+      setLoadingEdit(null);
+    }
+  }
+
+  /**
+   * Send a corrected paper back to the same admin who returned it.
+   *
+   * Reusing the original reviewer is deliberate: they already have the context
+   * of why it came back, and a rejection does not clear `reviewerId`.
+   */
+  async function resubmit(e: ExamListItem) {
+    if (!e.reviewer?.id) {
+      setError(
+        "This exam has no reviewer assigned. Open it with Edit and submit it " +
+          "from the wizard, which asks who should review it.",
+      );
+      return;
+    }
+    setResubmitting(e.id);
+    setError(null);
+    try {
+      await submitExamForReview(e.id, e.reviewer.id);
+      setNotice(`"${e.title}" resubmitted to ${e.reviewer.name}.`);
+      await load();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not resubmit the exam.",
+      );
+    } finally {
+      setResubmitting(null);
+    }
+  }
 
   async function duplicate(e: ExamListItem) {
     setDuplicatingId(e.id);
@@ -186,6 +246,34 @@ function ExamsScreen() {
                         <CopyStackIcon className="size-3.5" />
                         {duplicatingId === e.id ? "Duplicating…" : "Duplicate"}
                       </button>
+                      {/*
+                        Editing is what makes a rejection actionable. Offered
+                        only where the API will accept it — anything past
+                        approval is someone else's now, and a button that
+                        always 400s is worse than no button.
+                      */}
+                      {(e.status === "DRAFT" || e.status === "REJECTED") && (
+                        <button
+                          type="button"
+                          onClick={() => void openForEdit(e.id)}
+                          disabled={loadingEdit === e.id}
+                          className="flex items-center gap-1.5 rounded-lg border border-admin-line px-2.5 py-1.5 text-xs font-semibold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                        >
+                          {loadingEdit === e.id ? "Opening…" : "Edit"}
+                        </button>
+                      )}
+                      {e.status === "REJECTED" && (
+                        <button
+                          type="button"
+                          onClick={() => void resubmit(e)}
+                          disabled={resubmitting === e.id}
+                          className="flex items-center gap-1.5 rounded-lg bg-admin px-2.5 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
+                        >
+                          {resubmitting === e.id
+                            ? "Sending…"
+                            : "Resubmit for approval"}
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -195,12 +283,13 @@ function ExamsScreen() {
                       With {e.reviewer.name} for approval
                     </p>
                   )}
-                  {e.rejectionReason && e.status === "DRAFT" && (
-                    <p className="mt-2 rounded-lg border border-[#f0ad4e]/40 bg-[#fff8ec] px-3 py-2 text-xs text-admin-ink">
-                      <span className="font-bold">Sent back:</span>{" "}
-                      {e.rejectionReason}
-                    </p>
-                  )}
+                  {e.rejectionReason &&
+                    (e.status === "REJECTED" || e.status === "DRAFT") && (
+                      <p className="mt-2 rounded-lg border border-[#f0ad4e]/40 bg-[#fff8ec] px-3 py-2 text-xs text-admin-ink">
+                        <span className="font-bold">Sent back:</span>{" "}
+                        {e.rejectionReason}
+                      </p>
+                    )}
                   {e.approvedAt && e.approvedBy && (
                     <p className="mt-2 text-xs font-semibold text-admin">
                       Approved by {e.approvedBy.name}
@@ -214,10 +303,22 @@ function ExamsScreen() {
       </Panel>
 
       <ExamBuilderDrawer
+        // Remounted per target so the wizard re-seeds instead of carrying the
+        // previous exam's sections into the next one.
+        key={editingExam?.id ?? "new"}
         open={building}
-        onClose={() => setBuilding(false)}
+        editing={editingExam}
+        onClose={() => {
+          setBuilding(false);
+          setEditingExam(null);
+        }}
         onCreated={(_id, title) => {
-          setNotice(`"${title}" sent for approval.`);
+          setNotice(
+            editingExam
+              ? `"${title}" saved. Resubmit it when you are ready.`
+              : `"${title}" sent for approval.`,
+          );
+          setEditingExam(null);
           void load();
         }}
       />

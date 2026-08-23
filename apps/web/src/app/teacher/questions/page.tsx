@@ -7,6 +7,7 @@ import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer"
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { QuestionImportModal } from "@/components/admin/question-modals";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { getUserSnapshot } from "@/lib/auth";
 import { actOnQuestion } from "@/lib/admin";
@@ -22,6 +23,9 @@ const STATUS_TONE: Record<QuestionStatus, "good" | "warn" | "muted"> = {
   DRAFT: "muted",
   REVIEW: "warn",
   APPROVED: "good",
+  // Not "muted": a sent-back question is the one item in this list that
+  // needs the author to do something.
+  REJECTED: "warn",
   ARCHIVED: "muted",
 };
 
@@ -42,7 +46,6 @@ function QuestionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [authorOpen, setAuthorOpen] = useState(false);
   // Bulk import was reachable only from the admin console, even though the API
   // has always allowed TEACHER — and a teacher is who actually builds a bank.
@@ -76,25 +79,35 @@ function QuestionsScreen() {
    * Submit a draft for an administrator to approve. A teacher cannot approve
    * their own work, so this is the end of their side of the workflow.
    */
-  async function submitForApproval(q: QuestionListItem) {
-    setBusy(q.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await actOnQuestion(q.id, "submit");
+  /**
+   * Keyed so a second row cannot steal the lock.
+   *
+   * The single-slot `busy` id had a hole: starting an action on another row
+   * overwrote the id, which re-enabled the first row's button while its request
+   * was still in flight, and the first request finishing then re-enabled the
+   * second the same way. The keyed lock is synchronous and only ever releases
+   * the row it belongs to.
+   */
+  const submitAction = useKeyedAsyncAction(
+    async (id: string) => {
+      await actOnQuestion(id, "submit");
       setRows((prev) =>
         (prev ?? []).map((r) =>
-          r.id === q.id ? { ...r, status: "REVIEW" as QuestionStatus } : r,
+          r.id === id ? { ...r, status: "REVIEW" as QuestionStatus } : r,
         ),
       );
       setNotice("Sent for approval. An administrator will review it.");
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "Could not submit the question",
-      );
-    } finally {
-      setBusy(null);
-    }
+    },
+    {
+      onError: (_id, message) => setError(message),
+      fallbackMessage: "Could not submit the question",
+    },
+  );
+
+  function submitForApproval(q: QuestionListItem) {
+    setError(null);
+    setNotice(null);
+    void submitAction.run(q.id);
   }
 
   return (
@@ -187,7 +200,7 @@ function QuestionsScreen() {
               <li
                 key={q.id}
                 className={`flex items-start justify-between gap-4 rounded-xl border border-admin-line/60 p-4 ${
-                  busy === q.id ? "opacity-50" : ""
+                  submitAction.isPending(q.id) ? "opacity-50" : ""
                 }`}
               >
                 <button
@@ -207,18 +220,27 @@ function QuestionsScreen() {
                 </button>
                 <div className="flex shrink-0 items-center gap-2">
                   <StatusPill tone={STATUS_TONE[q.status]}>
-                    {q.status === "REVIEW" ? "In review" : q.status}
+                    {q.status === "REVIEW"
+                      ? "In review"
+                      : q.status === "REJECTED"
+                        ? "Sent back"
+                        : q.status}
                   </StatusPill>
-                  {q.status === "DRAFT" && q.createdBy?.id === me?.id && (
-                    <button
-                      type="button"
-                      disabled={busy === q.id}
-                      onClick={() => void submitForApproval(q)}
-                      className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
-                    >
-                      Send for approval
-                    </button>
-                  )}
+                  {/* A rejected question is re-submittable, or the rejection is
+                      a dead end rather than a request for changes. */}
+                  {(q.status === "DRAFT" || q.status === "REJECTED") &&
+                    q.createdBy?.id === me?.id && (
+                      <button
+                        type="button"
+                        disabled={submitAction.isPending(q.id)}
+                        onClick={() => void submitForApproval(q)}
+                        className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-50"
+                      >
+                        {q.status === "REJECTED"
+                          ? "Resubmit for approval"
+                          : "Send for approval"}
+                      </button>
+                    )}
                 </div>
               </li>
             ))}

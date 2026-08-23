@@ -20,16 +20,35 @@ import { CSSProperties } from "react";
  * Sizes: `size` is the SVG box in pixels; the visible dot ring is twice
  * that, so picking a size is the same as picking the diameter.
  */
-export function LoadingSpinner({ size = 32 }: { size?: number }) {
+export function LoadingSpinner({
+  size = 32,
+  tone = "brand",
+  label = "Loading",
+  className = "",
+}: {
+  size?: number;
+  /**
+   * `current` inherits the surrounding text colour — for spinners inside a
+   * filled button, where the brand greens would be invisible.
+   */
+  tone?: "brand" | "current";
+  /**
+   * What is being waited for. A button that already says "Saving…" in text
+   * passes `label=""` so a screen reader is not told twice.
+   */
+  label?: string;
+  className?: string;
+}) {
   const style = {
     "--spinner-size": `${size}px`,
   } as CSSProperties;
 
   return (
     <div
-      className="loading-spinner"
-      role="status"
-      aria-label="Loading"
+      className={`loading-spinner${tone === "current" ? " loading-spinner--current" : ""}${className ? ` ${className}` : ""}`}
+      role={label ? "status" : undefined}
+      aria-label={label || undefined}
+      aria-hidden={label ? undefined : true}
       style={style}
     >
       <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true">

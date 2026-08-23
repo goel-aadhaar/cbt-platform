@@ -24,6 +24,27 @@ export class CreateSectionDto {
   marksWrong?: number;
 }
 
+/**
+ * Amend a section. Every field optional: renaming a section and correcting its
+ * marking scheme are separate acts, and sending the whole object back would
+ * make each one able to clobber the other.
+ */
+export class UpdateSectionDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  name?: string;
+
+  @IsOptional()
+  @IsNumber()
+  marksCorrect?: number;
+
+  /** Marks subtracted per wrong answer (positive number). */
+  @IsOptional()
+  @IsNumber()
+  marksWrong?: number;
+}
+
 export class AddQuestionDto {
   @IsUUID()
   questionId: string;

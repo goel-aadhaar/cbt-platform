@@ -4,6 +4,7 @@ import type { ComponentType, SVGProps } from "react";
 import { useCallback, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { ActionButton } from "@/components/action-button";
 import { ResultDetailDrawer } from "@/components/admin/result-detail-drawer";
 import {
   PublishResultsModal,
@@ -102,15 +103,25 @@ export default function ResultsPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const [recalcOpen, setRecalcOpen] = useState(false);
-  const [selected, setSelected] = useState<RRow | null>(null);
+  /**
+   * The exam the detail drawer is showing, held as an ID rather than a copy of
+   * the row. A snapshot would go stale the moment a correction re-scored the
+   * paper, and the drawer would keep showing the old ranked table underneath
+   * the panel that had just changed it.
+   */
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // The search box here was decorative. The rows are already in memory, so it
   // filters them directly rather than needing a round-trip.
   const [search, setSearch] = useState("");
 
-  const { data, loading, error } = useResultRows();
+  const { data, loading, error, reload } = useResultRows();
   const rows = useMemo(() => data ?? [], [data]);
+  const selected = useMemo(
+    () => rows.find((r) => r.examId === selectedId) ?? null,
+    [rows, selectedId],
+  );
 
   const visible = useMemo(() => {
     const want = TABS[tab];
@@ -141,9 +152,7 @@ export default function ResultsPage() {
     setNotice(null);
     try {
       setNotice(await fn());
-      // useAdminData has no refetch handle; a soft reload keeps this simple and
-      // guarantees every derived count re-reads from the server.
-      setTimeout(() => window.location.reload(), 900);
+      reload();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Action failed");
     } finally {
@@ -318,34 +327,40 @@ export default function ResultsPage() {
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         {r.status === "PROCESSING" ? (
-                          <button
+                          <ActionButton
                             disabled={busy !== null}
+                            loading={busy === r.examId}
+                            loadingText="Evaluating…"
                             onClick={() =>
                               run(r.examId, async () => {
                                 const res = await evaluateExam(r.examId);
                                 return `Evaluated ${res.evaluated} attempt(s) · max ${res.maxScore}`;
                               })
                             }
-                            className="rounded-lg bg-admin px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:opacity-95 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-admin px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:opacity-95 disabled:opacity-50"
                           >
-                            {busy === r.examId ? "Working…" : "Evaluate"}
-                          </button>
+                            Evaluate
+                          </ActionButton>
                         ) : r.status === "HELD" ? (
-                          <button
+                          <ActionButton
                             disabled={busy !== null}
+                            loading={busy === r.examId}
+                            loadingText="Publishing…"
                             onClick={() =>
                               run(r.examId, async () => {
                                 const res = await publishResults(r.examId);
                                 return `Published ${res.published} result(s)`;
                               })
                             }
-                            className="rounded-lg bg-admin px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:opacity-95 disabled:opacity-50"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-admin px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:opacity-95 disabled:opacity-50"
                           >
-                            {busy === r.examId ? "Working…" : "Publish"}
-                          </button>
+                            Publish
+                          </ActionButton>
                         ) : (
-                          <button
+                          <ActionButton
                             disabled={busy !== null}
+                            loading={busy === r.examId}
+                            loadingText="Holding…"
                             onClick={() =>
                               run(r.examId, async () => {
                                 const res = await holdResults(r.examId);
@@ -354,12 +369,12 @@ export default function ResultsPage() {
                             }
                             className="rounded-lg border border-admin-line bg-white px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                           >
-                            {busy === r.examId ? "Working…" : "Hold"}
-                          </button>
+                            Hold
+                          </ActionButton>
                         )}
                         <button
                           onClick={() => {
-                            setSelected(r);
+                            setSelectedId(r.examId);
                             setDetailOpen(true);
                           }}
                           className="rounded-lg border border-admin-line bg-white px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-admin-ink hover:bg-admin-bg"
@@ -384,7 +399,12 @@ export default function ResultsPage() {
         examTitle={selected?.exam}
         examId={selected?.examId}
         results={selected?.results}
-        onChanged={() => setTimeout(() => window.location.reload(), 900)}
+        /**
+         * Refresh the rows in place. This used to reload the page, which closed
+         * the drawer ~900ms after any answer-key correction — including the
+         * moment a question was set to Manual, taking the Grade button with it.
+         */
+        onChanged={reload}
       />
       <PublishResultsModal
         open={publishOpen}
@@ -393,7 +413,7 @@ export default function ResultsPage() {
         examTitle={selected?.exam}
         onPublished={(n) => {
           setNotice(`Published ${n} result(s).`);
-          setTimeout(() => window.location.reload(), 900);
+          reload();
         }}
       />
       <RecalculateResultsModal
@@ -402,7 +422,7 @@ export default function ResultsPage() {
         examId={selected?.examId}
         onRecalculated={(n) => {
           setNotice(`Re-evaluated ${n} attempt(s).`);
-          setTimeout(() => window.location.reload(), 900);
+          reload();
         }}
       />
     </AdminShell>

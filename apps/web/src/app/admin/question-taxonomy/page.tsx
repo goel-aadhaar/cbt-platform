@@ -424,7 +424,12 @@ function NameModal({
     try {
       await onSubmit(trimmed);
     } catch (err: unknown) {
-      setError(msg(err, "Something went wrong"));
+      setError(
+        msg(
+          err,
+          "That was not saved. Try again — if it keeps failing, reload the page.",
+        ),
+      );
       setSaving(false);
     }
   }

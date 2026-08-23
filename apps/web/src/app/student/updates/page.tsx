@@ -3,7 +3,12 @@
 import { useEffect, useState } from "react";
 
 import { StudentShell } from "@/components/student/student-shell";
-import { MegaphoneIcon, StarIcon } from "@/components/student/icons";
+import {
+  DownloadIcon,
+  MegaphoneIcon,
+  StarIcon,
+} from "@/components/student/icons";
+import { downloadAttachment } from "@/lib/media";
 import {
   CATEGORY_LOOK,
   fetchMyAnnouncements,
@@ -126,9 +131,61 @@ function AnnouncementCard({ item }: { item: StudentAnnouncement }) {
       <p className="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-admin-ink">
         {item.body}
       </p>
+      {item.attachmentKeys.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-admin-line/50 pt-3">
+          {item.attachmentKeys.map((key) => (
+            <AttachmentLink key={key} attachmentKey={key} />
+          ))}
+        </div>
+      )}
+
       <p className="mt-3 text-xs text-admin-muted">
         Posted by {item.createdBy.name}
       </p>
     </article>
+  );
+}
+
+/**
+ * One downloadable file on a notice.
+ *
+ * A plain `<a download>` cannot work here: `GET /media/file/:key` requires an
+ * Authorization header, so the bytes are fetched with the token and handed to
+ * the browser — the same approach as the authenticated result exports.
+ *
+ * A failure is shown on the button itself rather than as a page-level banner.
+ * The candidate clicked this file; telling them about it anywhere else makes
+ * them work out which of several attachments failed.
+ */
+function AttachmentLink({ attachmentKey }: { attachmentKey: string }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const name = attachmentKey.split("/").pop() ?? "attachment";
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        setFailed(null);
+        downloadAttachment(attachmentKey)
+          .catch((e: unknown) =>
+            setFailed(e instanceof Error ? e.message : "Download failed"),
+          )
+          .finally(() => setBusy(false));
+      }}
+      title={failed ?? `Download ${name}`}
+      className={`flex max-w-full items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-60 ${
+        failed
+          ? "border-danger/40 bg-danger/5 text-danger"
+          : "border-admin-line bg-white text-admin-ink hover:border-admin/50 hover:bg-admin/5"
+      }`}
+    >
+      <DownloadIcon className="size-3.5 shrink-0" />
+      <span className="truncate">
+        {busy ? "Downloading…" : (failed ?? name)}
+      </span>
+    </button>
   );
 }

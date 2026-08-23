@@ -7,6 +7,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 
 import { HelpCircleIcon } from "./icons";
+import { ActionButton } from "@/components/action-button";
+import { useAsyncAction } from "@/hooks/use-async-action";
 
 /**
  * Admin top bar: page title, support, profile menu.
@@ -51,6 +53,23 @@ export function AdminTopbar({ title }: { title: string }) {
       .map((p) => p[0])
       .join("")
       .toUpperCase() || "?";
+
+  /**
+   * Signing out is a server round-trip that revokes the session. Left bare the
+   * menu item looked inert, and a second click fired a second revoke against a
+   * session that was already gone. The redirect runs either way — a failed
+   * revoke should still get the user off the screen.
+   */
+  const signOut = useAsyncAction(logout, {
+    onSuccess: () => {
+      setMenuOpen(false);
+      router.replace("/login?as=staff");
+    },
+    onError: () => {
+      setMenuOpen(false);
+      router.replace("/login?as=staff");
+    },
+  });
 
   return (
     <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
@@ -114,19 +133,15 @@ export function AdminTopbar({ title }: { title: string }) {
               >
                 My profile
               </Link>
-              <button
-                type="button"
+              <ActionButton
                 role="menuitem"
-                onClick={() => {
-                  setMenuOpen(false);
-                  void logout().finally(() =>
-                    router.replace("/login?as=staff"),
-                  );
-                }}
-                className="block w-full px-4 py-2.5 text-left text-sm text-danger hover:bg-danger/5"
+                loading={signOut.pending}
+                loadingText="Signing out…"
+                onClick={() => void signOut.run()}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-danger hover:bg-danger/5 disabled:opacity-60"
               >
                 Log out
-              </button>
+              </ActionButton>
             </div>
           )}
         </div>

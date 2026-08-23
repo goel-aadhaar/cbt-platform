@@ -5,9 +5,11 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  ArrowRightIcon,
   BarChartIcon,
   CheckCircleIcon,
   ClockIcon,
+  HelpCircleIcon,
   ListIcon,
   TargetIcon,
   TimerIcon,
@@ -288,6 +290,28 @@ export default function StudentResultPage() {
             />
           </div>
         )}
+
+        {/* Straight to the board for THIS paper, not the newest one — a rank is
+            only meaningful next to the cohort it was earned in. */}
+        <Link
+          href={`/student/reports/leaderboard?attempt=${attemptId}`}
+          className="flex items-center justify-between gap-3 rounded-2xl border border-admin-line/60 bg-white px-5 py-4 transition-colors hover:border-admin/50 hover:bg-admin/5"
+        >
+          <span className="flex items-center gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-admin-mint/40 text-admin">
+              <TrophyIcon className="size-4" />
+            </span>
+            <span>
+              <span className="block font-bold text-admin-ink">
+                See the leaderboard
+              </span>
+              <span className="block text-sm text-admin-muted">
+                Toppers and full rankings for {result.exam.title}.
+              </span>
+            </span>
+          </span>
+          <ArrowRightIcon className="size-4 shrink-0 text-admin-muted" />
+        </Link>
 
         {/* ---------- Score comparison ---------- */}
         <ResultCard
@@ -692,6 +716,25 @@ export default function StudentResultPage() {
             Back to Performance Reports
           </Link>
         </div>
+
+        {/*
+          A result is where a candidate is most likely to want to query
+          something — a mark they disagree with, a question they think was
+          wrong. Sending them hunting through the sidebar for Help at that
+          moment is the point at which they email someone's personal address
+          instead. The link carries the exam and attempt so support does not
+          have to ask which paper this is about.
+        */}
+        <p className="flex flex-wrap items-center gap-1.5 border-t border-admin-line/60 pt-5 text-sm text-admin-muted">
+          <HelpCircleIcon className="size-4 shrink-0" />
+          Something look wrong with this result?
+          <Link
+            href={`/student/help?about=${encodeURIComponent(result.exam.title)}&attempt=${attemptId}`}
+            className="font-semibold text-admin underline-offset-2 hover:underline"
+          >
+            Get help &amp; support
+          </Link>
+        </p>
       </div>
     </StudentShell>
   );
