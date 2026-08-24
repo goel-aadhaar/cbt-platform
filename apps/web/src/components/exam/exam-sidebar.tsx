@@ -47,7 +47,7 @@ export function ExamSidebar({
     subjectIndices.filter((i) => statuses[i] === s).length;
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-surface-2">
+    <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-line bg-surface-2 max-lg:w-full max-lg:border-l-0">
       {/* Candidate info + timer */}
       <div className="border-b border-line bg-surface px-4 pb-4 pt-4">
         <div className="flex gap-4">

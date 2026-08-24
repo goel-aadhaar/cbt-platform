@@ -826,7 +826,7 @@ export function ExamBuilderDrawer({
                   For your own reference while the paper is in review.
                 </p>
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Duration (minutes)" required>
                   <input
                     type="number"
@@ -1207,7 +1207,7 @@ export function ExamBuilderDrawer({
                   )}
                 </div>
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Opens at" required>
                   <input
                     type="datetime-local"

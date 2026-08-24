@@ -15,6 +15,15 @@ import { useAuthUser } from "@/hooks/use-auth";
 import { ActionButton } from "@/components/action-button";
 import { useAsyncAction } from "@/hooks/use-async-action";
 import { logout, type Role } from "@/lib/auth";
+import {
+  NavDrawerBackdrop,
+  NavDrawerClose,
+  NavDrawerProvider,
+  NavDrawerToggle,
+  sidebarPanelClass,
+  useNavDrawer,
+  useSidebarAriaHidden,
+} from "@/components/nav-drawer";
 
 export interface StaffNavItem {
   label: string;
@@ -45,13 +54,22 @@ export function StaffShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
-      <StaffSidebar nav={nav} workspace={workspace} profileHref={profileHref} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <StaffTopbar title={title} profileHref={profileHref} />
-        <main className="flex-1 overflow-auto px-8 py-6">{children}</main>
+    <NavDrawerProvider>
+      <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
+        <NavDrawerBackdrop />
+        <StaffSidebar
+          nav={nav}
+          workspace={workspace}
+          profileHref={profileHref}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <StaffTopbar title={title} profileHref={profileHref} />
+          <main className="flex-1 overflow-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </NavDrawerProvider>
   );
 }
 
@@ -69,6 +87,8 @@ function StaffSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthUser();
+  const { open } = useNavDrawer();
+  const hidden = useSidebarAriaHidden();
 
   /** Same round trip as the other shells; see student-sidebar for the why. */
   const signOut = useAsyncAction(logout, {
@@ -77,7 +97,12 @@ function StaffSidebar({
   });
 
   return (
-    <aside className="flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5">
+    <aside
+      id="app-sidebar"
+      data-open={open}
+      aria-hidden={hidden || undefined}
+      className={`${sidebarPanelClass} flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5`}
+    >
       <div className="flex items-center gap-3 px-2">
         <Image
           src="/brand/codonmind-mark.png"
@@ -94,6 +119,7 @@ function StaffSidebar({
             NEXUS
           </p>
         </div>
+        <NavDrawerClose className="ml-auto text-admin-muted" />
       </div>
 
       {/* Who is signed in. Real identity, not a placeholder — on a console that
@@ -170,11 +196,17 @@ function StaffTopbar({
   const user = useAuthUser();
 
   return (
-    <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
-      <h1 className="text-xl font-bold text-admin-ink">{title}</h1>
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b border-admin-line bg-admin-bg px-4 sm:gap-4 sm:px-6 lg:h-20 lg:px-8">
+      <NavDrawerToggle className="text-admin-muted" />
+      <h1 className="min-w-0 truncate text-base font-bold text-admin-ink sm:text-lg lg:text-xl">
+        {title}
+      </h1>
 
-      <div className="ml-auto flex items-center gap-3">
-        <div className="flex items-center gap-1 text-admin-muted">
+      <div className="ml-auto flex items-center gap-1 sm:gap-3">
+        {/* The role and help affordances are secondary to identity: they fold
+            away on a phone rather than crowding out the profile control, and
+            the role is still stated in full on the profile screen. */}
+        <div className="hidden items-center gap-1 text-admin-muted sm:flex">
           <IconButton label={roleLabel(user?.role)}>
             <ShieldCheckIcon className="size-5" />
           </IconButton>

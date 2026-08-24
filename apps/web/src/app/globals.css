@@ -98,6 +98,56 @@ body {
 }
 
 /**
+ * Horizontal-overflow guard.
+ *
+ * A single over-wide child — a table, a long unbroken email address, an
+ * absolutely-positioned menu near the right edge — otherwise makes the whole
+ * PAGE scroll sideways on a phone, which reads as a broken layout rather than
+ * as one wide element. Anything that genuinely needs to scroll horizontally
+ * (data tables) owns an `overflow-x-auto` container of its own, so clipping at
+ * the document level costs nothing.
+ *
+ * `clip` rather than `hidden` deliberately: `overflow: hidden` makes the body a
+ * scroll container, which silently breaks every `position: sticky` descendant.
+ * `clip` truncates without that side effect.
+ */
+html,
+body {
+  overflow-x: clip;
+}
+
+/**
+ * Touch targets.
+ *
+ * Pointer-precise sizes (a 28px icon button, a dense table action) are fine
+ * with a mouse and a coin-toss with a fingertip. On coarse pointers every
+ * control gets at least ~44px in both directions, which is the size a finger
+ * actually needs.
+ *
+ * Deliberately NOT applied to `a[href]`: links appear inline inside sentences,
+ * and giving those a min-height turns running text into a ladder of gaps. Nav
+ * and card links are already comfortably sized by their own padding.
+ */
+@media (pointer: coarse) {
+  button:not([data-touch-target="off"]),
+  [role="button"]:not([data-touch-target="off"]),
+  [role="tab"],
+  select {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/**
+ * User-supplied strings — emails, candidate names, institute names — have no
+ * spaces to break at and will happily push a card wider than the screen.
+ * `anywhere` lets them break mid-token only when there is no other option.
+ */
+.break-anywhere {
+  overflow-wrap: anywhere;
+}
+
+/**
  * Cursor affordances.
  *
  * Tailwind v4's preflight sets `cursor: default` on buttons, so an app that

@@ -185,7 +185,7 @@ export function MonitorDetailDrawer({
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-3 divide-x divide-admin-line/60 rounded-xl border border-admin-line/60">
+          <div className="mt-4 grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0 divide-admin-line/60 rounded-xl border border-admin-line/60">
             {STAT.map((s) => (
               <div key={s.label} className="px-4 py-3 text-center">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-admin-muted">

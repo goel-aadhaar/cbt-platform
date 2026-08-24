@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { NavDrawerToggle } from "@/components/nav-drawer";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
@@ -72,8 +73,13 @@ export function AdminTopbar({ title }: { title: string }) {
   });
 
   return (
-    <header className="flex h-20 shrink-0 items-center gap-4 border-b border-admin-line bg-admin-bg px-8">
-      <h1 className="text-xl font-bold text-admin-ink">{title}</h1>
+    <header className="flex h-16 shrink-0 items-center gap-2 border-b border-admin-line bg-admin-bg px-4 sm:gap-4 sm:px-6 lg:h-20 lg:px-8">
+      <NavDrawerToggle className="text-admin-muted" />
+      {/* `truncate` + `min-w-0`: a long section name must shorten rather than
+          push the account controls off the right edge of a phone. */}
+      <h1 className="min-w-0 truncate text-base font-bold text-admin-ink sm:text-lg lg:text-xl">
+        {title}
+      </h1>
 
       <div className="ml-auto flex items-center gap-3">
         {/*

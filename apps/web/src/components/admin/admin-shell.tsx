@@ -1,6 +1,7 @@
 "use client";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
+import { NavDrawerBackdrop, NavDrawerProvider } from "@/components/nav-drawer";
 import { useRequireRole } from "@/hooks/use-auth";
 import { AdminSidebar } from "./admin-sidebar";
 import { AdminTopbar } from "./admin-topbar";
@@ -33,12 +34,19 @@ export function AdminShell({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
-      <AdminSidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <AdminTopbar title={title} />
-        <main className="flex-1 overflow-auto px-8 py-6">{children}</main>
+    <NavDrawerProvider>
+      <div className="flex h-screen overflow-hidden bg-admin-bg text-admin-ink [font-family:var(--font-hanken)]">
+        <NavDrawerBackdrop />
+        <AdminSidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AdminTopbar title={title} />
+          {/* Padding tightens on small screens: 32px of gutter either side of a
+              360px phone spends a fifth of the viewport on nothing. */}
+          <main className="flex-1 overflow-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </NavDrawerProvider>
   );
 }

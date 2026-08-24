@@ -1,6 +1,12 @@
 "use client";
 
 import Image from "next/image";
+import {
+  NavDrawerClose,
+  sidebarPanelClass,
+  useNavDrawer,
+  useSidebarAriaHidden,
+} from "@/components/nav-drawer";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
@@ -52,6 +58,8 @@ const NAV: NavItem[] = [
 
 export function StudentSidebar() {
   const pathname = usePathname();
+  const { open } = useNavDrawer();
+  const hidden = useSidebarAriaHidden();
   const router = useRouter();
   const user = useSyncExternalStore(
     subscribeSession,
@@ -80,7 +88,12 @@ export function StudentSidebar() {
     .toUpperCase();
 
   return (
-    <aside className="flex h-screen w-[264px] shrink-0 flex-col bg-admin px-4 py-5 text-white">
+    <aside
+      id="app-sidebar"
+      data-open={open}
+      aria-hidden={hidden || undefined}
+      className={`${sidebarPanelClass} flex h-screen w-[264px] shrink-0 flex-col bg-admin px-4 py-5 text-white`}
+    >
       {/* Logo */}
       <div className="flex items-center gap-3 px-2">
         <span className="flex size-10 items-center justify-center rounded-lg bg-white/95">
@@ -100,6 +113,7 @@ export function StudentSidebar() {
             STUDENT PORTAL
           </p>
         </div>
+        <NavDrawerClose className="ml-auto text-white/80" />
       </div>
 
       {/* Nav */}

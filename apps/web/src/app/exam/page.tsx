@@ -641,7 +641,7 @@ function ExamRunner({
 
   return (
     <div className="flex h-screen flex-col bg-surface">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-b border-line bg-surface px-3 py-2 sm:px-6 lg:h-16 lg:flex-nowrap lg:py-0">
         <div className="flex items-center gap-4">
           <Image
             src="/brand/codonmind-mark.png"
@@ -711,9 +711,9 @@ function ExamRunner({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <section className="flex min-w-0 flex-1 flex-col border-r border-line bg-white">
-          <div className="flex items-center justify-between border-b border-line bg-surface-2 px-4 py-2">
+      <div className="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-auto">
+        <section className="flex min-w-0 flex-1 flex-col border-r border-line bg-white max-lg:border-r-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-line bg-surface-2 px-3 py-2 sm:px-4">
             <div className="flex items-center gap-2 text-sm">
               <span className="font-bold text-ink">Section:</span>
               <span className="font-semibold text-brand">{q.sectionName}</span>
@@ -732,7 +732,7 @@ function ExamRunner({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-8">
+          <div className="min-h-0 flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
             <div className="mx-auto max-w-[896px]">
               <div className="flex items-center justify-between border-b border-line pb-2">
                 <h2 className="text-xl font-bold text-ink">
@@ -916,8 +916,11 @@ function ExamRunner({
           </div>
         </section>
 
-        <div className="flex flex-col">
-          <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="flex flex-col max-lg:w-full">
+          {/* `flex-1` has nothing to divide once the parent stacks, so the
+              palette would collapse to nothing. Below `lg` it takes its natural
+              height and the stacked page scrolls instead. */}
+          <div className="min-h-0 flex-1 overflow-hidden max-lg:h-auto max-lg:flex-none max-lg:overflow-visible">
             <ExamSidebar
               meta={meta}
               remaining={formatDuration(remainingSeconds)}
@@ -938,7 +941,7 @@ function ExamRunner({
               onSelect={visit}
             />
           </div>
-          <div className="w-[360px] shrink-0 border-l border-t border-line bg-surface-2 p-3">
+          <div className="w-[360px] shrink-0 border-l border-t border-line bg-surface-2 p-3 max-lg:w-full max-lg:border-l-0">
             <button
               type="button"
               onClick={() => setConfirmOpen(true)}
@@ -950,7 +953,7 @@ function ExamRunner({
         </div>
       </div>
 
-      <footer className="flex h-10 shrink-0 items-center justify-between border-t border-line bg-fill px-6 text-xs text-muted">
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line bg-fill px-3 py-2 text-xs text-muted sm:px-6 lg:h-10 lg:py-0">
         <span className="font-bold">© 2026 Codonmind Nexus</span>
         <div className="flex gap-4 font-semibold">
           <span>Official Disclaimer</span>

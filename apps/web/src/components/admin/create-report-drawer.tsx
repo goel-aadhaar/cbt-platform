@@ -67,7 +67,7 @@ export function CreateReportDrawer({
 
           {/* 3. Format */}
           <Step n="3. Format">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormatCard
                 icon={<FileTextIcon className="size-5" />}
                 title="PDF"

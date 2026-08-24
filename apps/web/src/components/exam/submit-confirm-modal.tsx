@@ -107,7 +107,7 @@ export function SubmitConfirmModal({
         </div>
 
         {/* Counts — same swatches the student has been reading all exam. */}
-        <div className="grid grid-cols-3 gap-3 px-6 py-5">
+        <div className="grid grid-cols-1 gap-3 px-4 py-4 sm:grid-cols-3 sm:px-6 sm:py-5">
           <Stat n={summary.answered} status="answered" label="Answered" />
           <Stat
             n={summary.notAnswered}

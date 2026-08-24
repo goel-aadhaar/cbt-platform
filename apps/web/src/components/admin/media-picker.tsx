@@ -256,7 +256,7 @@ export function MediaPicker({
       )}
 
       {!libraryOpen ? null : items === null ? (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
@@ -270,7 +270,7 @@ export function MediaPicker({
           question.
         </p>
       ) : (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {items.map((m) => {
             const on = selected.includes(m.key);
             const busy = deletingId === m.id;

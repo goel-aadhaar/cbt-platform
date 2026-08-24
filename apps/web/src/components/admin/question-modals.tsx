@@ -292,7 +292,7 @@ export function QuestionImportModal({
             Subject and chapter apply to every question in the file. Difficulty,
             type and exam type are fallbacks for rows that omit them.
           </p>
-          <div className="mt-3 grid grid-cols-3 gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <select
               value={subjectId}
               onChange={(e) => selectSubject(e.target.value)}
@@ -425,7 +425,7 @@ export function QuestionExportModal({
       }
     >
       <p className="text-sm font-semibold text-admin-muted">Format</p>
-      <div className="mt-2 grid grid-cols-3 gap-3">
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {FORMATS.map((f) => (
           <button
             key={f.id}

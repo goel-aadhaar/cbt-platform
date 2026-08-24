@@ -7,6 +7,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuthUser } from "@/hooks/use-auth";
 import { logout } from "@/lib/auth";
 import { RoleSwitcher } from "@/components/staff/role-switcher";
+import {
+  NavDrawerClose,
+  sidebarPanelClass,
+  useNavDrawer,
+  useSidebarAriaHidden,
+} from "@/components/nav-drawer";
 
 import {
   ActivityIcon,
@@ -63,6 +69,8 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthUser();
+  const { open } = useNavDrawer();
+  const hidden = useSidebarAriaHidden();
 
   async function handleLogout() {
     await logout();
@@ -70,7 +78,12 @@ export function AdminSidebar() {
   }
 
   return (
-    <aside className="flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5">
+    <aside
+      id="app-sidebar"
+      data-open={open}
+      aria-hidden={hidden || undefined}
+      className={`${sidebarPanelClass} flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5`}
+    >
       {/* Logo */}
       <div className="flex items-center gap-3 px-2">
         <Image
@@ -88,6 +101,7 @@ export function AdminSidebar() {
             ADMIN CONSOLE
           </p>
         </div>
+        <NavDrawerClose className="ml-auto text-admin-muted" />
       </div>
 
       {/* Workspace switcher */}

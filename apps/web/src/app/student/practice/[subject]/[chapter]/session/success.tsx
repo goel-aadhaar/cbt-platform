@@ -56,7 +56,7 @@ export function PracticeSuccess({
         Consistency is the key to mastery!
       </p>
 
-      <div className="mt-6 grid grid-cols-3 gap-4">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Figure
           icon={<CheckCircleIcon className="size-4" />}
           label="Score"

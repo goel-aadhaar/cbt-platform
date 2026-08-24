@@ -433,7 +433,7 @@ export function StaffDetailsDrawer({
                 </Field>
               </Card>
               <Card title="Activity">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Role">
                     {/*
                       An account may hold both roles at once — the session picks
@@ -486,7 +486,7 @@ export function StaffDetailsDrawer({
                     />
                   </Field>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Questions Authored">
                     <input
                       defaultValue={String(staff.questionsAuthored)}
