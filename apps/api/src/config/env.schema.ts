@@ -1,6 +1,19 @@
 import { z } from 'zod';
 
 /**
+ * Treat an EMPTY variable as an absent one.
+ *
+ * `.env.example` ships the optional settings as bare `KEY=` lines, and a dotenv
+ * file has no way to express "unset" other than deleting the line — so an
+ * operator who copies the template and fills in only what they need hands the
+ * schema `''`, which is not undefined and therefore not optional. Without this
+ * the app refuses to boot with "AWS_SES_FROM_EMAIL: Invalid email address" on
+ * a variable the operator deliberately left blank.
+ */
+const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema);
+
+/**
  * Single source of truth for environment variables.
  *
  * `@nestjs/config` calls `validateEnv` at bootstrap with the merged env
@@ -31,9 +44,11 @@ export const envSchema = z.object({
    * candidates). Size it against the database's own connection ceiling.
    */
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(25),
-  LOG_LEVEL: z
-    .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
-    .optional(),
+  LOG_LEVEL: blankAsUnset(
+    z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .optional(),
+  ),
   CORS_ORIGINS: z.string().optional(),
   THROTTLE_TTL_MS: z.coerce.number().int().positive().default(60000),
   THROTTLE_LIMIT: z.coerce.number().int().positive().default(120),
@@ -55,8 +70,8 @@ export const envSchema = z.object({
    * bucket is configured" pattern — MailService switches to the SES adapter
    * the moment a from-address is present.
    */
-  AWS_SES_FROM_EMAIL: z.string().email().optional(),
-  AWS_SES_FROM_NAME: z.string().optional(),
+  AWS_SES_FROM_EMAIL: blankAsUnset(z.string().email().optional()),
+  AWS_SES_FROM_NAME: blankAsUnset(z.string().optional()),
 });
 
 export type Env = z.infer<typeof envSchema>;

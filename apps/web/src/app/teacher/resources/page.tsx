@@ -66,7 +66,22 @@ export default function TeacherResourcesPage() {
     return () => clearTimeout(id);
   }, [load]);
 
-  const shelves = [...new Set((items ?? []).map((r) => r.subject.name))].sort();
+  /**
+   * The subject shelves come from the TAXONOMY, not from the files already
+   * uploaded.
+   *
+   * Deriving them from `items` meant a subject added in Question Taxonomy was
+   * invisible here until it happened to have a resource — so the dropdown could
+   * not be used to file the first one, which is exactly when it is wanted. Any
+   * subject still referenced by a resource is unioned in as well, so archiving
+   * a subject cannot hide material already shared under it.
+   */
+  const shelves = [
+    ...new Set([
+      ...(subjects ?? []).map((x) => x.name),
+      ...(items ?? []).map((r) => r.subject.name),
+    ]),
+  ].sort((a, b) => a.localeCompare(b));
   const shown = shelf
     ? (items ?? []).filter((r) => r.subject.name === shelf)
     : (items ?? []);
@@ -150,7 +165,9 @@ export default function TeacherResourcesPage() {
         subtitle={
           items === null
             ? "Loading…"
-            : `${shown.length} file(s) shared with your batches`
+            : shelf
+              ? `${shown.length} file(s) in ${shelf}`
+              : `${shown.length} file(s) shared with your batches`
         }
       >
         {items === null ? (
@@ -164,8 +181,9 @@ export default function TeacherResourcesPage() {
           </div>
         ) : shown.length === 0 ? (
           <p className="rounded-xl border border-dashed border-admin-line p-8 text-center text-sm text-admin-muted">
-            Nothing shared yet. Anything you upload here appears in the
-            Resources section of every student in the batch you choose.
+            {shelf
+              ? `No ${shelf} material shared yet. Use Share material to add the first file.`
+              : "Nothing shared yet. Anything you upload here appears in the Resources section of every student in the batch you choose."}
           </p>
         ) : (
           <ul className="flex flex-col gap-3">

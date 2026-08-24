@@ -30,6 +30,27 @@ async function bootstrap(): Promise<void> {
 
   const config = app.get(ConfigService).getOrThrow<AppConfig>('app');
 
+  /**
+   * Behind the nginx reverse proxy every request arrives from 127.0.0.1, so
+   * without this Express reports 127.0.0.1 as `req.ip` for all of them. Two
+   * things depend on that being the caller's real address:
+   *
+   *   - CandidateThrottlerGuard buckets ANONYMOUS traffic (sign-in,
+   *     accept-invite) by IP. Collapsed onto one address the entire internet
+   *     shares a single THROTTLE_LIMIT budget, so a hall of candidates signing
+   *     in at 9am burns 120/min in seconds and then 429s each other out of
+   *     their own exam — while a real brute-force attempt gets the same budget
+   *     as everyone else combined.
+   *   - Request logs otherwise attribute every call to the proxy, which makes
+   *     credential-stuffing indistinguishable from ordinary traffic.
+   *
+   * 'loopback' rather than `true`: it honours X-Forwarded-For only when the
+   * immediate peer is loopback, i.e. our own nginx. Trusting every hop would
+   * let any client put whatever address it liked in a header and step straight
+   * past the per-IP limit.
+   */
+  app.set('trust proxy', 'loopback');
+
   app.use(
     helmet({
       contentSecurityPolicy: {

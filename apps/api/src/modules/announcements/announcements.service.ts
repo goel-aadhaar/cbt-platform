@@ -215,7 +215,15 @@ export class AnnouncementsService {
    * or aimed at their own batch. Drafts and other batches' notices are excluded
    * by the query, not by the client.
    */
-  async listForStudent() {
+  /**
+   * The notices one student is entitled to see, right now.
+   *
+   * Extracted so the list and the unread COUNT are built from the same filter.
+   * Two hand-written copies would drift the moment audience or expiry rules
+   * changed, and a badge that disagrees with the page it points at is worse
+   * than no badge.
+   */
+  private async visibleToStudentWhere() {
     const { instituteId, userId } = this.ctx();
     const student = await this.prisma.student.findUnique({
       where: { userId },
@@ -224,7 +232,8 @@ export class AnnouncementsService {
     if (!student) throw new ForbiddenException('Not a student account');
 
     const now = new Date();
-    return this.prisma.announcement.findMany({
+    return {
+      userId,
       where: {
         instituteId,
         publishedAt: { not: null, lte: now },
@@ -232,15 +241,53 @@ export class AnnouncementsService {
         AND: [
           {
             OR: [
-              { audience: 'ALL_STUDENTS' },
-              { audience: 'BATCH', batchId: student.batchId },
+              { audience: 'ALL_STUDENTS' as const },
+              { audience: 'BATCH' as const, batchId: student.batchId },
             ],
           },
         ],
       },
+    };
+  }
+
+  async listForStudent() {
+    const { where } = await this.visibleToStudentWhere();
+    return this.prisma.announcement.findMany({
+      where,
       orderBy: [{ pinned: 'desc' }, { publishedAt: 'desc' }],
       select: studentSelect,
     });
+  }
+
+  /**
+   * How many visible notices arrived since this student last looked.
+   *
+   * A student who has never opened the page has `announcementsSeenAt` NULL,
+   * which correctly counts everything currently published rather than nothing.
+   */
+  async unreadCountForStudent() {
+    const { userId, where } = await this.visibleToStudentWhere();
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { announcementsSeenAt: true },
+    });
+    const seenAt = user?.announcementsSeenAt ?? null;
+    const count = await this.prisma.announcement.count({
+      where: seenAt
+        ? { ...where, publishedAt: { ...where.publishedAt, gt: seenAt } }
+        : where,
+    });
+    return { count };
+  }
+
+  /** Mark everything currently visible as seen, clearing the badge. */
+  async markSeenForStudent() {
+    const { userId } = await this.visibleToStudentWhere();
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { announcementsSeenAt: new Date() },
+    });
+    return { count: 0 };
   }
 
   /* ------------------------------ helpers ------------------------------ */

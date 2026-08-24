@@ -79,4 +79,23 @@ export class MyAnnouncementsController {
   list() {
     return this.announcements.listForStudent();
   }
+
+  /**
+   * How many notices have arrived since this student last looked — the number
+   * on the bell. Declared before nothing dynamic, so no route-order concern.
+   */
+  @Get('unread-count')
+  unreadCount() {
+    return this.announcements.unreadCountForStudent();
+  }
+
+  /**
+   * Clear the badge. Called when the student opens their announcements, which
+   * is the moment "seen" actually becomes true.
+   */
+  @Post('seen')
+  @HttpCode(HttpStatus.OK)
+  markSeen() {
+    return this.announcements.markSeenForStudent();
+  }
 }

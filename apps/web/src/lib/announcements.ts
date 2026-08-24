@@ -54,6 +54,27 @@ export function fetchMyAnnouncements(): Promise<StudentAnnouncement[]> {
   });
 }
 
+/**
+ * GET /me/announcements/unread-count — the number on the bell.
+ *
+ * A student who has never opened their announcements counts everything
+ * currently published, not zero: the badge exists to tell a first-time visitor
+ * there is something to read.
+ */
+export function fetchUnreadAnnouncementCount(): Promise<{ count: number }> {
+  return apiFetch<{ count: number }>("/me/announcements/unread-count", {
+    token: token(),
+  });
+}
+
+/** POST /me/announcements/seen — clears the badge. */
+export function markAnnouncementsSeen(): Promise<{ count: number }> {
+  return apiFetch("/me/announcements/seen", {
+    method: "POST",
+    token: token(),
+  });
+}
+
 /** GET /announcements — every notice in the tenant, drafts included. */
 export function listAnnouncements(): Promise<StaffAnnouncement[]> {
   return apiFetch<StaffAnnouncement[]>("/announcements", { token: token() });

@@ -49,6 +49,15 @@ model User {
   invitationTokenHash String?   @map("invitation_token_hash")
   invitationExpiresAt DateTime? @map("invitation_expires_at")
 
+  /// When this user last looked at their announcements, for the unread badge.
+  ///
+  /// One timestamp rather than a read-per-announcement join table: the badge
+  /// only ever needs "how many arrived since you last looked", and a row per
+  /// notice per student would grow without ever being read for anything else.
+  /// Stored on the user rather than the device so the count agrees across a
+  /// phone and a lab machine.
+  announcementsSeenAt DateTime? @map("announcements_seen_at")
+
   /// Single active session (contract §2.2): id of the currently-valid session;
   /// a new login overwrites it, invalidating prior tokens.
   currentSessionId String? @map("current_session_id") @db.Uuid

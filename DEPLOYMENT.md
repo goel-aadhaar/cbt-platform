@@ -87,6 +87,34 @@ echo "NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1" > apps/web/.env
 not read at runtime — this must be set correctly _before_ the first build,
 and before any rebuild that should pick up a changed value.
 
+### Check the configuration before you trust it
+
+```bash
+pnpm --filter @drsk/api build   # the audit reads the compiled schema
+node apps/api/scripts/check-env.mjs
+```
+
+This runs the API's **own** validator (`src/config/env.schema.ts`) against the
+real `.env` files, so it cannot drift from what the app refuses to boot
+without, and then checks the settings the schema deliberately allows to be
+absent but a deployment cannot survive:
+
+| Left unset            | What actually happens                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_SES_FROM_EMAIL`  | `MailService` silently falls back to the console adapter. OTP codes and invite links go to the API log and are never sent — **nobody can sign in.**     |
+| `NEXT_PUBLIC_API_URL` | Falls back to `http://localhost:4000/api/v1` and is compiled into the bundle. The build succeeds; every visitor's browser then calls their own machine. |
+| `AWS_S3_BUCKET`       | Uploaded media lands on the instance's local disk — it survives a restart but not a replacement instance.                                               |
+| `CORS_ORIGINS`        | The API rejects every cross-origin request. Invisible while nginx serves both on one origin; fatal the day the app gets its own hostname.               |
+
+It also rejects a `FRONTEND_URL` pointing at a raw IP — email links built from
+one read as phishing, cannot be served over TLS, and break when the instance is
+replaced — and any `NEXT_PUBLIC_`-prefixed variable whose name looks like a
+secret, since those are published to every browser.
+
+It prints key **names** and verdicts only, never a value, so its output is safe
+to paste into an issue. `scripts/deploy.sh` runs it automatically after the
+build and stops the deploy if anything is wrong (`SKIP_ENV_CHECK=1` overrides).
+
 ## First deploy
 
 ```bash

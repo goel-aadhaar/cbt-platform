@@ -3,7 +3,7 @@ import Link from "next/link";
 import { StudentContextChips } from "./student-context-chips";
 import { StudentSettingsMenu } from "./student-settings-menu";
 import { StudentSidebar } from "./student-sidebar";
-import { BellIcon } from "./icons";
+import { NotificationBell } from "./notification-bell";
 
 /**
  * One step in the breadcrumb trail. A bare string is a label with nowhere to
@@ -87,13 +87,7 @@ export function StudentShell({
               ever have been a decoration that lied. The bell now simply goes
               where its contents live.
             */}
-            <Link
-              href="/student/updates"
-              aria-label="Updates and announcements"
-              className="flex size-9 items-center justify-center rounded-full text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
-            >
-              <BellIcon className="size-5" />
-            </Link>
+            <NotificationBell />
             <StudentSettingsMenu />
           </div>
         </header>

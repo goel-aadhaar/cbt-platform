@@ -25,6 +25,22 @@ pnpm install --frozen-lockfile
 echo "==> Building API..."
 pnpm --filter @drsk/api build
 
+# Audit the environment now that dist/ exists — the check runs the API's own
+# validator. Deliberately BEFORE migrations and the restart: a half-configured
+# box should be caught while the running version is still serving, not after
+# the schema has moved and pm2 is looping on a boot failure.
+if [ "${SKIP_ENV_CHECK:-}" = "1" ]; then
+  echo "==> Skipping environment audit (SKIP_ENV_CHECK=1)."
+else
+  echo "==> Auditing environment..."
+  if ! node apps/api/scripts/check-env.mjs; then
+    echo "" >&2
+    echo "Deploy stopped: the environment above is incomplete." >&2
+    echo "Fix the entries marked 'x', or re-run with SKIP_ENV_CHECK=1 to override." >&2
+    exit 1
+  fi
+fi
+
 echo "==> Applying database migrations..."
 pnpm --filter @drsk/api exec prisma migrate deploy
 
