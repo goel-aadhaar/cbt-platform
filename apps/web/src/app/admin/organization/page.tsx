@@ -260,7 +260,7 @@ export default function OrganizationPage() {
   }
 
   return (
-    <AdminShell title="Organization">
+    <AdminShell title="Enrollments">
       {institute && (
         <section className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-admin-line/60 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           {/* Logo (§ institute branding) — every member sees whatever is set

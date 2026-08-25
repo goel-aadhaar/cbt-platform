@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { useAuthUser } from "@/hooks/use-auth";
 import { logout } from "@/lib/auth";
@@ -18,6 +19,7 @@ import {
   ActivityIcon,
   BarChartIcon,
   BellIcon,
+  ChevronDownIcon,
   ClipboardIcon,
   DatabaseIcon,
   FileTextIcon,
@@ -26,42 +28,75 @@ import {
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
-  UploadIcon,
   UserIcon,
   UsersIcon,
 } from "./icons";
 import type { ComponentType, SVGProps } from "react";
 
-interface NavItem {
+type NavIcon = ComponentType<SVGProps<SVGSVGElement>>;
+
+interface NavLink {
   label: string;
   href: string;
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  icon: NavIcon;
 }
 
-const NAV: NavItem[] = [
+/**
+ * A grouped nav item — "Organization" used to be three flat, unrelated-
+ * looking rows (Organization, Teachers, Administrators) even though they're
+ * all "who and how this institute is set up". Grouped under one parent that
+ * expands, matching how a person would actually describe the console:
+ * "it's under Organization".
+ */
+interface NavGroup {
+  label: string;
+  icon: NavIcon;
+  children: NavLink[];
+}
+
+type NavEntry = NavLink | NavGroup;
+
+function isGroup(entry: NavEntry): entry is NavGroup {
+  return "children" in entry;
+}
+
+const NAV: NavEntry[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: GridIcon },
   {
     label: "Organization",
-    href: "/admin/organization",
     icon: LayersIcon,
+    children: [
+      // Was its own top-level "Organization" item — the enrollment
+      // hierarchy (programs/classes/batches) plus institute identity.
+      { label: "Enrollments", href: "/admin/organization", icon: LayersIcon },
+      {
+        label: "Administrators",
+        href: "/admin/administrators",
+        icon: ShieldCheckIcon,
+      },
+      {
+        label: "Teachers",
+        href: "/admin/teachers",
+        icon: GraduationCapIcon,
+      },
+    ],
   },
   { label: "Students", href: "/admin/students", icon: UsersIcon },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
   { label: "Question Bank", href: "/admin/questions", icon: DatabaseIcon },
-  { label: "Results", href: "/admin/results", icon: BarChartIcon },
-  { label: "Reports", href: "/admin/reports", icon: FileTextIcon },
+  {
+    label: "Results & Reports",
+    icon: BarChartIcon,
+    children: [
+      { label: "Results", href: "/admin/results", icon: BarChartIcon },
+      { label: "Reports", href: "/admin/reports", icon: FileTextIcon },
+    ],
+  },
   { label: "Live Monitoring", href: "/admin/monitoring", icon: ActivityIcon },
   { label: "Announcements", href: "/admin/announcements", icon: BellIcon },
-  { label: "Imports", href: "/admin/imports", icon: UploadIcon },
   // The trail was reachable by the API but by no page in this console, so an
   // institute's own administrator could not review their staff's actions.
   { label: "Audit Log", href: "/admin/audit", icon: ShieldCheckIcon },
-  { label: "Teachers", href: "/admin/teachers", icon: GraduationCapIcon },
-  {
-    label: "Administrators",
-    href: "/admin/administrators",
-    icon: ShieldCheckIcon,
-  },
   { label: "My Profile", href: "/admin/profile", icon: UserIcon },
 ];
 
@@ -71,6 +106,25 @@ export function AdminSidebar() {
   const user = useAuthUser();
   const { open } = useNavDrawer();
   const hidden = useSidebarAriaHidden();
+  /**
+   * Manually toggled open state, per group (keyed by label) — ORed at
+   * render time with "a child of this group is the current page", so
+   * landing directly on /admin/teachers shows Organization already
+   * expanded, with no click required to see why that row is highlighted.
+   * Independent Sets, not one shared boolean: with two groups now
+   * (Organization, Results & Reports), toggling one must never open or
+   * close the other.
+   */
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleGroup = (label: string) =>
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
 
   async function handleLogout() {
     await logout();
@@ -129,23 +183,46 @@ export function AdminSidebar() {
 
       {/* Nav */}
       <nav className="mt-4 flex flex-col gap-1">
-        {NAV.map(({ label, href, icon: Icon }) => {
-          const active = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
-                active
-                  ? "bg-admin/10 text-admin"
-                  : "text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
-              }`}
-            >
-              <Icon className="size-5 shrink-0" />
-              {label}
-            </Link>
-          );
+        {NAV.map((entry) => {
+          if (isGroup(entry)) {
+            const childActive = entry.children.some((c) => c.href === pathname);
+            const expanded = expandedGroups.has(entry.label) || childActive;
+            const Icon = entry.icon;
+            return (
+              <div key={entry.label}>
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(entry.label)}
+                  aria-expanded={expanded}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+                    childActive
+                      ? "text-admin"
+                      : "text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
+                  }`}
+                >
+                  <Icon className="size-5 shrink-0" />
+                  <span className="flex-1 text-left">{entry.label}</span>
+                  <ChevronDownIcon
+                    className={`size-3.5 shrink-0 transition-transform ${
+                      expanded ? "" : "-rotate-90"
+                    }`}
+                  />
+                </button>
+                {expanded && (
+                  <div className="ml-4 flex flex-col gap-1 border-l border-admin-line py-1 pl-3">
+                    {entry.children.map((child) => (
+                      <NavRow
+                        key={child.href}
+                        item={child}
+                        pathname={pathname}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return <NavRow key={entry.href} item={entry} pathname={pathname} />;
         })}
       </nav>
 
@@ -173,5 +250,25 @@ export function AdminSidebar() {
         Logout
       </button>
     </aside>
+  );
+}
+
+/** One flat link row — used for both top-level items and a group's children. */
+function NavRow({ item, pathname }: { item: NavLink; pathname: string }) {
+  const active = pathname === item.href;
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+        active
+          ? "bg-admin/10 text-admin"
+          : "text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
+      }`}
+    >
+      <Icon className="size-5 shrink-0" />
+      {item.label}
+    </Link>
   );
 }
