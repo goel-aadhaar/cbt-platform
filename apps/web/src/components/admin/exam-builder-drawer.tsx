@@ -311,14 +311,46 @@ export function ExamBuilderDrawer({
     };
   }, [open, isTeacher]);
 
-  // Re-query the bank whenever a filter changes. Filtering happens server-side
-  // so this scales past the page size, unlike filtering the loaded array.
+  /**
+   * A section *is* a subject (see the "Section" select above) — so the
+   * question picker below has no business offering questions from any
+   * other one. `section.name` stores the subject's NAME, not its id, so
+   * this resolves it against the loaded taxonomy the same way the section
+   * row's own dropdown does. Derived at render time rather than synced into
+   * `filters` state via an effect — switching sections needs no state
+   * write of its own, just a different value flowing into the same query.
+   */
+  const activeSectionSubject = useMemo(
+    () =>
+      subjects.find((s) => s.name === sections[activeSection]?.name) ?? null,
+    [subjects, sections, activeSection],
+  );
+
+  /** `filters` plus the section's subject forced on top — the actual query
+   * the bank is scoped by. Chapter/topic filters the user picked for a
+   * DIFFERENT subject are dropped rather than sent alongside a subject they
+   * don't belong to. */
+  const effectiveFilters: QuestionFilters = useMemo(() => {
+    if (!activeSectionSubject) return filters;
+    if (filters.subjectId === activeSectionSubject.id) return filters;
+    return {
+      ...filters,
+      subjectId: activeSectionSubject.id,
+      chapterId: undefined,
+      topicId: undefined,
+    };
+  }, [filters, activeSectionSubject]);
+
+  // Re-query the bank whenever the effective filters change (a manual filter
+  // edit, or switching to a section with a different subject). Filtering
+  // happens server-side so this scales past the page size, unlike filtering
+  // the loaded array.
   useEffect(() => {
     if (!open) return;
-    const active = Object.values(filters).some(Boolean);
+    const active = Object.values(effectiveFilters).some(Boolean);
     if (!active) return;
     let cancelled = false;
-    listQuestions({ ...filters, status: "APPROVED", limit: 200 })
+    listQuestions({ ...effectiveFilters, status: "APPROVED", limit: 200 })
       .then((r) => {
         if (!cancelled) {
           setApproved(r.items);
@@ -338,7 +370,7 @@ export function ExamBuilderDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, filters]);
+  }, [open, effectiveFilters]);
 
   const totalQuestions = useMemo(
     () => sections.reduce((n, s) => n + s.questionIds.length, 0),
@@ -1038,110 +1070,128 @@ export function ExamBuilderDrawer({
                 )}
               </div>
 
-              <p className="text-sm text-admin-muted">
-                Only APPROVED questions from the curated bank can be added.
-              </p>
-              <QuestionFilterBar
-                value={filters}
-                onChange={(next) => {
-                  // Flag the pending refetch here rather than inside the effect
-                  // (setState in an effect body triggers cascading renders).
-                  if (Object.values(next).some(Boolean)) setQLoading(true);
-                  setFilters(next);
-                }}
-                facetSource={facetSource}
-                resultCount={approved.length}
-              />
-              <div className="max-h-[320px] overflow-auto rounded-xl border border-admin-line/60">
-                {qLoading && (
-                  <p className="p-4 text-center text-sm text-admin-muted">
-                    Filtering…
+              {!activeSectionSubject ? (
+                <p className="rounded-xl border border-dashed border-admin-line p-6 text-center text-sm text-admin-muted">
+                  Choose a subject for this section (back in Step 2) before
+                  picking its questions.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-admin-muted">
+                    Only APPROVED {activeSectionSubject.name} questions from the
+                    curated bank can be added.
                   </p>
-                )}
-                {approved.map((q) => {
-                  const cur = sections[activeSection];
-                  const checked = cur?.questionIds.includes(q.id) ?? false;
-                  const usedElsewhere = sections.some(
-                    (s, idx) =>
-                      idx !== activeSection && s.questionIds.includes(q.id),
-                  );
-                  return (
-                    <div
-                      key={q.id}
-                      className={`flex items-start gap-3 border-b border-admin-line/40 p-3 last:border-b-0 hover:bg-admin-bg/40 ${
-                        usedElsewhere ? "opacity-40" : ""
-                      }`}
-                    >
-                      <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={usedElsewhere}
-                          onChange={() =>
-                            setSections((prev) =>
-                              prev.map((s, idx) =>
-                                idx !== activeSection
-                                  ? s
-                                  : {
-                                      ...s,
-                                      questionIds: checked
-                                        ? s.questionIds.filter(
-                                            (x) => x !== q.id,
-                                          )
-                                        : [...s.questionIds, q.id],
-                                    },
-                              ),
-                            )
-                          }
-                          className="mt-1 size-4 accent-admin"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm text-admin-ink">
-                            {q.statement}
-                          </span>
-                          <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                            <Tag>{q.subject}</Tag>
-                            <Tag>{q.chapter}</Tag>
-                            {q.topic && <Tag>{q.topic}</Tag>}
-                            <Tag tone={q.difficulty}>{q.difficulty}</Tag>
-                            <Tag>{q.type}</Tag>
-                            <Tag>{q.marks} marks</Tag>
-                            {q.inPracticeLibrary && (
-                              <Tag tone="practice">★ In practice library</Tag>
-                            )}
-                            {q.examCategory && <Tag>{q.examCategory.name}</Tag>}
-                            {(q.tags ?? []).map((t) => (
-                              <Tag key={t} tone="tag">
-                                #{t}
-                              </Tag>
-                            ))}
-                            {usedElsewhere && (
-                              <span className="text-xs text-admin-subtle">
-                                already in another section
+                  <QuestionFilterBar
+                    value={effectiveFilters}
+                    onChange={(next) => {
+                      // Flag the pending refetch here rather than inside the
+                      // effect (setState in an effect body triggers cascading
+                      // renders).
+                      if (Object.values(next).some(Boolean)) setQLoading(true);
+                      setFilters(next);
+                    }}
+                    facetSource={facetSource}
+                    resultCount={approved.length}
+                    subjectLocked
+                  />
+                  <div className="max-h-[320px] overflow-auto rounded-xl border border-admin-line/60">
+                    {qLoading && (
+                      <p className="p-4 text-center text-sm text-admin-muted">
+                        Filtering…
+                      </p>
+                    )}
+                    {approved.map((q) => {
+                      const cur = sections[activeSection];
+                      const checked = cur?.questionIds.includes(q.id) ?? false;
+                      const usedElsewhere = sections.some(
+                        (s, idx) =>
+                          idx !== activeSection && s.questionIds.includes(q.id),
+                      );
+                      return (
+                        <div
+                          key={q.id}
+                          className={`flex items-start gap-3 border-b border-admin-line/40 p-3 last:border-b-0 hover:bg-admin-bg/40 ${
+                            usedElsewhere ? "opacity-40" : ""
+                          }`}
+                        >
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={usedElsewhere}
+                              onChange={() =>
+                                setSections((prev) =>
+                                  prev.map((s, idx) =>
+                                    idx !== activeSection
+                                      ? s
+                                      : {
+                                          ...s,
+                                          questionIds: checked
+                                            ? s.questionIds.filter(
+                                                (x) => x !== q.id,
+                                              )
+                                            : [...s.questionIds, q.id],
+                                        },
+                                  ),
+                                )
+                              }
+                              className="mt-1 size-4 accent-admin"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm text-admin-ink">
+                                {q.statement}
                               </span>
-                            )}
-                          </span>
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => preview.openPreview(q.id)}
-                        aria-label="Preview question"
-                        className="mt-1 shrink-0 rounded p-1.5 text-admin-muted hover:bg-admin-bg hover:text-admin"
-                      >
-                        <EyeIcon className="size-4" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {!qLoading && approved.length === 0 && (
-                  <p className="p-6 text-center text-sm text-admin-muted">
-                    {Object.values(filters).some(Boolean)
-                      ? "No approved questions match these filters."
-                      : "No approved questions yet. Approve questions in the Question Bank first."}
-                  </p>
-                )}
-              </div>
+                              <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                                <Tag>{q.subject}</Tag>
+                                <Tag>{q.chapter}</Tag>
+                                {q.topic && <Tag>{q.topic}</Tag>}
+                                <Tag tone={q.difficulty}>{q.difficulty}</Tag>
+                                <Tag>{q.type}</Tag>
+                                <Tag>{q.marks} marks</Tag>
+                                {q.inPracticeLibrary && (
+                                  <Tag tone="practice">
+                                    ★ In practice library
+                                  </Tag>
+                                )}
+                                {q.examCategory && (
+                                  <Tag>{q.examCategory.name}</Tag>
+                                )}
+                                {(q.tags ?? []).map((t) => (
+                                  <Tag key={t} tone="tag">
+                                    #{t}
+                                  </Tag>
+                                ))}
+                                {usedElsewhere && (
+                                  <span className="text-xs text-admin-subtle">
+                                    already in another section
+                                  </span>
+                                )}
+                              </span>
+                            </span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => preview.openPreview(q.id)}
+                            aria-label="Preview question"
+                            className="mt-1 shrink-0 rounded p-1.5 text-admin-muted hover:bg-admin-bg hover:text-admin"
+                          >
+                            <EyeIcon className="size-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {!qLoading && approved.length === 0 && (
+                      <p className="p-6 text-center text-sm text-admin-muted">
+                        {Object.entries(effectiveFilters).some(
+                          ([k, v]) => Boolean(v) && k !== "subjectId",
+                        )
+                          ? "No approved questions match these filters."
+                          : `No approved ${activeSectionSubject.name} questions yet. Approve some in the Question Bank first.`}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 

@@ -14,7 +14,16 @@ import { InstitutesService } from './institutes.service';
   // MediaModule is for MediaStoragePort — resolving a logo key to a URL
   // (§ institute branding).
   imports: [AuthModule, MediaModule],
-  controllers: [InstitutesController, MyInstituteController],
+  // MyInstituteController MUST be registered before InstitutesController.
+  // Both end up with a route shaped `institutes/<one segment>` — the
+  // literal `institutes/me` here, and `@Get(':id')`/`@Patch(':id')` on the
+  // superadmin controller. Express matches same-shape routes in
+  // registration order, not by literal-vs-param specificity, so with the
+  // superadmin controller first, `GET /institutes/me` was matching
+  // `GET /institutes/:id` with id="me" and refusing every ADMIN/TEACHER/
+  // STUDENT caller with "needs the SUPERADMIN role" — the self-service
+  // route was never reachable at all.
+  controllers: [MyInstituteController, InstitutesController],
   providers: [InstitutesService, InstituteUsageService],
 })
 export class InstitutesModule {}

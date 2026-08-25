@@ -41,6 +41,7 @@ export function QuestionFilterBar({
   facetSource,
   resultCount,
   searching = false,
+  subjectLocked = false,
 }: {
   value: QuestionFilters;
   onChange: (next: QuestionFilters) => void;
@@ -54,6 +55,14 @@ export function QuestionFilterBar({
    * more disruptive than the wait it describes.
    */
   searching?: boolean;
+  /**
+   * The caller already knows the only subject that makes sense here (the
+   * exam builder's question picker, scoped to the active section's subject)
+   * and is driving `value.subjectId` itself — so the Subject control would
+   * just be a second, redundant way to pick something already decided.
+   * Hidden rather than merely pre-filled, and "Clear" leaves it alone.
+   */
+  subjectLocked?: boolean;
 }) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
@@ -98,7 +107,11 @@ export function QuestionFilterBar({
   const set = (patch: Partial<QuestionFilters>) =>
     onChange({ ...value, ...patch });
 
-  const activeCount = Object.values(value).filter(Boolean).length;
+  // The locked subjectId isn't a filter the user picked from this bar, so it
+  // doesn't count toward "N filters active" and survives "Clear".
+  const activeCount = Object.entries(value).filter(
+    ([key, v]) => Boolean(v) && !(subjectLocked && key === "subjectId"),
+  ).length;
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-admin-line/60 bg-white p-3">
@@ -119,15 +132,17 @@ export function QuestionFilterBar({
           )}
         </div>
 
-        <IdSelect
-          label="Subject"
-          value={value.subjectId}
-          options={subjects}
-          // Changing subject invalidates the narrower selections.
-          onChange={(v) =>
-            set({ subjectId: v, chapterId: undefined, topicId: undefined })
-          }
-        />
+        {!subjectLocked && (
+          <IdSelect
+            label="Subject"
+            value={value.subjectId}
+            options={subjects}
+            // Changing subject invalidates the narrower selections.
+            onChange={(v) =>
+              set({ subjectId: v, chapterId: undefined, topicId: undefined })
+            }
+          />
+        )}
         <IdSelect
           label="Chapter"
           value={value.chapterId}
@@ -185,7 +200,9 @@ export function QuestionFilterBar({
         {activeCount > 0 && (
           <button
             type="button"
-            onClick={() => onChange({})}
+            onClick={() =>
+              onChange(subjectLocked ? { subjectId: value.subjectId } : {})
+            }
             className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-semibold text-admin-2 hover:underline"
           >
             <XIcon className="size-3.5" /> Clear
