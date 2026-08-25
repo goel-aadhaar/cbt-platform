@@ -28,7 +28,6 @@ import {
   LayersIcon,
   LogOutIcon,
   ShieldCheckIcon,
-  UserIcon,
   UsersIcon,
 } from "./icons";
 import type { ComponentType, SVGProps } from "react";
@@ -69,6 +68,7 @@ const NAV: NavEntry[] = [
       // Was its own top-level "Organization" item — the enrollment
       // hierarchy (programs/classes/batches) plus institute identity.
       { label: "Enrollments", href: "/admin/organization", icon: LayersIcon },
+      { label: "Students", href: "/admin/students", icon: UsersIcon },
       {
         label: "Administrators",
         href: "/admin/administrators",
@@ -81,7 +81,6 @@ const NAV: NavEntry[] = [
       },
     ],
   },
-  { label: "Students", href: "/admin/students", icon: UsersIcon },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
   { label: "Question Bank", href: "/admin/questions", icon: DatabaseIcon },
   {
@@ -97,7 +96,6 @@ const NAV: NavEntry[] = [
   // The trail was reachable by the API but by no page in this console, so an
   // institute's own administrator could not review their staff's actions.
   { label: "Audit Log", href: "/admin/audit", icon: ShieldCheckIcon },
-  { label: "My Profile", href: "/admin/profile", icon: UserIcon },
 ];
 
 export function AdminSidebar() {
