@@ -13,7 +13,7 @@ import {
 import { useAvailableExams } from "@/hooks/use-available-exams";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
 import { usePracticeFacets } from "@/hooks/use-practice";
-import type { MyAttempt } from "@/lib/student";
+import { hasSatExam, type MyAttempt } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -35,7 +35,7 @@ export default function StudentExamsPage() {
   const resumable = available.find((e) => e.attempt?.status === "IN_PROGRESS");
 
   // Everything the student has actually sat — published AND awaiting results.
-  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const sat = attempts.filter(hasSatExam);
   const published = sat.filter((a) => a.result !== null);
   const pendingCount = sat.length - published.length;
 
@@ -219,7 +219,9 @@ export default function StudentExamsPage() {
                     )}
                   </span>
                   <span className="w-28 text-sm text-admin-muted">
-                    {formatDate(a.submittedAt ?? a.startedAt)}
+                    {/* Non-null: `sat` excludes every status without a real
+                        submittedAt/startedAt. */}
+                    {formatDate(a.submittedAt ?? a.startedAt!)}
                   </span>
                 </Link>
               ))

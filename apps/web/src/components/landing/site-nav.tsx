@@ -2,20 +2,15 @@ import Image from "next/image";
 import Link from "next/link";
 
 /**
- * Public site header (Figma 6:5).
+ * Public site header (§ public site).
  *
- * Two of these controls go somewhere real and the rest go down the page:
- * "Sign In" is the way into the product, and every nav item is an anchor to a
- * section that actually exists below. The design draws Platform and Solutions
- * with dropdown chevrons but does not say what is in the menus, so they behave
- * as jump links until there are pages to put in them — a chevron that opens
- * nothing is the kind of decoration this codebase has been busy removing.
+ * "Sign In" is the way into the product, and every nav item is an anchor to
+ * a section that actually exists below — a link only ever goes somewhere
+ * real.
  */
 const NAV_LINKS = [
-  { label: "Platform", href: "#platform", hasMenu: true },
-  { label: "Solutions", href: "#solutions", hasMenu: true },
-  { label: "Features", href: "#features", hasMenu: false },
-  { label: "Pricing", href: "#pricing", hasMenu: false },
+  { label: "Platform", href: "#platform" },
+  { label: "Contact", href: "#contact" },
 ];
 
 export function SiteNav() {
@@ -44,18 +39,9 @@ export function SiteNav() {
           <a
             key={link.label}
             href={link.href}
-            className="flex items-center gap-1 text-[14px] font-medium text-site-body hover:text-site-ink"
+            className="text-[14px] font-medium text-site-body hover:text-site-ink"
           >
             {link.label}
-            {link.hasMenu && (
-              <Image
-                src="/landing/chevron-down.svg"
-                alt=""
-                width={10}
-                height={6}
-                className="h-[6px] w-[10px]"
-              />
-            )}
           </a>
         ))}
       </nav>
@@ -68,10 +54,10 @@ export function SiteNav() {
           Sign In
         </Link>
         <a
-          href="#pricing"
+          href="#contact"
           className="hidden items-center justify-center rounded-full border border-site-ink px-5 py-2.5 text-[13px] font-semibold text-site-ink hover:bg-site-ink hover:text-white sm:flex"
         >
-          Request a Demo
+          Contact Us
         </a>
       </div>
     </header>

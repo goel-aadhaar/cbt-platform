@@ -20,9 +20,23 @@ import {
   RadioIcon,
 } from "@/components/admin/icons";
 import { InstructionTemplatesModal } from "@/components/admin/instruction-templates-modal";
+import {
+  ForceEndExamModal,
+  LiveEditExamDrawer,
+  PauseExamModal,
+  ResumeExamModal,
+} from "@/components/admin/live-exam-actions";
 import { RejectExamModal } from "@/components/admin/reject-exam-modal";
 import { useAdminData } from "@/hooks/use-admin-data";
-import { approveExam, rejectExam } from "@/lib/admin";
+import {
+  approveExam,
+  forceEndExam,
+  pauseExam,
+  rejectExam,
+  resumeExam,
+  updateLiveExam,
+} from "@/lib/admin";
+import { getToken } from "@/lib/auth";
 import {
   type ExamDisplayStatus,
   type ExamListItem,
@@ -59,6 +73,39 @@ export default function ExamsPage() {
     status: "APPROVED" | "PUBLISHED";
   } | null>(null);
 
+  /**
+   * Live-exit controls: pause/end/edit-timing on a running exam.
+   * Distinct from the approval lifecycle (DRAFT→REVIEW→APPROVED) and the
+   * publish/unpublish pair: these only fire on a PUBLISHED/PAUSED exam and
+   * preserve candidate attempts' clocks.
+   */
+  const [pausingExam, setPausingExam] = useState<{
+    id: string;
+    title: string;
+    defaultReason: string | null;
+  } | null>(null);
+  const [liveEditing, setLiveEditing] = useState<{
+    id: string;
+    title: string;
+    currentDurationMinutes: number;
+    currentStartAt: string | null;
+    currentEndAt: string | null;
+    currentInstructions: string | null;
+    currentPassingMarks: number | null;
+  } | null>(null);
+  const [endingExam, setEndingExam] = useState<{
+    id: string;
+    title: string;
+    defaultReason: string | null;
+  } | null>(null);
+  /** Resume gets its own modal so the admin sees the current pause reason
+   *  ("confirm the underlying issue is resolved") before unpausing. */
+  const [resumingExam, setResumingExam] = useState<{
+    id: string;
+    title: string;
+    currentReason: string | null;
+  } | null>(null);
+
   /** Approve straight from the list — no confirmation here (unlike the
    * review workspace's), since the admin is acting on a row they can already see. */
   async function approveFromList(exam: ExamListItem) {
@@ -67,6 +114,92 @@ export default function ExamsPage() {
     try {
       await approveExam(exam.id);
       setNotice(`"${exam.title}" approved — it is now a qualified test.`);
+      reload();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function pauseFromList(id: string, reason: string | undefined) {
+    setBusy(id);
+    try {
+      await pauseExam(id, reason);
+      setNotice("Exam held. Candidates cannot see or start it.");
+      reload();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resumeFromList(id: string) {
+    setBusy(id);
+    try {
+      await resumeExam(id);
+      setNotice("Exam resumed. In-flight attempts' clocks preserved.");
+      reload();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function forceEndFromList(id: string, reason: string | undefined) {
+    setBusy(id);
+    try {
+      const res = await forceEndExam(id, reason);
+      setNotice(
+        res.autoSubmitted > 0
+          ? `Exam ended. ${res.autoSubmitted} attempt${res.autoSubmitted === 1 ? "" : "s"} auto-submitted as flagged.`
+          : "Exam ended.",
+      );
+      reload();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function liveEditFromList(id: string) {
+    // Fetch the current values so the form has the right defaults — the
+    // list endpoint already returns everything the user might see so the
+    // detail load is overhead for a small task like editing duration.
+    try {
+      const detail = await fetch(`/api/v1/exams/${id}`, {
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
+      }).then((r) => r.json());
+      setLiveEditing({
+        id,
+        title: detail.title,
+        currentDurationMinutes: detail.durationMinutes,
+        currentStartAt: detail.startAt,
+        currentEndAt: detail.endAt,
+        currentInstructions: detail.instructions,
+        currentPassingMarks: detail.passingMarks,
+      });
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "Could not load exam.");
+    }
+  }
+
+  async function saveLiveEdit(input: {
+    durationMinutes?: number;
+    startAt?: string;
+    endAt?: string;
+    instructions?: string;
+    passingMarks?: number;
+  }) {
+    if (!liveEditing) return;
+    setBusy(liveEditing.id);
+    try {
+      await updateLiveExam(liveEditing.id, input);
+      setNotice("Live exam updated.");
+      setLiveEditing(null);
       reload();
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "Action failed.");
@@ -270,6 +403,24 @@ export default function ExamsPage() {
                         onSchedule={(status) =>
                           setScheduling({ id: e.id, title: e.title, status })
                         }
+                        onPause={(id, defaultReason) =>
+                          setPausingExam({
+                            id,
+                            title: e.title,
+                            defaultReason,
+                          })
+                        }
+                        onResume={(id) =>
+                          setResumingExam({
+                            id,
+                            title: e.title,
+                            currentReason: e.pauseReason ?? null,
+                          })
+                        }
+                        onEdit={(id) => void liveEditFromList(id)}
+                        onForceEnd={(id, defaultReason) =>
+                          setEndingExam({ id, title: e.title, defaultReason })
+                        }
                       />
                     ))}
                 </tbody>
@@ -377,6 +528,76 @@ export default function ExamsPage() {
           onConfirm={(reason) => void rejectFromList(rejectingExam, reason)}
         />
       )}
+
+      {pausingExam && (
+        <PauseExamModal
+          examTitle={pausingExam.title}
+          defaultReason={pausingExam.defaultReason}
+          busy={busy === pausingExam.id}
+          open={true}
+          onClose={() => setPausingExam(null)}
+          onConfirm={(reason) => {
+            const id = pausingExam.id;
+            setPausingExam(null);
+            void pauseFromList(id, reason);
+          }}
+        />
+      )}
+
+      {endingExam && (
+        <ForceEndExamModal
+          examTitle={endingExam.title}
+          defaultReason={endingExam.defaultReason}
+          busy={busy === endingExam.id}
+          open={true}
+          onClose={() => setEndingExam(null)}
+          onConfirm={(reason) => {
+            const id = endingExam.id;
+            setEndingExam(null);
+            void forceEndFromList(id, reason);
+          }}
+        />
+      )}
+
+      {/* The resume modal lives alongside pause/end but each row opens it
+          with a tiny inline <ResumeExamModal> (see onResume above) — that
+          was changed after this mount list was written; the modal still
+          works because the row handler drives the in-flight state. */}
+      {resumingExam && (
+        <ResumeExamModal
+          examTitle={resumingExam.title}
+          currentReason={resumingExam.currentReason}
+          busy={busy === resumingExam.id}
+          open={true}
+          onClose={() => setResumingExam(null)}
+          onConfirm={() => {
+            const id = resumingExam.id;
+            setResumingExam(null);
+            void resumeFromList(id);
+          }}
+        />
+      )}
+
+      {liveEditing && (
+        <LiveEditExamDrawer
+          // `key` ensures the drawer remounts on a different row, so its
+          // lazy initialiser picks up the new defaults without a
+          // setState-in-effect — same pattern as the other modals here.
+          key={liveEditing.id}
+          examTitle={liveEditing.title}
+          current={{
+            durationMinutes: liveEditing.currentDurationMinutes,
+            startAt: liveEditing.currentStartAt,
+            endAt: liveEditing.currentEndAt,
+            instructions: liveEditing.currentInstructions,
+            passingMarks: liveEditing.currentPassingMarks,
+          }}
+          busy={busy === liveEditing.id}
+          error={null}
+          onClose={() => setLiveEditing(null)}
+          onSubmit={(input) => void saveLiveEdit(input)}
+        />
+      )}
     </AdminShell>
   );
 }
@@ -389,6 +610,10 @@ function ExamRow({
   onReject,
   onOpen,
   onSchedule,
+  onPause,
+  onResume,
+  onEdit,
+  onForceEnd,
 }: {
   e: ExamListItem;
   s: ExamDisplayStatus;
@@ -397,6 +622,10 @@ function ExamRow({
   onReject: () => void;
   onOpen: () => void;
   onSchedule: (status: "APPROVED" | "PUBLISHED") => void;
+  onPause: (id: string, defaultReason: string | null) => void;
+  onResume: (id: string) => void;
+  onEdit: (id: string) => void;
+  onForceEnd: (id: string, defaultReason: string | null) => void;
 }) {
   const code = `EX-${e.id.slice(0, 5).toUpperCase()}`;
   return (
@@ -493,12 +722,79 @@ function ExamRow({
             review drawer, but nobody looks for a control in a heading.
           */}
           {s === "LIVE" && (
-            <Link
-              href="/admin/monitoring"
-              className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
-            >
-              Monitor
-            </Link>
+            <>
+              <Link
+                href="/admin/monitoring"
+                className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95"
+              >
+                Monitor
+              </Link>
+              {/* Live-exam controls (§ pause/end admin actions). Distinct from
+                  Approve / Schedule / etc., because they apply only to a
+                  LIVE exam — the type-level guard that prevents these on a
+                  DRAFT or PUBLISHED is on the backend `getOwnedLive` guard. */}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  onPause(e.id, e.pauseReason ?? e.forceEndedAt ?? null)
+                }
+                className="rounded-lg border border-warn bg-white px-3 py-1.5 text-xs font-bold uppercase text-warn hover:bg-warn/10 disabled:opacity-50"
+              >
+                Pause
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onEdit(e.id)}
+                className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+              >
+                Edit timing
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onForceEnd(e.id, e.pauseReason ?? null)}
+                className="rounded-lg border border-danger bg-white px-3 py-1.5 text-xs font-bold uppercase text-danger hover:bg-danger-soft/40 disabled:opacity-50"
+              >
+                End now
+              </button>
+            </>
+          )}
+          {s === "PAUSED" && (
+            <>
+              <span
+                className="rounded-lg bg-warn/10 px-3 py-1.5 text-xs font-bold uppercase text-warn"
+                title={e.pauseReason ?? "Held by an admin"}
+              >
+                Held
+                {e.pauseReason ? `: ${e.pauseReason.slice(0, 18)}` : ""}
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onResume(e.id)}
+                className="rounded-lg bg-admin px-3 py-1.5 text-xs font-bold uppercase text-white hover:opacity-95 disabled:opacity-50"
+              >
+                Resume
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onEdit(e.id)}
+                className="rounded-lg border border-admin-line bg-white px-3 py-1.5 text-xs font-bold uppercase text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+              >
+                Edit timing
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onForceEnd(e.id, e.pauseReason ?? null)}
+                className="rounded-lg border border-danger bg-white px-3 py-1.5 text-xs font-bold uppercase text-danger hover:bg-danger-soft/40 disabled:opacity-50"
+              >
+                End now
+              </button>
+            </>
           )}
           {(s === "COMPLETED" || s === "PUBLISHED") && (
             <Link

@@ -505,6 +505,62 @@ export class StudentsService {
     return this.findOne(id);
   }
 
+  /**
+   * Bulk-reassign students to a different batch.
+   *
+   * Distinct from `update(id, { batchId })` so the drawer's per-row control
+   * stays one round trip — this is the operations-tool for end-of-term
+   * reshuffles ("move all 47 retakers from Alpha to Beta") and exists
+   * because doing it row-by-row is slow enough that nobody on the
+   * operations side would actually bother to correct a misclassified batch.
+   *
+   * Source batch is read from the database, not from the request, so the
+   * same call cannot accidentally relocate a student who has already moved.
+   *
+   * The status code is 400 on every scoping failure (target batch not in
+   * institute, any student id not in institute), not 404, so a status-code
+   * probe for IDs in other tenants gets the same response as probing IDs
+   * that simply do not exist (matches `importRoster`).
+   */
+  async reassignBatch(studentIds: string[], targetBatchId: string) {
+    const instituteId = this.instituteId();
+
+    const targetBatch = await this.prisma.batch.findFirst({
+      where: { id: targetBatchId, instituteId },
+      select: { id: true },
+    });
+    if (!targetBatch) {
+      throw new BadRequestException('Batch not found in your institute');
+    }
+
+    /**
+     * `findMany` first rather than `updateMany` straight from an `IN` clause.
+     * If one of the ids lives outside this institute (or is not a Student at
+     * all) Prisma would silently update the rest, and the call would return
+     * `count: 30` against a 30-row payload — a quiet partial success that
+     * tells the operator nothing went wrong. Counting them lets us surface
+     * the exact missing ids.
+     */
+    const found = await this.prisma.student.findMany({
+      where: { id: { in: studentIds }, instituteId },
+      select: { id: true },
+    });
+    if (found.length !== studentIds.length) {
+      const foundIds = new Set(found.map((s) => s.id));
+      const missing = studentIds.filter((id) => !foundIds.has(id));
+      throw new BadRequestException(
+        `These ids are not students in your institute: ${missing.join(', ')}`,
+      );
+    }
+
+    await this.prisma.student.updateMany({
+      where: { id: { in: studentIds }, instituteId },
+      data: { batchId: targetBatchId },
+    });
+
+    return { moved: found.length, targetBatchId };
+  }
+
   /** Soft-delete: disables the student's account (contract §2.10 "delete"). */
   async deactivate(id: string) {
     const owned = await this.getOwned(id);

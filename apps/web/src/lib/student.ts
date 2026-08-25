@@ -90,13 +90,60 @@ export interface AttemptState {
   remainingSeconds: number;
 }
 
-/** POST /attempts — starts an attempt for the given exam. */
-export async function startAttempt(examId: string): Promise<AttemptState> {
+/**
+ * Every lifecycle stage an attempt row can be in (§ exam entry approval).
+ * PENDING_APPROVAL/APPROVED/DENIED precede the server clock ever starting;
+ * the rest are the original post-clock states.
+ */
+export type EntryStatus =
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "DENIED"
+  | "IN_PROGRESS"
+  | "SUBMITTED"
+  | "AUTO_SUBMITTED"
+  | "ABANDONED";
+
+export interface EntryRequest {
+  id: string;
+  status: EntryStatus;
+  /** Set only when status is DENIED — shown to the student, if the admin left one. */
+  denialReason: string | null;
+}
+
+/**
+ * POST /attempts — request entry into an exam (§ exam entry approval). No
+ * clock runs yet; an admin must approve before `beginAttempt` can start it.
+ * Idempotent: calling this again just reads back the request's current
+ * status, and reopens it for review if it was denied.
+ */
+export async function requestEntry(examId: string): Promise<EntryRequest> {
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
-  return apiFetch<AttemptState>("/attempts", {
+  return apiFetch<EntryRequest>("/attempts", {
     method: "POST",
     body: { examId },
+    token,
+  });
+}
+
+/** GET /attempts/:id/entry — poll target for the entry-approval waiting screen. */
+export async function getEntry(attemptId: string): Promise<EntryRequest> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<EntryRequest>(`/attempts/${attemptId}/entry`, { token });
+}
+
+/**
+ * POST /attempts/:id/begin — the server-controlled timer starts here, only
+ * once the attempt is APPROVED. Returns the full exam state (same shape as
+ * `getAttempt`) so the exam screen can render immediately.
+ */
+export async function beginAttempt(attemptId: string): Promise<AttemptState> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  return apiFetch<AttemptState>(`/attempts/${attemptId}/begin`, {
+    method: "POST",
     token,
   });
 }
@@ -117,7 +164,7 @@ export interface AvailableExam {
    */
   attempt: {
     id: string;
-    status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+    status: EntryStatus;
   } | null;
 }
 
@@ -467,10 +514,17 @@ export async function fetchMyHistory(): Promise<HistoryItem[]> {
  */
 export interface MyAttempt {
   id: string;
-  status: "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
-  startedAt: string;
+  status: EntryStatus;
+  /** Null until `beginAttempt` runs — see `EntryStatus`. */
+  startedAt: string | null;
   submittedAt: string | null;
-  resultState: "IN_PROGRESS" | "PENDING" | "PUBLISHED";
+  resultState:
+    | "PENDING_APPROVAL"
+    | "APPROVED"
+    | "DENIED"
+    | "IN_PROGRESS"
+    | "PENDING"
+    | "PUBLISHED";
   exam: {
     id: string;
     title: string;
@@ -499,6 +553,22 @@ export async function fetchMyAttempts(): Promise<MyAttempt[]> {
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
   return apiFetch<MyAttempt[]>(`/me/attempts`, { token });
+}
+
+/**
+ * Whether the student has actually finished sitting this attempt — not
+ * merely requested or been approved for entry (§ exam entry approval), and
+ * not still mid-exam. Shared by every screen that reports "completed
+ * tests", since a pending/approved/denied/in-progress row has no
+ * startedAt/submittedAt to show and must never count toward that figure.
+ */
+export function hasSatExam(a: Pick<MyAttempt, "resultState">): boolean {
+  return (
+    a.resultState !== "PENDING_APPROVAL" &&
+    a.resultState !== "APPROVED" &&
+    a.resultState !== "DENIED" &&
+    a.resultState !== "IN_PROGRESS"
+  );
 }
 
 /* ------------------------------------------------------------------ *

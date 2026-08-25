@@ -19,7 +19,7 @@ import {
 import { useExamSchedule } from "@/hooks/use-exam-schedule";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
 import { usePracticeFacets } from "@/hooks/use-practice";
-import type { MyAttempt, UpcomingExam } from "@/lib/student";
+import { hasSatExam, type MyAttempt, type UpcomingExam } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
 type IconType = ComponentType<SVGProps<SVGSVGElement>>;
@@ -44,7 +44,7 @@ export default function StudentHomePage() {
   const { live, upcoming, loading: loadingSchedule } = useExamSchedule();
   const { data: facets } = usePracticeFacets();
 
-  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const sat = attempts.filter(hasSatExam);
   const scored = sat.filter((a) => a.result !== null);
   const pending = sat.length - scored.length;
 
@@ -359,7 +359,11 @@ function CalendarCard({
       : null;
   };
   for (const a of attempts) {
-    const d = dayInThisMonth(a.submittedAt ?? a.startedAt);
+    // Pending/approved/denied entry requests (§ exam entry approval) have no
+    // date yet — nothing to mark on the calendar for them.
+    const iso = a.submittedAt ?? a.startedAt;
+    if (!iso) continue;
+    const d = dayInThisMonth(iso);
     if (d !== null) marks.set(d, "past");
   }
   for (const u of upcoming) {

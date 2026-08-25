@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { UserStatus } from '../auth/auth.types';
 import { PlatformUsagePort } from './ports/platform-usage.port';
 
@@ -61,7 +62,9 @@ export class PlatformService {
       // Authored in the window, matching how `newInstitutes` reads the same
       // 30 days — not exams *sat* in it, which is what `attempts` measures.
       this.prisma.exam.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
-      this.prisma.attempt.count(),
+      this.prisma.attempt.count({
+        where: { status: { notIn: PRE_START_ATTEMPT_STATUSES } },
+      }),
       this.prisma.attempt.count({
         where: { startedAt: { gte: thirtyDaysAgo } },
       }),
@@ -71,6 +74,7 @@ export class PlatformService {
       this.prisma.attempt.count({ where: { status: 'IN_PROGRESS' } }),
       this.prisma.attempt.groupBy({
         by: ['instituteId'],
+        where: { status: { notIn: PRE_START_ATTEMPT_STATUSES } },
         _count: { _all: true },
         orderBy: { _count: { instituteId: 'desc' } },
         take: 5,

@@ -16,7 +16,15 @@ import { AlertTriangleIcon, ClipboardIcon, RadioIcon, XIcon } from "./icons";
  * is older than {@link STALL_AFTER_MS} — the case the invigilator most needs to
  * see, and one the drawer could not previously express at all.
  */
-type Status = "on-track" | "stalled" | "submitted" | "absent" | "flagged";
+type Status =
+  | "on-track"
+  | "stalled"
+  | "submitted"
+  | "absent"
+  | "flagged"
+  // Requested (or was approved) entry but the clock hasn't started
+  // (§ exam entry approval) — distinct from "absent", which never asked.
+  | "waiting";
 
 /** How long without a saved response before a live attempt reads as stalled. */
 const STALL_AFTER_MS = 3 * 60 * 1000;
@@ -44,6 +52,11 @@ const STATUS_LOOK: Record<
     label: "Not started",
     ring: "border-admin-line",
     avatar: "bg-admin-surface text-admin-muted",
+  },
+  waiting: {
+    label: "Awaiting approval",
+    ring: "border-[#3b82f6]/40",
+    avatar: "bg-[#3b82f6] text-white",
   },
   flagged: {
     label: "Flagged",
@@ -99,13 +112,15 @@ export function MonitorDetailDrawer({
       : Infinity;
     const status: Status = s.flagged
       ? "flagged"
-      : s.status === "NOT_STARTED"
+      : s.status === "NOT_STARTED" || s.status === "DENIED"
         ? "absent"
-        : s.status === "IN_PROGRESS"
-          ? idleFor > STALL_AFTER_MS
-            ? "stalled"
-            : "on-track"
-          : "submitted";
+        : s.status === "PENDING_APPROVAL" || s.status === "APPROVED"
+          ? "waiting"
+          : s.status === "IN_PROGRESS"
+            ? idleFor > STALL_AFTER_MS
+              ? "stalled"
+              : "on-track"
+            : "submitted";
     return {
       id: s.studentId,
       name: s.name,

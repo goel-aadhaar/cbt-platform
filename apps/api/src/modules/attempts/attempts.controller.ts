@@ -28,10 +28,15 @@ import {
 export class AttemptsController {
   constructor(private readonly attempts: AttemptsService) {}
 
-  /** Start (or resume) the student's attempt at an exam. */
+  /**
+   * Request entry into an exam (§ exam entry approval). Creates the attempt
+   * PENDING an admin's decision — no clock runs yet. Idempotent: calling
+   * this again just reads back the request's current status (and reopens it
+   * for review if it was denied).
+   */
   @Post()
-  start(@Body() dto: StartAttemptDto) {
-    return this.attempts.start(dto.examId);
+  requestEntry(@Body() dto: StartAttemptDto) {
+    return this.attempts.requestEntry(dto.examId);
   }
 
   /**
@@ -43,8 +48,25 @@ export class AttemptsController {
     return this.attempts.availableForStudent();
   }
 
+  /** Poll target for the entry-approval waiting screen. */
+  @Get(':id/entry')
+  getEntry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.attempts.getEntry(id);
+  }
+
+  /**
+   * The server-controlled timer starts here (§ exam entry approval) — only
+   * once the attempt is APPROVED. Creates the blank per-question responses
+   * and returns the same full state shape as `GET :id`.
+   */
+  @Post(':id/begin')
+  @HttpCode(HttpStatus.OK)
+  begin(@Param('id', ParseUUIDPipe) id: string) {
+    return this.attempts.begin(id);
+  }
+
   /** Full attempt state (questions without answers, responses, remaining time).
-   * Refresh/reconnection-safe. */
+   * Refresh/reconnection-safe. Only valid once the attempt has begun. */
   @Get(':id')
   getState(@Param('id', ParseUUIDPipe) id: string) {
     return this.attempts.getState(id);

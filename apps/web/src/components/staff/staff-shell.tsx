@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ComponentType, SVGProps } from "react";
@@ -13,6 +12,7 @@ import {
 } from "@/components/admin/icons";
 import { useAuthUser } from "@/hooks/use-auth";
 import { ActionButton } from "@/components/action-button";
+import { InstituteLogo } from "@/components/institute-logo";
 import { useAsyncAction } from "@/hooks/use-async-action";
 import { logout, type Role } from "@/lib/auth";
 import {
@@ -104,13 +104,7 @@ function StaffSidebar({
       className={`${sidebarPanelClass} flex h-screen w-[280px] shrink-0 flex-col border-r border-admin-line bg-white px-4 py-5`}
     >
       <div className="flex items-center gap-3 px-2">
-        <Image
-          src="/brand/codonmind-mark.png"
-          alt=""
-          width={40}
-          height={40}
-          className="size-10 object-contain"
-        />
+        <InstituteLogo size={40} className="size-10 object-contain" />
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-admin-ink">
             CODON MIND

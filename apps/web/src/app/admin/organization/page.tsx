@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
+import { AuthedImage } from "@/components/authed-image";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { uploadMedia } from "@/lib/media";
+import {
+  type MyInstitute,
+  getMyInstitute,
+  renameMyInstitute,
+  setMyInstituteLogo,
+} from "@/lib/platform";
 import {
   archiveBatch,
   archiveClass,
@@ -41,6 +49,18 @@ export default function OrganizationPage() {
   const [selectedProgram, setSelectedProgram] = useState<string | null>(null);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
 
+  /**
+   * The institute identity card. Loaded once on mount, with a single
+   * rename mutation path through `renameMyInstitute`. The four-digit
+   * code is shown but never editable — it is embedded in every student
+   * roll number this institute has ever issued, and changing it
+   * retroactively would orphan the roll numbers themselves.
+   */
+  const [institute, setInstitute] = useState<MyInstitute | null>(null);
+  const [renamingInstitute, setRenamingInstitute] = useState(false);
+  const [savingLogo, setSavingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -59,6 +79,23 @@ export default function OrganizationPage() {
         setError(msg(e, "Could not load programs"));
         setPrograms([]);
       });
+  }, []);
+
+  /** Single load of the institute row at the top of the page. */
+  useEffect(() => {
+    let cancelled = false;
+    getMyInstitute()
+      .then((row) => !cancelled && setInstitute(row))
+      .catch(
+        (e: unknown) =>
+          !cancelled &&
+          setError(
+            e instanceof Error ? e.message : "Could not load institute.",
+          ),
+      );
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -135,6 +172,58 @@ export default function OrganizationPage() {
     setModal(null);
   }
 
+  async function renameInstitute(name: string) {
+    if (!institute) return;
+    setRenamingInstitute(true);
+    setError(null);
+    try {
+      const next = await renameMyInstitute(name.trim());
+      setInstitute(next);
+      setNotice("Institute renamed.");
+    } catch (e: unknown) {
+      setError(msg(e, "Could not rename the institute."));
+    } finally {
+      setRenamingInstitute(false);
+    }
+  }
+
+  /**
+   * Upload-then-attach (§ institute branding): the file goes to the general
+   * media library first (same call the question picker uses), then its key
+   * is attached to the institute in a second, tiny request. Every workspace
+   * shell already polls `GET /institutes/me` on its own, so a fresh sign-in
+   * or reload elsewhere picks the new logo up without any extra plumbing.
+   */
+  async function changeLogo(file: File) {
+    setSavingLogo(true);
+    setError(null);
+    try {
+      const uploaded = await uploadMedia(file, "Institute logo", "IMAGE");
+      const next = await setMyInstituteLogo(uploaded.key);
+      setInstitute(next);
+      setNotice("Logo updated.");
+    } catch (e: unknown) {
+      setError(msg(e, "Could not update the logo."));
+    } finally {
+      setSavingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function removeLogo() {
+    setSavingLogo(true);
+    setError(null);
+    try {
+      const next = await setMyInstituteLogo(null);
+      setInstitute(next);
+      setNotice("Logo removed — back to the default mark.");
+    } catch (e: unknown) {
+      setError(msg(e, "Could not remove the logo."));
+    } finally {
+      setSavingLogo(false);
+    }
+  }
+
   async function archive(level: Level, id: string, name: string) {
     const downstream =
       level === "program"
@@ -172,6 +261,89 @@ export default function OrganizationPage() {
 
   return (
     <AdminShell title="Organization">
+      {institute && (
+        <section className="mb-6 flex flex-wrap items-center gap-4 rounded-xl border border-admin-line/60 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+          {/* Logo (§ institute branding) — every member sees whatever is set
+              here; clearing it falls back to the platform default mark. */}
+          <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-admin-line/60 bg-admin-bg/40">
+            {institute.logoUrl ? (
+              <AuthedImage
+                url={institute.logoUrl}
+                alt=""
+                className="size-full object-contain"
+              />
+            ) : (
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-admin-subtle">
+                No logo
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-1 flex-col gap-0.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
+              Your institute
+            </p>
+            <p className="text-2xl font-bold text-admin-ink">
+              {institute.name}
+            </p>
+            <p className="text-xs text-admin-subtle">
+              Slug <span className="font-mono">{institute.slug}</span> · Code{" "}
+              <span className="font-mono">{institute.code}</span> · Since{" "}
+              {new Date(institute.createdAt).toLocaleDateString()}
+            </p>
+          </div>
+          <StatusPill tone={institute.isActive ? "good" : "muted"}>
+            {institute.isActive ? "Active" : "Suspended"}
+          </StatusPill>
+
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void changeLogo(file);
+            }}
+          />
+          <button
+            type="button"
+            disabled={savingLogo}
+            onClick={() => logoInputRef.current?.click()}
+            className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+          >
+            {savingLogo
+              ? "Saving…"
+              : institute.logoUrl
+                ? "Change Logo"
+                : "Upload Logo"}
+          </button>
+          {institute.logoUrl && (
+            <button
+              type="button"
+              disabled={savingLogo}
+              onClick={() => void removeLogo()}
+              className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
+            >
+              Remove Logo
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={renamingInstitute}
+            onClick={() => {
+              const next = window.prompt("Rename institute", institute.name);
+              if (next?.trim() && next.trim() !== institute.name) {
+                void renameInstitute(next);
+              }
+            }}
+            className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+          >
+            Rename
+          </button>
+        </section>
+      )}
+
       <p className="mb-6 max-w-2xl text-sm text-admin-muted">
         Programs, classes and batches are the enrollment hierarchy — every
         student is invited into a batch, which belongs to a class, which belongs

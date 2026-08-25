@@ -63,10 +63,16 @@ function toRow(
   s: MonitorStudent,
   scores: Map<string, { score: number; max: number }>,
 ): Row {
+  // PENDING_APPROVAL/APPROVED/DENIED (§ exam entry approval) all fold into
+  // "NOT STARTED" here — this page is about final outcomes, not entry-queue
+  // logistics (that lives on the live monitoring screen).
   const status: Attempt =
     s.status === "IN_PROGRESS"
       ? "In Progress"
-      : s.status === "NOT_STARTED"
+      : s.status === "NOT_STARTED" ||
+          s.status === "PENDING_APPROVAL" ||
+          s.status === "APPROVED" ||
+          s.status === "DENIED"
         ? "NOT STARTED"
         : scores.has(s.studentId)
           ? "COMPLETED"
@@ -168,8 +174,11 @@ function ParticipantsInner() {
     return [...byTab].sort(SORTS[sort]);
   }, [rows, tab, sort]);
 
+  // Matches toRow()'s classification: PENDING_APPROVAL/APPROVED/DENIED
+  // (§ exam entry approval) count as "NOT STARTED" here too, not as
+  // checked in — no clock has run for any of them.
   const checkedIn = monitor
-    ? monitor.totalStudents - monitor.counts.notStarted
+    ? rows.filter((r) => r.status !== "NOT STARTED").length
     : 0;
   const submissions = monitor
     ? monitor.counts.submitted + monitor.counts.autoSubmitted

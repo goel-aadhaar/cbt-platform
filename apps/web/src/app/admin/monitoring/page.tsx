@@ -12,7 +12,13 @@ import {
   RadioIcon,
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
-import { fetchExamMonitor, type ExamMonitor } from "@/lib/admin";
+import {
+  approveEntry,
+  denyEntry,
+  fetchEntryRequests,
+  fetchExamMonitor,
+  type ExamMonitor,
+} from "@/lib/admin";
 import { examDisplayStatus, listExams } from "@/lib/exams";
 
 interface Session {
@@ -134,6 +140,172 @@ function useMonitoring() {
    * good data rather than blanking the room.
    */
   return useAdminData(loader, [], { refreshMs: 10_000 });
+}
+
+/**
+ * Students waiting on (or just decided for) entry into a live exam (§ exam
+ * entry approval) — flattened across every live exam into one queue, since
+ * an invigilator watching a hall of several concurrent papers needs one
+ * place to look, not one per exam.
+ */
+function useEntryRequests(exams: { id: string; title: string }[]) {
+  const examKey = exams.map((e) => e.id).join(",");
+  const loader = useCallback(async () => {
+    const perExam = await Promise.all(
+      exams.map(async (e) => {
+        try {
+          const rows = await fetchEntryRequests(e.id);
+          return rows
+            .filter((r) => r.status === "PENDING_APPROVAL")
+            .map((request) => ({ examId: e.id, examTitle: e.title, request }));
+        } catch {
+          // One unreadable exam must not blank the whole queue.
+          return [];
+        }
+      }),
+    );
+    return perExam.flat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [examKey]);
+
+  return useAdminData(loader, [examKey], { refreshMs: 8_000 });
+}
+
+function EntryRequestsQueue({
+  exams,
+}: {
+  exams: { id: string; title: string }[];
+}) {
+  const { data, loading, reload } = useEntryRequests(exams);
+  const items = data ?? [];
+  const [denyingId, setDenyingId] = useState<string | null>(null);
+  const [denyReason, setDenyReason] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const approve = async (attemptId: string) => {
+    setBusyId(attemptId);
+    setError(null);
+    try {
+      await approveEntry(attemptId);
+      reload();
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Could not approve this request.",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const deny = async (attemptId: string) => {
+    setBusyId(attemptId);
+    setError(null);
+    try {
+      await denyEntry(attemptId, denyReason.trim() || undefined);
+      setDenyingId(null);
+      setDenyReason("");
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not deny this request.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (exams.length === 0) return null;
+
+  return (
+    <section>
+      <h3 className="flex items-center gap-2 text-lg font-bold text-admin-ink">
+        <ClockIcon className="size-5 text-admin" /> Entry Requests
+        {items.length > 0 && (
+          <span className="rounded-full bg-danger/10 px-2 py-0.5 text-xs font-bold text-danger">
+            {items.length}
+          </span>
+        )}
+      </h3>
+      <div className="mt-3 flex flex-col gap-2">
+        {!loading && items.length === 0 && (
+          <p className="rounded-xl border border-dashed border-admin-line bg-white p-4 text-center text-sm text-admin-muted">
+            No one is waiting to enter right now.
+          </p>
+        )}
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger"
+          >
+            {error}
+          </p>
+        )}
+        {items.map(({ examTitle, request }) => (
+          <div
+            key={request.id}
+            className="rounded-xl border border-admin-line/60 bg-white p-4"
+          >
+            <p className="text-sm font-bold text-admin-ink">
+              {request.student.user.name}
+              <span className="ml-1.5 font-normal text-admin-muted">
+                ({request.student.rollNumber})
+              </span>
+            </p>
+            <p className="text-xs text-admin-subtle">{examTitle}</p>
+            {denyingId === request.id ? (
+              <div className="mt-2 flex flex-col gap-2">
+                <input
+                  autoFocus
+                  value={denyReason}
+                  onChange={(e) => setDenyReason(e.target.value)}
+                  placeholder="Reason (optional)"
+                  className="rounded-lg border border-admin-line px-3 py-1.5 text-sm outline-none focus:border-admin"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busyId === request.id}
+                    onClick={() => void deny(request.id)}
+                    className="flex-1 rounded-lg bg-danger px-3 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    Confirm Deny
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDenyingId(null);
+                      setDenyReason("");
+                    }}
+                    className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-muted hover:bg-admin-bg"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={busyId === request.id}
+                  onClick={() => void approve(request.id)}
+                  className="flex-1 rounded-lg bg-admin px-3 py-1.5 text-xs font-bold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  disabled={busyId === request.id}
+                  onClick={() => setDenyingId(request.id)}
+                  className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-muted hover:bg-admin-bg"
+                >
+                  Deny
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export default function MonitoringPage() {
@@ -344,6 +516,10 @@ export default function MonitoringPage() {
              * removed for the same reason as the status strip above: both
              * percentages were hardcoded literals presented as live telemetry.
              */}
+            <EntryRequestsQueue
+              exams={SESSIONS.map((s) => ({ id: s.examId, title: s.name }))}
+            />
+
             <section>
               <h3 className="flex items-center gap-2 text-lg font-bold text-admin-ink">
                 <CheckCircleIcon className="size-5 text-admin" /> Recently

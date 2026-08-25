@@ -3,14 +3,18 @@ import { randomInt } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { CreateInstituteDto } from './dto/create-institute.dto';
 import { UpdateInstituteDto } from './dto/update-institute.dto';
+import { UpdateMyInstituteDto } from './dto/update-my-institute.dto';
 
 /** Shape returned for every tenant row in the superadmin console. */
 const summarySelect = {
@@ -20,6 +24,7 @@ const summarySelect = {
   code: true,
   isActive: true,
   createdAt: true,
+  logoKey: true,
 } as const;
 
 const MAX_CODE_ATTEMPTS = 20;
@@ -33,7 +38,30 @@ const MAX_CODE_ATTEMPTS = 20;
  */
 @Injectable()
 export class InstitutesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: MediaStoragePort,
+  ) {}
+
+  /**
+   * Institute branding (§ institute branding). `logoKey` on the row becomes
+   * a fetchable `logoUrl` here — the same key → URL resolution every other
+   * media reference in the API uses — so no caller ever has to know or
+   * construct storage keys themselves.
+   */
+  private resolveLogoUrl(key: string | null): string | null {
+    if (!key) return null;
+    return (
+      this.storage.publicUrl(key) ?? `/media/file/${encodeURIComponent(key)}`
+    );
+  }
+
+  private withLogo<T extends { logoKey: string | null }>(
+    row: T,
+  ): Omit<T, 'logoKey'> & { logoUrl: string | null } {
+    const { logoKey, ...rest } = row;
+    return { ...rest, logoUrl: this.resolveLogoUrl(logoKey) };
+  }
 
   async create(dto: CreateInstituteDto) {
     const existing = await this.prisma.institute.findUnique({
@@ -62,7 +90,7 @@ export class InstitutesService {
         // treats `stats` as required and reads `t.stats.students` straight
         // off the row the create call returns. Omitting it here crashed the
         // tenants list the moment a new institute was added.
-        return { ...institute, stats: emptyStats() };
+        return { ...this.withLogo(institute), stats: emptyStats() };
       } catch (err) {
         // Only retry a genuine code collision — a slug race (the caller's
         // own check above is TOCTOU-able too) needs a new slug from the
@@ -122,7 +150,7 @@ export class InstitutesService {
 
     const stats = await this.statsByInstitute();
     const items = institutes.map((i) => ({
-      ...i,
+      ...this.withLogo(i),
       stats: stats.get(i.id) ?? emptyStats(),
     }));
 
@@ -179,14 +207,20 @@ export class InstitutesService {
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.attempt.findFirst({
-        where: { instituteId: id },
+        // Excludes PENDING_APPROVAL/APPROVED/DENIED: their startedAt is
+        // null, which sorts FIRST on a DESC order — unfiltered, a pending
+        // entry request would read back as "no last activity".
+        where: {
+          instituteId: id,
+          status: { notIn: PRE_START_ATTEMPT_STATUSES },
+        },
         select: { startedAt: true },
         orderBy: { startedAt: 'desc' },
       }),
     ]);
 
     return {
-      ...institute,
+      ...this.withLogo(institute),
       stats: stats.get(id) ?? emptyStats(),
       staff,
       lastActivityAt: lastAttempt?.startedAt ?? null,
@@ -195,7 +229,7 @@ export class InstitutesService {
 
   async update(id: string, dto: UpdateInstituteDto) {
     await this.mustExist(id);
-    return this.prisma.institute.update({
+    const institute = await this.prisma.institute.update({
       where: { id },
       data: {
         ...(dto.name === undefined ? {} : { name: dto.name }),
@@ -203,6 +237,83 @@ export class InstitutesService {
       },
       select: summarySelect,
     });
+    return this.withLogo(institute);
+  }
+
+  /**
+   * The institute row the calling admin works in — same shape as
+   * `findOne()` but keyed on the actor's own `instituteId` rather than a
+   * path param. The institute's own admin sees the same identity the
+   * superadmin sees for them, with the same selective fields, so the
+   * "edit institute" dialog on /admin/organization can reuse the same
+   * form without inventing a second type.
+   *
+   * Throws Forbidden for a SUPERADMIN session (no `instituteId` — those
+   * users have no tenant), and NotFound if the institute has been deleted
+   * in the gap between sign-in and this call. The latter is the same
+   * response the user got before the addition of this method, so a stale
+   * session token does not suddenly start erroring differently.
+   */
+  async myInstitute(userInstituteId: string | null) {
+    if (!userInstituteId) {
+      throw new ForbiddenException(
+        'No institute is associated with this session.',
+      );
+    }
+    const institute = await this.prisma.institute.findUnique({
+      where: { id: userInstituteId },
+      select: summarySelect,
+    });
+    if (!institute) {
+      throw new NotFoundException('Institute not found');
+    }
+    return this.withLogo(institute);
+  }
+
+  /**
+   * The matching self-edit: rename the calling admin's own institute, no
+   * path param. The actor-side guard is the only tenant boundary here —
+   * there is no id from the URL to read, so a 404-via-wrong-id probe is
+   * structurally impossible.
+   *
+   * `isActive` is intentionally NOT editable here: a tenant that wants to
+   * suspend or restore itself still has to go through the superadmin door.
+   * Self-deactivation would let any institute disable its own students'
+   * logins without accountability, and the broader product is the
+   * SUPERADMIN console's job, not a single institute's.
+   */
+  async updateMyInstitute(
+    userInstituteId: string | null,
+    dto: UpdateMyInstituteDto,
+  ) {
+    if (!userInstituteId) {
+      throw new ForbiddenException(
+        'No institute is associated with this session.',
+      );
+    }
+    // `null` clears the logo (falls back to default); a key must belong to
+    // THIS institute's own media library — otherwise any admin could brand
+    // their tenant with an image key borrowed from somewhere else.
+    if (dto.logoKey) {
+      const owned = await this.prisma.media.findFirst({
+        where: { key: dto.logoKey, instituteId: userInstituteId },
+        select: { id: true },
+      });
+      if (!owned) {
+        throw new NotFoundException(
+          'That image was not found in your institute’s media library — upload it first.',
+        );
+      }
+    }
+    const institute = await this.prisma.institute.update({
+      where: { id: userInstituteId },
+      data: {
+        ...(dto.name === undefined ? {} : { name: dto.name }),
+        ...(dto.logoKey === undefined ? {} : { logoKey: dto.logoKey }),
+      },
+      select: summarySelect,
+    });
+    return this.withLogo(institute);
   }
 
   /**
@@ -266,7 +377,7 @@ export class InstitutesService {
       }),
       this.prisma.attempt.groupBy({
         by: ['instituteId'],
-        where,
+        where: { ...where, status: { notIn: PRE_START_ATTEMPT_STATUSES } },
         _count: { _all: true },
       }),
       this.prisma.user.groupBy({

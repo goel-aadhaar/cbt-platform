@@ -91,6 +91,14 @@ model User {
   instructionTemplatesCreated InstructionTemplate[] @relation("InstructionTemplateCreatedBy")
   examsToReview     Exam[]     @relation("ExamReviewer")
   examsApproved     Exam[]     @relation("ExamApprovedBy")
+  /// Mirror relation for the admin who force-ended a live exam. Distinct from
+  /// approvedBy because the same admin could both approve and later pull the
+  /// plug on the same exam — both timestamps matter.
+  examsForceEnded  Exam[]     @relation("ExamForceEndedBy")
+  /// Entry-approval audit mirrors (§ exam entry approval) — the admin who
+  /// approved or denied a student's request to enter an exam.
+  attemptsApproved Attempt[]  @relation("AttemptApprovedBy")
+  attemptsDenied   Attempt[]  @relation("AttemptDeniedBy")
   announcements     Announcement[]
   importRuns        ImportRun[]
   mediaUploaded     Media[]

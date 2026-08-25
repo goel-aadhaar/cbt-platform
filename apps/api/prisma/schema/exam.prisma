@@ -2,6 +2,13 @@
 /// named admin (REVIEW); that admin approves it into the "qualified" pool
 /// (APPROVED); an admin then starts it, which opens the window and makes it
 /// PUBLISHED — the only state a candidate can sit. Rejection returns it to DRAFT.
+///
+/// PAUSED is the live-but-held state. While PAUSED: the candidate's portal
+/// hides the exam (no startCTA), in-flight attempts keep their frozen
+/// `expiresAt` so resuming does not silently cost the candidate the time
+/// spent paused, and admin editing of timing fields remains in effect.
+/// Resuming flips back to PUBLISHED and is itself an admin action, not
+/// implicit ("auto-resume when endAt passes").
 enum ExamStatus {
   DRAFT
   REVIEW
@@ -10,6 +17,10 @@ enum ExamStatus {
   /// like a DRAFT — see QuestionStatus.REJECTED for why it is not one.
   REJECTED
   PUBLISHED
+  /// Live but held by an admin. The candidate-facing surface hides the exam.
+  /// In-flight attempts' deadlines are preserved across the pause window so
+  /// the pause does not cost candidates their allotted time.
+  PAUSED
   ARCHIVED
 }
 
@@ -122,6 +133,15 @@ model Exam {
   /// Feedback captured when an admin sends an exam back to the author.
   rejectionReason String?   @map("rejection_reason")
 
+  /// Live-exit auditing. `forceEndedAt` + `forceEndedById` record the admin who
+  /// pulled the plug (so a candidate reporting "I never got to submit my
+  /// answers" has a paper trail); `pauseReason` is a short free-text the
+  /// admin typed when pausing ("server outage", "wrong paper scheduled")
+  /// because every admin action should leave a reason, even when optional.
+  forceEndedAt     DateTime? @map("force_ended_at")
+  forceEndedById   String?   @map("force_ended_by_id") @db.Uuid
+  pauseReason      String?   @map("pause_reason")
+
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
@@ -131,6 +151,10 @@ model Exam {
   createdBy  User      @relation("ExamCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   reviewer   User?     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   approvedBy User?     @relation("ExamApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  /// Admin who pulled the plug during a force-end. Mirror relation on `User`
+  /// so `forceEndedBy { select: { id, name }}` works on a result row (same
+  /// pattern as `reviewer` and `approvedBy`).
+  forceEndedBy User?   @relation("ExamForceEndedBy", fields: [forceEndedById], references: [id], onDelete: SetNull)
   sections  ExamSection[]
   questions ExamQuestion[]
   batches   ExamBatch[]

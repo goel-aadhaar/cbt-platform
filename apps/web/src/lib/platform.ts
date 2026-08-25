@@ -287,3 +287,56 @@ export function formatDuration(seconds: number): string {
   if (m > 0) return `${m}m`;
   return `${Math.round(seconds)}s`;
 }
+
+/* ------------------------------------------------------------------ *
+ * INSTITUTE-SELF — the row for the tenant the caller works in.       *
+ *                                                                     *
+ * Distinct from `getTenant` (superadmin-only, id-keyed). The actor's *
+ * instituteId comes from the JWT, not a path param, so a probe with   *
+ * another tenant's id is structurally impossible.                      *
+ * ------------------------------------------------------------------ */
+
+export interface MyInstitute {
+  id: string;
+  name: string;
+  slug: string;
+  code: string;
+  isActive: boolean;
+  createdAt: string;
+  /**
+   * The institute's own logo (§ institute branding), already resolved to a
+   * fetchable URL — null means no custom logo, so every surface falls back
+   * to the platform default mark.
+   */
+  logoUrl: string | null;
+}
+
+/** GET /institutes/me — the institute this session is bound to. */
+export function getMyInstitute(): Promise<MyInstitute> {
+  return apiFetch<MyInstitute>("/institutes/me", { token: token() });
+}
+
+/** PATCH /institutes/me — rename (and only rename) the caller's institute. */
+export function renameMyInstitute(name: string): Promise<MyInstitute> {
+  return apiFetch<MyInstitute>("/institutes/me", {
+    method: "PATCH",
+    body: { name },
+    token: token(),
+  });
+}
+
+/**
+ * PATCH /institutes/me — set or clear the institute's logo. `logoKey` is the
+ * `key` returned by `uploadMedia()` — upload first, then attach it here.
+ * Pass `null` to clear a custom logo and fall back to the default mark.
+ * ADMIN-only (enforced server-side).
+ */
+export function setMyInstituteLogo(
+  logoKey: string | null,
+): Promise<MyInstitute> {
+  return apiFetch<MyInstitute>("/institutes/me", {
+    method: "PATCH",
+    body: { logoKey },
+    token: token(),
+  });
+}

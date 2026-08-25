@@ -72,6 +72,8 @@ export const envSchema = z.object({
    */
   AWS_SES_FROM_EMAIL: blankAsUnset(z.string().email().optional()),
   AWS_SES_FROM_NAME: blankAsUnset(z.string().optional()),
+  /** Inbox the public site's contact form delivers to. */
+  CONTACT_EMAIL: blankAsUnset(z.string().email().default('hello@codonmind.in')),
 });
 
 export type Env = z.infer<typeof envSchema>;

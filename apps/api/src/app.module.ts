@@ -24,6 +24,7 @@ import { HealthModule } from './modules/health/health.module';
 import { BatchesModule } from './modules/batches/batches.module';
 import { ChaptersModule } from './modules/chapters/chapters.module';
 import { ClassesModule } from './modules/classes/classes.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { ExamsModule } from './modules/exams/exams.module';
 import { ExamCategoriesModule } from './modules/exam-categories/exam-categories.module';
 import { InstitutesModule } from './modules/institutes/institutes.module';
@@ -107,6 +108,7 @@ import { StudentsModule } from './modules/students/students.module';
     AnnouncementsModule,
     ImportsModule,
     MediaModule,
+    ContactModule,
   ],
   providers: [
     {

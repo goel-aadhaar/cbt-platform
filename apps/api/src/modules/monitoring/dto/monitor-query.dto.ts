@@ -3,6 +3,11 @@ import { IsIn, IsOptional, IsUUID } from 'class-validator';
 
 export const MONITOR_STATES = [
   'NOT_STARTED',
+  // Entry-approval states (§ exam entry approval) — waiting on, or decided
+  // by, an admin; none of these have a running clock.
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'DENIED',
   'IN_PROGRESS',
   'SUBMITTED',
   'AUTO_SUBMITTED',

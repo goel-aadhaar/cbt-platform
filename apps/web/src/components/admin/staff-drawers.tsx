@@ -230,6 +230,12 @@ export function StaffDetailsDrawer({
     ),
   );
 
+  /**
+   * Phone, kept as a string in UI state because an input can hold a partial
+   * value like "+" while typing. Empty string is the "clear it" intent.
+   */
+  const [phone, setPhone] = useState(staff?.phone ?? "");
+
   const isTeacher = staff?.roles.includes("TEACHER") ?? false;
 
   useEffect(() => {
@@ -281,10 +287,18 @@ export function StaffDetailsDrawer({
           name.trim().length >= 2 && name.trim() !== staff!.name;
         const rolesChanged =
           [...roles].sort().join() !== [...staff!.roles].sort().join();
-        if (nameChanged || rolesChanged) {
+        // Phone comparison uses the un-trimmed local value against the column
+        // exactly — a user typing then deleting characters ends with the
+        // original. Treat empty as a write intent, never as "unchanged".
+        const trimmedPhone = phone.trim();
+        const phoneChanged = trimmedPhone !== (staff!.phone ?? "");
+        if (nameChanged || rolesChanged || phoneChanged) {
           await updateStaff(staff!.id, {
             ...(nameChanged ? { name: name.trim() } : {}),
             ...(rolesChanged ? { roles } : {}),
+            ...(phoneChanged
+              ? { phone: trimmedPhone === "" ? "" : trimmedPhone }
+              : {}),
           });
           setNotice(
             rolesChanged
@@ -429,6 +443,24 @@ export function StaffDetailsDrawer({
                     defaultValue={staff.email}
                     disabled
                     className={`${inputCls} bg-admin-surface text-admin-muted`}
+                  />
+                </Field>
+                {/*
+                  Phone is set here on the owner's behalf, not by them — a
+                  contact phone that an admin took down during a phone call,
+                  so the field defaults from whoever last wrote to it (server
+                  or this row's existing value). Save Changes persists the
+                  current string; clearing the field sends null on the wire so
+                  the column returns to empty rather than holding a stale
+                  blank.
+                */}
+                <Field label="Contact Phone">
+                  <input
+                    inputMode="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="e.g. +91 98765 43210"
+                    className={inputCls}
                   />
                 </Field>
               </Card>

@@ -83,3 +83,39 @@ export function resendStudentInvite(id: string): Promise<StudentListItem> {
     ...auth(),
   });
 }
+
+/** Update the editable fields on a Student profile. */
+export interface UpdateStudentInput {
+  /** Renamed student. Optional: a blank stays untouched. */
+  name?: string;
+  /** Reassign to a different batch in the same institute. */
+  batchId?: string;
+}
+
+/** PATCH /students/:id — partial update of name and/or batch. */
+export function updateStudent(
+  id: string,
+  dto: UpdateStudentInput,
+): Promise<StudentListItem> {
+  return apiFetch(`/students/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(dto),
+    ...auth(),
+  });
+}
+
+/**
+ * POST /students/reassign-batch — bulk re-batch rows. The destination batch
+ * is read from the actor's institute, never from the request source, so the
+ * same call cannot accidentally relocate a student who has already moved.
+ */
+export function reassignStudentsBatch(
+  studentIds: string[],
+  targetBatchId: string,
+): Promise<{ moved: number; targetBatchId: string }> {
+  return apiFetch(`/students/reassign-batch`, {
+    method: "POST",
+    body: JSON.stringify({ studentIds, targetBatchId }),
+    ...auth(),
+  });
+}

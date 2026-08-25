@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
+import { AttemptsService } from '../attempts/attempts.service';
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { MonitorQueryDto } from './dto/monitor-query.dto';
@@ -18,7 +19,10 @@ import { MonitoringService } from './monitoring.service';
 @Roles(Role.ADMIN, Role.TEACHER)
 @Controller({ path: 'exams', version: '1' })
 export class MonitoringController {
-  constructor(private readonly monitoring: MonitoringService) {}
+  constructor(
+    private readonly monitoring: MonitoringService,
+    private readonly attempts: AttemptsService,
+  ) {}
 
   /** Live progress snapshot of an exam's candidates (§2.12). Poll on interval. */
   @Get(':id/monitor')
@@ -27,6 +31,17 @@ export class MonitoringController {
     @Query() query: MonitorQueryDto,
   ) {
     return this.monitoring.getExamMonitor(id, query);
+  }
+
+  /**
+   * Students waiting on (or recently decided for) entry into this exam
+   * (§ exam entry approval). Admin-only: a teacher can watch the monitor but
+   * does not gate who gets in. Poll on interval, same as :id/monitor.
+   */
+  @Get(':id/entry-requests')
+  @Roles(Role.ADMIN)
+  entryRequests(@Param('id', ParseUUIDPipe) id: string) {
+    return this.attempts.listEntryRequests(id);
   }
 
   /**

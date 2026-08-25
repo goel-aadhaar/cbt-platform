@@ -101,6 +101,33 @@ export class AuthService {
     return this.challengeAfterPassword(user, password, meta, STAFF_ROLES);
   }
 
+  /**
+   * Resend the mailed code for an already-issued challenge.
+   *
+   * Delegates the cooldown + per-account cap to `otp.resend`, and tacks the
+   * masked email onto the response so the UI can re-render the
+   * "we sent a code to ..." line without another fetch.
+   */
+  async resendLoginOtp(challengeId: string): Promise<OtpRequired> {
+    const result = await this.otp.resend(challengeId);
+    // The new row's TTL — `issue()` returns the freshly-issued challenge
+    // with its own expiry; that is what the OTP step should now show.
+    const fresh = await this.prisma.otpChallenge.findUniqueOrThrow({
+      where: { id: result.challengeId },
+      select: { expiresAt: true, user: { select: { email: true } } },
+    });
+    return {
+      otpRequired: true,
+      // The resend returns the *new* challengeId; the verify() endpoint
+      // expects whatever id is currently live. A client that forgot to
+      // update would 404 on the consumed first row, which is exactly what
+      // "two codes never coexist" was supposed to deliver.
+      challengeId: result.challengeId,
+      expiresAt: fresh.expiresAt.toISOString(),
+      sentTo: maskEmail(fresh.user.email),
+    };
+  }
+
   /** Platform owner. Deliberately its own door; nobody else may use it. */
   async loginPlatform(
     email: string,

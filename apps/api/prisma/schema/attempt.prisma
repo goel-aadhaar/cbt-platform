@@ -1,4 +1,12 @@
 enum AttemptStatus {
+  /// Student opened the exam and asked to enter; waiting on an admin.
+  PENDING_APPROVAL
+  /// Admin approved entry; the server timer has NOT started yet — it starts
+  /// only when the student calls the begin endpoint from this state.
+  APPROVED
+  /// Admin declined entry. Not terminal: a denied student may ask again,
+  /// which resets the row back to PENDING_APPROVAL for a fresh review.
+  DENIED
   IN_PROGRESS
   SUBMITTED
   AUTO_SUBMITTED
@@ -34,20 +42,45 @@ model Attempt {
   instituteId String        @map("institute_id") @db.Uuid
   examId      String        @map("exam_id") @db.Uuid
   studentId   String        @map("student_id") @db.Uuid
-  status      AttemptStatus @default(IN_PROGRESS)
-  startedAt   DateTime      @default(now()) @map("started_at")
-  expiresAt   DateTime      @map("expires_at")
+  status      AttemptStatus @default(PENDING_APPROVAL)
+  /// Null until `begin()` runs — the server-timer-start moment. Not set at
+  /// APPROVED: a student who is approved but never clicks Start Exam must
+  /// never be timed out of an attempt whose clock never actually ran.
+  startedAt   DateTime?     @map("started_at")
+  /// Null until `begin()` computes it (min of start+duration and the exam
+  /// window), for the same reason as `startedAt`.
+  expiresAt   DateTime?     @map("expires_at")
   submittedAt DateTime?     @map("submitted_at")
+  /// Entry-approval audit trail (§ exam entry approval). `approvedAt`/
+  /// `approvedById` record the admin who let the student in; `deniedAt`/
+  /// `deniedById`/`denialReason` record a decline. A later re-request after a
+  /// denial overwrites these rather than accumulating history — the row
+  /// tracks the CURRENT decision, not a log.
+  approvedAt    DateTime? @map("approved_at")
+  approvedById  String?   @map("approved_by_id") @db.Uuid
+  deniedAt      DateTime? @map("denied_at")
+  deniedById    String?   @map("denied_by_id") @db.Uuid
+  denialReason  String?   @map("denial_reason")
   /// Proctoring (§2.2): running count of reported violations; `flagged` is set
   /// when a violation-threshold auto-submit terminates the attempt.
   violationCount Int        @default(0) @map("violation_count")
   flagged        Boolean    @default(false)
+  /// Sum of pause-window seconds applied while an admin held this exam in
+  /// PAUSED while this attempt was in flight. Each resume adds the new gap
+  /// to the cumulative figure; the candidate's `expiresAt` is bumped by the
+  /// same amount so the pause does not silently cost them writing time.
+  /// NULL — not 0 — for attempts that never experienced a pause, so a
+  /// support agent can answer "was this attempt ever paused?" without
+  /// rounding zeros.
+  pausedForSeconds Int?     @map("paused_for_seconds")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
   institute        Institute         @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   exam             Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
   student          Student           @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  approvedBy       User?             @relation("AttemptApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  deniedBy         User?             @relation("AttemptDeniedBy", fields: [deniedById], references: [id], onDelete: SetNull)
   responses        Response[]
   result           Result?
   proctoringEvents ProctoringEvent[]

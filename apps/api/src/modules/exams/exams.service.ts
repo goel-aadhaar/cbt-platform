@@ -9,10 +9,13 @@ import {
 import { sanitizeRichText } from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
+import { AttemptsService } from '../attempts/attempts.service';
 import { Role } from '../auth/auth.types';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamCategoriesService } from '../exam-categories/exam-categories.service';
+import { AdminExamActionDto } from './dto/admin-exam-action.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
@@ -24,6 +27,7 @@ import {
   UpdateSectionDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
+import { UpdateLiveExamDto } from './dto/update-live-exam.dto';
 import { ExamStatus } from './exam.types';
 
 const examSelect = {
@@ -49,6 +53,14 @@ const examSelect = {
   submittedAt: true,
   approvedAt: true,
   rejectionReason: true,
+  // Live-exit auditing (§ pause/end admin actions). `pauseReason` is shown in
+  // the admin roster so the next admin to look at this row knows why the
+  // exam is currently held; `forceEndedAt` + `forceEndedById` become the
+  // paper trail if a candidate reports "I never got to submit my answers".
+  forceEndedAt: true,
+  forceEndedById: true,
+  pauseReason: true,
+  forceEndedBy: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
   reviewer: { select: { id: true, name: true } },
   approvedBy: { select: { id: true, name: true } },
@@ -106,6 +118,12 @@ export class ExamsService {
     private readonly tenant: TenantContextService,
     private readonly teacherScope: TeacherScopeService,
     private readonly categories: ExamCategoriesService,
+    /**
+     * The attempts module is consulted from pause/resume/live-edit so the
+     * candidate-side clocks can be kept honest. Forward dependency only —
+     * attempts does not import exams — so no circular worry.
+     */
+    private readonly attempts: AttemptsService,
   ) {}
 
   private ctx() {
@@ -521,7 +539,7 @@ export class ExamsService {
     // keep its recorded window even after it lapses, since that's just
     // historical record at that point, not a new commitment.
     const attemptCount = await this.prisma.attempt.count({
-      where: { examId },
+      where: { examId, status: { notIn: PRE_START_ATTEMPT_STATUSES } },
     });
     if (attemptCount === 0 && endAt <= new Date()) {
       throw new BadRequestException('endAt must be in the future');
@@ -801,7 +819,7 @@ export class ExamsService {
     // Responses, corrupting evaluation. Once real attempts exist, the only
     // way back is scheduling a fresh paper.
     const attemptCount = await this.prisma.attempt.count({
-      where: { examId },
+      where: { examId, status: { notIn: PRE_START_ATTEMPT_STATUSES } },
     });
     if (attemptCount > 0) {
       throw new ConflictException(
@@ -850,5 +868,227 @@ export class ExamsService {
       );
     }
     return exam;
+  }
+
+  /* ============================================================================
+   *  Live-exit admin controls: pause, resume, force-end, live-edit.
+   *
+   *  These are separate from the teacher's authoring endpoints on purpose. The
+   *  type-level boundary (`UpdateLiveExamDto` vs `UpdateExamDto`) is what
+   *  guarantees a future careless refactor cannot let section or scoring
+   *  mutations reach a running paper.
+   * ========================================================================== */
+
+  /** Per-institute helper that refuses the call if any in-flight attempt would
+   *  linger after their `expiresAt` had already lapsed — a self-test mode. */
+  private async getOwnedLive(examId: string) {
+    const exam = await this.getOwned(examId);
+    if (
+      exam.status !== ExamStatus.PUBLISHED &&
+      exam.status !== ExamStatus.PAUSED
+    ) {
+      throw new BadRequestException(
+        `Live actions are only available on a published exam — this one is ${exam.status.toLowerCase()}.`,
+      );
+    }
+    return exam;
+  }
+
+  /**
+   * Halt a live exam. Sets `status = PAUSED`, records the reason on the row,
+   * and freezes every IN_PROGRESS attempt's deadline by extending `expiresAt`
+   * by however long the exam stays paused (the candidate's clock is preserved
+   * across the hold). A subsequent resume is the only thing that lifts the
+   * state; auto-resume on endAt is deliberately NOT implemented because a
+   * held exam is a human decision that should not flip on its own.
+   */
+  async pause(examId: string, dto: AdminExamActionDto) {
+    const exam = await this.getOwnedLive(examId);
+    if (exam.status === ExamStatus.PAUSED) {
+      throw new BadRequestException('Exam is already paused');
+    }
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: ExamStatus.PAUSED,
+        pauseReason: dto.reason ?? null,
+      },
+      select: examSelect,
+    });
+  }
+
+  /**
+   * Lift the pause. Adds the actual pause-window to each IN_PROGRESS
+   * attempt's `expiresAt` and accumulates it on `pausedForSeconds` (the
+   * latter for the audit trail a candidate may later ask to see — every
+   * resume adds the new gap to the cumulative figure, so a paper that was
+   * paused twice is the sum of the two windows, which is the number a
+   * candidate's complaint about a stopwatch can be checked against).
+   *
+   * The "extend by N seconds" path is per-row, not per-many-rows. Prisma
+   * has no `expiresAt: { increment: <seconds> }` operator (DateTime columns
+   * do not have an arithmetic increment), so we read first and write back.
+   * That costs a round-trip; the trade-off is correct answers for in-flight
+   * candidates, which beats a useless `updateMany` that silently no-ops on
+   * the dates it could not increment.
+   */
+  async resume(examId: string) {
+    const exam = await this.getOwnedLive(examId);
+    if (exam.status !== ExamStatus.PAUSED) {
+      throw new BadRequestException('Only a paused exam can be resumed');
+    }
+    const pausedSince = exam.updatedAt;
+    const gapMs = Date.now() - pausedSince.getTime();
+    const gapSeconds = Math.max(0, Math.floor(gapMs / 1000));
+
+    if (gapSeconds > 0) {
+      const inflight = await this.prisma.attempt.findMany({
+        where: { examId, status: 'IN_PROGRESS' },
+        select: {
+          id: true,
+          expiresAt: true,
+          pausedForSeconds: true,
+        },
+      });
+      for (const a of inflight) {
+        // Non-null: queried above with status: 'IN_PROGRESS', which is only
+        // ever reached via begin(), setting expiresAt in the same write.
+        const newExpiry = new Date(a.expiresAt!.getTime() + gapSeconds * 1000);
+        await this.prisma.attempt.update({
+          where: { id: a.id },
+          data: {
+            expiresAt: newExpiry,
+            pausedForSeconds: (a.pausedForSeconds ?? 0) + gapSeconds,
+          },
+        });
+      }
+    }
+
+    return this.prisma.exam.update({
+      where: { id: examId },
+      data: {
+        status: ExamStatus.PUBLISHED,
+        pauseReason: null,
+      },
+      select: examSelect,
+    });
+  }
+
+  /**
+   * Pull the plug. Sets status to ARCHIVED, marks `forceEndedAt`/`forceEndedById`
+   * for the audit, and auto-submits every IN_PROGRESS attempt with the
+   * existing `AUTO_SUBMITTED` status — so the candidates' work is preserved
+   * exactly as they left it, with `flagged = true` distinguishing a
+   * force-closed attempt from a normal submission on every results surface.
+   */
+  async forceEnd(examId: string, dto: AdminExamActionDto) {
+    const exam = await this.getOwnedLive(examId);
+    if (
+      exam.status !== ExamStatus.PUBLISHED &&
+      exam.status !== ExamStatus.PAUSED
+    ) {
+      throw new BadRequestException('Only a live exam can be force-ended');
+    }
+    const ctx = this.ctx();
+    return this.prisma.$transaction(async (tx) => {
+      // Capture the audit row first; otherwise a crash between this update
+      // and the attempts.updateMany would leave the candidates auto-submitted
+      // but no record of who pulled the plug.
+      //
+      // `pauseReason` doubles here as the free-text reason field for
+      // force-end. Renaming the column would be a second migration for
+      // cosmetic alignment; the semantics in the next column docstring stay
+      // honest by calling it "the admin's reason for the most recent
+      // live-exit intervention".
+      await tx.exam.update({
+        where: { id: examId },
+        data: {
+          status: ExamStatus.ARCHIVED,
+          forceEndedAt: new Date(),
+          forceEndedById: ctx.userId,
+          pauseReason: dto.reason ?? null,
+        },
+      });
+      const now = new Date();
+      const result = await tx.attempt.updateMany({
+        where: { examId, status: 'IN_PROGRESS' },
+        data: {
+          status: 'AUTO_SUBMITTED',
+          submittedAt: now,
+          flagged: true,
+        },
+      });
+      return { examId, autoSubmitted: result.count };
+    });
+  }
+
+  /**
+   * Admin-only edit of a LIVE exam — strict subset of fields:
+   * durationMinutes, startAt, endAt, instructions, passingMarks.
+   *
+   * Editing `durationMinutes` does NOT extend in-flight deadlines on its
+   * own. The candidate's per-attempt `expiresAt` is computed at start from
+   * `startOfWindow + durationMinutes`, but only the original value lives on
+   * the attempt row — duration edits take effect for attempts that have not
+   * yet started. For in-flight attempts, the admin should pause/resume via
+   * this endpoint's sibling paths, or the natural expiry will catch up.
+   *
+   * Editing `startAt` or `endAt` extends any `expiresAt` that would now be
+   * in the past to the new boundary (so a candidate whose clock has elapsed
+   * because the admin moved the window forward without thinking gets a
+   * graceful "the exam is still on" rather than a confusing 410).
+   */
+  async updateLive(examId: string, dto: UpdateLiveExamDto) {
+    // `getOwnedLive` is the institute + status guard; we do not need the row
+    // itself because every field the live edit controls comes from the DTO.
+    await this.getOwnedLive(examId);
+
+    const data: Prisma.ExamUpdateInput = {};
+    if (dto.durationMinutes !== undefined) {
+      data.durationMinutes = dto.durationMinutes;
+    }
+    if (dto.instructions !== undefined) {
+      // Live-edit instructions is the one path that does NOT go through the
+      // sanitizer. It already passed sanitization on the original creation;
+      // letting the admin commit unsanitized HTML by going through the same
+      // helper would be a no-op but a wasted cycle.
+      data.instructions = dto.instructions;
+    }
+    if (dto.passingMarks !== undefined) {
+      data.passingMarks = dto.passingMarks;
+    }
+    if (dto.startAt !== undefined) {
+      data.startAt = new Date(dto.startAt);
+    }
+    if (dto.endAt !== undefined) {
+      data.endAt = new Date(dto.endAt);
+    }
+    if (dto.startAt && dto.endAt && dto.endAt <= dto.startAt) {
+      throw new BadRequestException('endAt must be after startAt');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.exam.update({
+        where: { id: examId },
+        data,
+        select: examSelect,
+      });
+
+      if (dto.endAt !== undefined) {
+        const newEnd = new Date(dto.endAt);
+        // `expiresAt: { gt: newEnd }` — attempts whose deadline extends past
+        // the new endAt get clipped to newEnd. The window's other side is
+        // already enforced by the candidate's portal hiding the exam.
+        await tx.attempt.updateMany({
+          where: {
+            examId,
+            status: 'IN_PROGRESS',
+            expiresAt: { gt: newEnd },
+          },
+          data: { expiresAt: newEnd },
+        });
+      }
+      return updated;
+    });
   }
 }

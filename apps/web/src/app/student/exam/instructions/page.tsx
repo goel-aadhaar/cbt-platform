@@ -1,10 +1,17 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
-import { ArrowRightIcon, TimerIcon } from "@/components/student/icons";
+import {
+  ArrowRightIcon,
+  CheckCircleIcon,
+  ClockIcon,
+  TimerIcon,
+  XCircleIcon,
+} from "@/components/student/icons";
 import { useAvailableExams } from "@/hooks/use-available-exams";
+import { getEntry, requestEntry, type EntryRequest } from "@/lib/student";
 
 /**
  * Genuinely exam-agnostic platform behavior (true for every exam on this
@@ -30,6 +37,12 @@ const PLATFORM_RULES: React.ReactNode[] = [
   </>,
 ];
 
+/** How often the waiting screen checks whether an admin has decided yet. */
+const POLL_MS = 4000;
+
+type Phase =
+  "idle" | "requesting" | "waiting" | "approved" | "denied" | "error";
+
 export default function ExamInstructionsPage() {
   return (
     <Suspense fallback={null}>
@@ -45,6 +58,95 @@ function ExamInstructionsInner() {
   const [agreed, setAgreed] = useState(false);
   const { items } = useAvailableExams();
   const exam = items.find((e) => e.id === examId);
+
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [attemptId, setAttemptId] = useState<string | null>(null);
+  const [denialReason, setDenialReason] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+  useEffect(() => stopPolling, [stopPolling]);
+
+  /**
+   * Applies whatever the server just said about this attempt (§ exam entry
+   * approval) — shared by the initial request and every poll tick after it.
+   */
+  const applyEntry = useCallback(
+    (entry: EntryRequest) => {
+      setAttemptId(entry.id);
+      switch (entry.status) {
+        case "PENDING_APPROVAL":
+          setPhase("waiting");
+          break;
+        case "APPROVED":
+          stopPolling();
+          setPhase("approved");
+          break;
+        case "DENIED":
+          stopPolling();
+          setDenialReason(entry.denialReason);
+          setPhase("denied");
+          break;
+        case "IN_PROGRESS":
+          // Already running — a reconnect mid-exam. The clock started once;
+          // straight back into it, no waiting room.
+          stopPolling();
+          router.replace(`/exam?attemptId=${entry.id}`);
+          break;
+        default:
+          // SUBMITTED / AUTO_SUBMITTED / ABANDONED — nothing left to request.
+          stopPolling();
+          setError("This exam has already been completed.");
+          setPhase("error");
+      }
+    },
+    [router, stopPolling],
+  );
+
+  const startPolling = useCallback(
+    (id: string) => {
+      stopPolling();
+      pollRef.current = setInterval(() => {
+        getEntry(id)
+          .then(applyEntry)
+          .catch((e: unknown) => {
+            stopPolling();
+            setError(
+              e instanceof Error
+                ? e.message
+                : "Could not check your approval status.",
+            );
+            setPhase("error");
+          });
+      }, POLL_MS);
+    },
+    [applyEntry, stopPolling],
+  );
+
+  const requestToEnter = useCallback(() => {
+    if (!examId) return;
+    setError(null);
+    setPhase("requesting");
+    requestEntry(examId)
+      .then((entry) => {
+        applyEntry(entry);
+        if (entry.status === "PENDING_APPROVAL") startPolling(entry.id);
+      })
+      .catch((e: unknown) => {
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Could not request entry into this exam.",
+        );
+        setPhase("error");
+      });
+  }, [examId, applyEntry, startPolling]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-admin-bg px-4 py-4 [font-family:var(--font-hanken)] text-admin-ink [@media(min-height:900px)]:py-10">
@@ -108,30 +210,139 @@ function ExamInstructionsInner() {
           </section>
         </div>
 
-        {/* Footer */}
+        {/* Footer — the entry-approval flow (§ exam entry approval) lives
+            entirely in this strip: request → wait → approved/denied. */}
         <div className="flex flex-col items-center justify-between gap-4 border-t border-admin-line/40 px-8 py-6 sm:flex-row">
-          <label className="flex cursor-pointer items-center gap-3 text-sm text-admin-ink">
-            <input
-              type="checkbox"
-              checked={agreed}
-              onChange={(e) => setAgreed(e.target.checked)}
-              className="size-5 accent-admin"
+          {phase === "idle" ? (
+            <>
+              <label className="flex cursor-pointer items-center gap-3 text-sm text-admin-ink">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="size-5 accent-admin"
+                />
+                I have read and understood the instructions
+              </label>
+              <button
+                type="button"
+                disabled={!agreed || !examId}
+                onClick={requestToEnter}
+                className="flex items-center justify-center gap-2 rounded-xl bg-admin px-8 py-3.5 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Request to Enter Exam
+                <ArrowRightIcon className="size-4" />
+              </button>
+            </>
+          ) : (
+            <EntryStatusPanel
+              phase={phase}
+              error={error}
+              denialReason={denialReason}
+              onProceed={() =>
+                attemptId && router.push(`/exam?attemptId=${attemptId}`)
+              }
+              onRetry={requestToEnter}
             />
-            I have read and understood the instructions
-          </label>
-          <button
-            type="button"
-            disabled={!agreed || !examId}
-            onClick={() =>
-              router.push(`/exam?examId=${encodeURIComponent(examId!)}`)
-            }
-            className="flex items-center justify-center gap-2 rounded-xl bg-admin px-8 py-3.5 text-sm font-bold text-white transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Start Exam
-            <ArrowRightIcon className="size-4" />
-          </button>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The right-hand strip once "Request to Enter Exam" has been clicked. */
+function EntryStatusPanel({
+  phase,
+  error,
+  denialReason,
+  onProceed,
+  onRetry,
+}: {
+  phase: Phase;
+  error: string | null;
+  denialReason: string | null;
+  onProceed: () => void;
+  onRetry: () => void;
+}) {
+  if (phase === "requesting" || phase === "waiting") {
+    return (
+      <div className="flex w-full items-center justify-center gap-3 rounded-xl bg-admin-bg/60 px-6 py-4">
+        <ClockIcon className="size-5 shrink-0 animate-pulse text-admin" />
+        <div>
+          <p className="text-sm font-semibold text-admin-ink">
+            {phase === "requesting"
+              ? "Sending your request…"
+              : "Waiting for admin approval…"}
+          </p>
+          <p className="text-xs text-admin-muted">
+            You&apos;ll be able to start the moment an admin lets you in. No
+            need to refresh this page.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "approved") {
+    return (
+      <div className="flex w-full flex-col items-center justify-between gap-4 sm:flex-row">
+        <div className="flex items-center gap-3">
+          <CheckCircleIcon className="size-5 shrink-0 text-success" />
+          <p className="text-sm font-semibold text-admin-ink">
+            You&apos;re approved — the timer starts once you click Start Exam.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onProceed}
+          className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-admin px-8 py-3.5 text-sm font-bold text-white transition-opacity hover:opacity-95"
+        >
+          Start Exam
+          <ArrowRightIcon className="size-4" />
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "denied") {
+    return (
+      <div className="flex w-full flex-col items-center justify-between gap-4 sm:flex-row">
+        <div className="flex items-start gap-3">
+          <XCircleIcon className="size-5 shrink-0 text-danger" />
+          <div>
+            <p className="text-sm font-semibold text-admin-ink">
+              Your entry request was declined.
+            </p>
+            {denialReason && (
+              <p className="mt-0.5 text-xs text-admin-muted">{denialReason}</p>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="flex shrink-0 items-center justify-center gap-2 rounded-xl border border-admin-line px-6 py-3 text-sm font-bold text-admin hover:bg-admin/5"
+        >
+          Request Again
+        </button>
+      </div>
+    );
+  }
+
+  // phase === "error"
+  return (
+    <div className="flex w-full flex-col items-center justify-between gap-4 sm:flex-row">
+      <p className="text-sm font-semibold text-danger">
+        {error ?? "Something went wrong. Please try again."}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="flex shrink-0 items-center justify-center gap-2 rounded-xl border border-admin-line px-6 py-3 text-sm font-bold text-admin hover:bg-admin/5"
+      >
+        Try Again
+      </button>
     </div>
   );
 }

@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 
 import { AddStudentDrawer } from "@/components/admin/add-student-drawer";
+import {
+  BulkReassignDrawer,
+  EditStudentDrawer,
+} from "@/components/admin/edit-student-drawer";
 import { useSearchParams } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
@@ -126,6 +130,10 @@ function StudentsPageInner() {
     id: string;
     name: string;
   } | null>(null);
+  /** The student whose profile is being edited in the side drawer. */
+  const [editFor, setEditFor] = useState<StudentListItem | null>(null);
+  /** Bulk reassign to a single destination batch — opened from the toolbar. */
+  const [reassignOpen, setReassignOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -557,6 +565,19 @@ function StudentsPageInner() {
               a reason while nothing is selected, rather than silently inert. */}
           <button
             type="button"
+            onClick={() => setReassignOpen(true)}
+            disabled={selected.size === 0}
+            title={
+              selected.size === 0
+                ? "Select one or more students first"
+                : `Move ${selected.size} selected to another batch`
+            }
+            className="flex items-center gap-2 rounded-lg border border-admin-line px-3 py-2 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Move to batch…{selected.size ? ` (${selected.size})` : ""}
+          </button>
+          <button
+            type="button"
             onClick={() => void handleBulkDeactivate()}
             disabled={selected.size === 0 || bulkBusy}
             title={
@@ -703,6 +724,11 @@ function StudentsPageInner() {
                                   setHistoryFor({ id: r.id, name: r.name }),
                               },
                               {
+                                label: "Edit profile",
+                                onClick: () => setEditFor(r),
+                                disabled: rowBusy === r.id,
+                              },
+                              {
                                 label: "Reactivate student",
                                 onClick: () => void handleReactivate(r),
                                 disabled: rowBusy === r.id,
@@ -714,6 +740,11 @@ function StudentsPageInner() {
                                 onClick: () =>
                                   setHistoryFor({ id: r.id, name: r.name }),
                               },
+                              {
+                                label: "Edit profile",
+                                onClick: () => setEditFor(r),
+                                disabled: rowBusy === r.id,
+                              },
                               ...(r.status === "PENDING"
                                 ? [
                                     {
@@ -723,6 +754,14 @@ function StudentsPageInner() {
                                     },
                                   ]
                                 : []),
+                              {
+                                label: "Move to another batch…",
+                                onClick: () => {
+                                  setSelected(new Set([r.id]));
+                                  setReassignOpen(true);
+                                },
+                                disabled: rowBusy === r.id,
+                              },
                               {
                                 label: "Delete student",
                                 onClick: () => void handleDeactivate(r),
@@ -765,6 +804,26 @@ function StudentsPageInner() {
             `Imported ${s.imported.length} of ${s.total} students into ${s.batch}.`,
           )
         }
+      />
+      <EditStudentDrawer
+        key={editFor?.id ?? "none"}
+        open={editFor !== null}
+        student={editFor}
+        onClose={() => setEditFor(null)}
+        onChanged={() => {
+          refresh();
+          setNotice("Student updated.");
+        }}
+      />
+      <BulkReassignDrawer
+        open={reassignOpen}
+        onClose={() => setReassignOpen(false)}
+        selectedStudents={rows?.filter((r) => selected.has(r.id)) ?? []}
+        onChanged={() => {
+          refresh();
+          setSelected(new Set());
+          setNotice("Students moved.");
+        }}
       />
     </AdminShell>
   );

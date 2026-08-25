@@ -26,6 +26,8 @@ export default function ExamCategoriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /** Row being renamed; null = no edit modal open. */
+  const [editing, setEditing] = useState<ExamCategory | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +89,20 @@ export default function ExamCategoriesPage() {
       await deleteExamCategory(c.id);
       setItems((prev) => (prev ?? []).filter((x) => x.id !== c.id));
       setNotice(`${c.name} deleted.`);
+    });
+  }
+
+  function rename(
+    c: ExamCategory,
+    body: { name: string; description?: string },
+  ) {
+    start(c, async () => {
+      const updated = await updateExamCategory(c.id, body);
+      setItems((prev) =>
+        (prev ?? []).map((x) => (x.id === c.id ? { ...x, ...updated } : x)),
+      );
+      setNotice(`${updated.name} renamed.`);
+      setEditing(null);
     });
   }
 
@@ -183,6 +199,14 @@ export default function ExamCategoriesPage() {
                   <button
                     type="button"
                     disabled={rowAction.isPending(c.id)}
+                    onClick={() => setEditing(c)}
+                    className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    disabled={rowAction.isPending(c.id)}
                     onClick={() => void toggle(c)}
                     className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                   >
@@ -223,6 +247,15 @@ export default function ExamCategoriesPage() {
             );
             setCreating(false);
           }}
+        />
+      )}
+
+      {editing && (
+        <EditCategoryModal
+          initial={editing}
+          busy={rowAction.isPending(editing.id)}
+          onClose={() => setEditing(null)}
+          onSubmit={(body) => void rename(editing, body)}
         />
       )}
     </AdminShell>
@@ -321,6 +354,109 @@ function CreateCategoryModal({
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
               {saving ? "Creating…" : "Create category"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditCategoryModal({
+  initial,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  initial: ExamCategory;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (body: { name: string; description?: string }) => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [description, setDescription] = useState(initial.description ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (trimmed.length < 2) {
+      setError("Name must be at least 2 characters.");
+      return;
+    }
+    if (
+      trimmed === initial.name &&
+      description.trim() === (initial.description ?? "")
+    ) {
+      // No-op: don't round-trip when nothing changed.
+      onClose();
+      return;
+    }
+    onSubmit({
+      name: trimmed,
+      ...(description.trim() ? { description: description.trim() } : {}),
+    });
+    setError(null);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-admin-ink">Rename category</h2>
+        <p className="mt-1 text-sm text-admin-muted">
+          The category&apos;s number is fixed once it has been used. Renaming
+          does not reorder existing papers — the new name only applies to papers
+          authorised under it from now on.
+        </p>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Name
+            </span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              autoFocus
+              minLength={2}
+              className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Description (optional)
+            </span>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+          </label>
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-ink hover:bg-admin-bg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {busy ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

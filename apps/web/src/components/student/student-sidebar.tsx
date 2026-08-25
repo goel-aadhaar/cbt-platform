@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   NavDrawerClose,
   sidebarPanelClass,
@@ -12,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 
 import { ActionButton } from "@/components/action-button";
+import { InstituteLogo } from "@/components/institute-logo";
 import { useAsyncAction } from "@/hooks/use-async-action";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 
@@ -97,13 +97,7 @@ export function StudentSidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-2">
         <span className="flex size-10 items-center justify-center rounded-lg bg-white/95">
-          <Image
-            src="/brand/codonmind-mark.png"
-            alt=""
-            width={30}
-            height={30}
-            className="size-[30px] object-contain"
-          />
+          <InstituteLogo size={30} className="size-[30px] object-contain" />
         </span>
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-white">

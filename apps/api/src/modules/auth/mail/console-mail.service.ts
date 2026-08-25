@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import {
+  ContactMessageEmail,
   InvitationEmail,
   MailService,
   OtpEmail,
@@ -43,6 +44,15 @@ export class ConsoleMailService extends MailService {
         (email.institute ? ` @ ${email.institute}` : '') +
         (email.rollNumber ? ` | roll: ${email.rollNumber}` : '') +
         ` | sign in: ${email.loginUrl}`,
+    );
+    return Promise.resolve();
+  }
+
+  sendContactMessage(email: ContactMessageEmail): Promise<void> {
+    this.logger.log(
+      `📨 Contact form → ${email.name} <${email.email}>` +
+        (email.organization ? ` (${email.organization})` : '') +
+        ` | ${email.message}`,
     );
     return Promise.resolve();
   }

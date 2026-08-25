@@ -1,11 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useAuthUser } from "@/hooks/use-auth";
 import { logout } from "@/lib/auth";
+import { InstituteLogo } from "@/components/institute-logo";
 import { RoleSwitcher } from "@/components/staff/role-switcher";
 import {
   NavDrawerClose,
@@ -86,13 +86,7 @@ export function AdminSidebar() {
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-2">
-        <Image
-          src="/brand/codonmind-mark.png"
-          alt=""
-          width={40}
-          height={40}
-          className="size-10 object-contain"
-        />
+        <InstituteLogo size={40} className="size-10 object-contain" />
         <div className="leading-none">
           <p className="text-lg font-extrabold tracking-tight text-admin-ink">
             CODON MIND

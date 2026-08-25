@@ -20,6 +20,7 @@ import { CurrentUser } from './decorators/current-user.decorator';
 import { Public } from './decorators/public.decorator';
 import {
   LoginDto,
+  ResendLoginOtpDto,
   SelectRoleDto,
   StudentLoginDto,
   VerifyOtpDto,
@@ -62,6 +63,21 @@ export class AuthController {
     );
     this.attachActor(req, result);
     return result;
+  }
+
+  /**
+   * POST /auth/login/resend — issue a fresh code against the same challenge.
+   *
+   * Public, like login/verify, because there is no usable session at this
+   * point. The endpoint rate-limits itself via `OtpService.resend` (the
+   * same existing per-account window cap as `issue()`) so the door is no
+   * weaker than the original send.
+   */
+  @Public()
+  @Post('login/resend')
+  @HttpCode(HttpStatus.OK)
+  resendLoginOtp(@Body() dto: ResendLoginOtpDto) {
+    return this.auth.resendLoginOtp(dto.challengeId);
   }
 
   @Public()

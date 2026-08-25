@@ -9,6 +9,7 @@ export const EXAM_STATUS_COLOR: Record<ExamDisplayStatus, string> = {
   APPROVED: "bg-admin/10 text-admin",
   COMPLETED: "bg-admin-mint/50 text-admin",
   PUBLISHED: "bg-admin-mint/50 text-admin",
+  PAUSED: "bg-warn/15 text-warn",
   REJECTED: "bg-danger-soft text-danger",
   ARCHIVED: "bg-admin-surface text-admin-muted",
 };
@@ -23,6 +24,7 @@ export const EXAM_STATUS_DOT: Record<ExamDisplayStatus, string> = {
   REJECTED: "bg-danger",
   COMPLETED: "bg-admin",
   PUBLISHED: "bg-admin",
+  PAUSED: "bg-warn",
   ARCHIVED: "bg-admin-subtle",
 };
 

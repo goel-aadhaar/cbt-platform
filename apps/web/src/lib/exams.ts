@@ -8,6 +8,7 @@ export type ExamStatus =
   /** Sent back by an admin with a reason; editable and re-submittable. */
   | "REJECTED"
   | "PUBLISHED"
+  | "PAUSED"
   | "ARCHIVED";
 
 /** Derived, display-level status used across the exam screens. */
@@ -18,6 +19,7 @@ export type ExamDisplayStatus =
   | "REJECTED"
   | "SCHEDULED"
   | "LIVE"
+  | "PAUSED"
   | "COMPLETED"
   | "PUBLISHED"
   | "ARCHIVED";
@@ -41,6 +43,11 @@ export interface ExamListItem {
   submittedAt: string | null;
   approvedAt: string | null;
   rejectionReason: string | null;
+  /// Live-exit audit (§ pause/end admin actions). The list endpoint serializes
+  /// these so the admin roster can show "paused for X" without a per-row fetch.
+  pauseReason: string | null;
+  forceEndedAt: string | null;
+  forceEndedBy: UserRef | null;
   createdBy: UserRef | null;
   reviewer: UserRef | null;
   approvedBy: UserRef | null;
@@ -62,6 +69,10 @@ export function examDisplayStatus(e: ExamListItem): ExamDisplayStatus {
   // "Qualified" — approved but not yet started by an admin.
   if (e.status === "APPROVED") return "APPROVED";
   if (e.status === "ARCHIVED") return "ARCHIVED";
+  // Live but held by an admin (§ live-exit admin actions). PAUSED hides the
+  // exam from the student portal but still shows as a distinctive UI state so
+  // the admin roster is honest about why no candidates are sitting this.
+  if (e.status === "PAUSED") return "PAUSED";
   const now = Date.now();
   const start = e.startAt ? Date.parse(e.startAt) : null;
   const end = e.endAt ? Date.parse(e.endAt) : null;

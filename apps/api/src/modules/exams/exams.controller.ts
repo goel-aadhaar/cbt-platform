@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { AdminExamActionDto } from './dto/admin-exam-action.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
@@ -27,6 +28,7 @@ import {
   SubmitExamDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
+import { UpdateLiveExamDto } from './dto/update-live-exam.dto';
 import { ExamsService } from './exams.service';
 
 @ApiTags('exams')
@@ -214,5 +216,71 @@ export class ExamsController {
   @HttpCode(HttpStatus.OK)
   unpublish(@Param('id', ParseUUIDPipe) id: string) {
     return this.exams.unpublish(id);
+  }
+
+  /* ---------------- Live-exit admin controls ---------------- */
+
+  /**
+   * Hold a published exam. Exam remains in the catalogue but disappears from
+   * the student portal's "start now" list; in-flight attempts' deadlines are
+   * preserved across the pause so resuming does not cost candidates their
+   * allotted time. Admin-only; a teacher's pause is meaningless because
+   * teachers never touch a live exam.
+   */
+  @Post(':id/pause')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  pause(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdminExamActionDto,
+  ) {
+    return this.exams.pause(id, dto);
+  }
+
+  /**
+   * Lift a held exam — the only transition. Resumes the wall-clock and
+   * pushes each in-flight attempt's `expiresAt` forward by the pause
+   * window so the candidate does not lose writing time.
+   */
+  @Post(':id/resume')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  resume(@Param('id', ParseUUIDPipe) id: string) {
+    return this.exams.resume(id);
+  }
+
+  /**
+   * Pull the plug: status -> ARCHIVED, auto-submits every IN_PROGRESS
+   * attempt with `flagged = true` so the audit paper trail distinguishes a
+   * force-closed attempt from a normal submission on every results
+   * surface.
+   */
+  @Post(':id/end')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  forceEnd(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdminExamActionDto,
+  ) {
+    return this.exams.forceEnd(id, dto);
+  }
+
+  /**
+   * Admin-only edit of a live exam's timing and surface text. STRICT
+   * subset: `durationMinutes`, `startAt`, `endAt`, `instructions`,
+   * `passingMarks`. The class-level `@Roles(ADMIN)` is repeated here as a
+   * belt-and-braces marker so a future refactor cannot accidentally widen
+   * this to teachers.
+   *
+   * Distinct from `update()` (the teacher's authoring PATCH on line 63) so
+   * section/question mutations cannot reach a running paper by accident.
+   */
+  @Patch(':id/live')
+  @Roles(Role.ADMIN)
+  updateLive(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateLiveExamDto,
+  ) {
+    return this.exams.updateLive(id, dto);
   }
 }

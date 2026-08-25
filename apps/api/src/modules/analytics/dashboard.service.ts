@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 
 /**
@@ -99,7 +100,10 @@ export class DashboardService {
         },
       }),
       this.prisma.attempt.findMany({
-        where: { instituteId },
+        // Excludes PENDING_APPROVAL/APPROVED/DENIED: their startedAt is null,
+        // which Postgres sorts FIRST on a DESC order — an unfiltered query
+        // here would bury real recent activity under waiting-room noise.
+        where: { instituteId, status: { notIn: PRE_START_ATTEMPT_STATUSES } },
         orderBy: { startedAt: 'desc' },
         take: 8,
         select: {
@@ -132,7 +136,9 @@ export class DashboardService {
       byDay.set(d.toISOString().slice(0, 10), 0);
     }
     for (const a of dailyAttempts) {
-      const key = a.startedAt.toISOString().slice(0, 10);
+      // Non-null: the query above filters startedAt >= weekAgo, which a SQL
+      // comparison can never satisfy for a null column.
+      const key = a.startedAt!.toISOString().slice(0, 10);
       if (byDay.has(key)) byDay.set(key, (byDay.get(key) ?? 0) + 1);
     }
 

@@ -17,6 +17,13 @@ export class StartAttemptDto {
   examId: string;
 }
 
+export class DenyAttemptDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
 export class RecordSectionTimeDto {
   @IsUUID()
   sectionId: string;

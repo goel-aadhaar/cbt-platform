@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { ExamPreviewMockup } from "@/components/exam-preview-mockup";
@@ -21,6 +21,8 @@ import Link from "next/link";
 import { ApiError } from "@/lib/api";
 import {
   logout,
+  resendLoginOtp,
+  ResendOtpError,
   selectRole,
   staffLogin,
   studentLogin,
@@ -70,6 +72,41 @@ export function LoginScreen() {
   /** Non-null once a password is accepted and a code has been emailed. */
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [code, setCode] = useState("");
+
+  /**
+   * Resend control state. `resendCountdownEndsAt` is the wall-clock instant
+   * the next resend becomes legal; the button is disabled and shows the
+   * remaining seconds until then. `null` = "you can resend now". The first
+   * code arrives with no burn-in (the user just typed their password and the
+   * server hasn't seen a resend yet), so the timer starts at `null`.
+   */
+  const [resendCountdownEndsAt, setResendCountdownEndsAt] = useState<
+    number | null
+  >(null);
+  const [resending, setResending] = useState(false);
+  const [resendFeedback, setResendFeedback] = useState<string | null>(null);
+
+  /** Tick the countdown once a second while the lock is active. */
+  useEffect(() => {
+    if (resendCountdownEndsAt === null) return;
+    /**
+     * Intentionally bare setState-on-tick — there is no external resource to
+     * sync, and the duration of this interval matches the navigation graph
+     * the user sees. Excluding `resendCountdownEndsAt` from deps here would
+     * leave a stale closure; including it is exactly right.
+     */
+    const tick = () => {
+      const remaining = Math.max(
+        0,
+        Math.ceil((resendCountdownEndsAt - Date.now()) / 1000),
+      );
+      if (remaining === 0) setResendCountdownEndsAt(null);
+    };
+    const id = window.setInterval(tick, 1000);
+    // Sync immediately on entry so a fast cold render does not show stale.
+    tick();
+    return () => window.clearInterval(id);
+  }, [resendCountdownEndsAt]);
 
   /**
    * Two steps only. Staff no longer pick a role before signing in: the account
@@ -176,6 +213,50 @@ export function LoginScreen() {
     } catch (err) {
       setError(describe(err, "That code is not valid. Request a new one."));
       setSubmitting(false);
+    }
+  }
+
+  /**
+   * Resend handler.
+   *
+   * Two protections lock together here:
+   *  - The button is disabled while the cooldown is active, so the user
+   *    cannot click during the cooldown no matter how fast they tap.
+   *  - Even if that gate is bypassed (clock skew, dev tools, automation),
+   *    the server rejects with ResendOtpError carrying the residual
+   *    `retryAfterMs` the timer re-syncs from.
+   *
+   * On success the response carries a NEW challengeId — the old one is
+   * consumed server-side. We swap it in immediately; the verify endpoint
+   * already expects the latest.
+   */
+  async function resendCode() {
+    if (!challenge) return;
+    setResending(true);
+    setResendFeedback(null);
+    try {
+      const fresh = await resendLoginOtp(challenge.challengeId);
+      setChallenge(fresh);
+      setCode("");
+      // Lock the UI for the cooldown window. The server would tell us
+      // anyway on the next click; locking here gives the feedback in the
+      // same render the success message appears in.
+      setResendCountdownEndsAt(Date.now() + 30_000);
+      setResendFeedback("A fresh code is on its way.");
+    } catch (err) {
+      if (err instanceof ResendOtpError) {
+        // Re-sync from the server's clock — covers clock skew and tab-sleep.
+        if (err.retryAfterMs > 0) {
+          setResendCountdownEndsAt(Date.now() + err.retryAfterMs);
+        }
+        setResendFeedback(err.message);
+      } else {
+        setResendFeedback(
+          err instanceof Error ? err.message : "Could not resend the code.",
+        );
+      }
+    } finally {
+      setResending(false);
     }
   }
 
@@ -392,10 +473,12 @@ export function LoginScreen() {
                     {submitting ? "Verifying…" : "Verify and sign in"}
                   </button>
                 </form>
-                <p className="mt-5 text-xs text-subtle">
-                  Didn&apos;t get it? Check spam, or go back and sign in again
-                  to send a new code. Each code works once.
-                </p>
+                <ResendControls
+                  cooldownEndsAt={resendCountdownEndsAt}
+                  pending={resending}
+                  feedback={resendFeedback}
+                  onResend={() => void resendCode()}
+                />
               </>
             )}
 
@@ -690,5 +773,105 @@ function StaffIcon(props: React.SVGProps<SVGSVGElement>) {
         fill="currentColor"
       />
     </svg>
+  );
+}
+
+/**
+ * Resend control + countdown. Reads a single wall-clock deadline so the
+ * parent can re-sync it after a server-side cooldown reply, and renders a
+ * button that disables itself with a "Try again in 12s" label until the
+ * deadline elapses.
+ */
+function ResendControls({
+  cooldownEndsAt,
+  pending,
+  feedback,
+  onResend,
+}: {
+  cooldownEndsAt: number | null;
+  pending: boolean;
+  feedback: string | null;
+  onResend: () => void;
+}) {
+  /**
+   * `secondsLeft` ticks every second via a ref-recording of the deadline
+   * (no Date.now() in render, no setState from inside non-React work).
+   * `cooldownEndsAt` may switch to `null` (cooldown elapsed) — the effect
+   * re-syncs both.
+   */
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(() =>
+    cooldownEndsAt === null ? null : 30,
+  );
+  useEffect(() => {
+    /**
+     * Use a ref so the interval callback can read the *current* deadline
+     * without re-creating itself on every prop change — but still
+     * re-sync via the dependency array when the deadline changes.
+     */
+    const tick = () => {
+      if (cooldownEndsAt === null) {
+        setSecondsLeft(null);
+        return;
+      }
+      // Reading Date.now() here is fine: this runs in an event/effect
+      // callback, never during render. The render path reads `secondsLeft`
+      // and the boolean `coolingDown`, both derived from state, so the
+      // component is pure.
+      const remaining = Math.max(
+        0,
+        Math.ceil((cooldownEndsAt - Date.now()) / 1000),
+      );
+      setSecondsLeft(remaining);
+      if (remaining === 0) return;
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [cooldownEndsAt]);
+
+  const coolingDown = secondsLeft !== null && secondsLeft > 0;
+  const label =
+    coolingDown && secondsLeft !== null
+      ? `Resend code in ${secondsLeft}s`
+      : "Resend code";
+
+  return (
+    <div className="mt-5 text-xs text-subtle">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onResend}
+          disabled={pending || coolingDown}
+          aria-busy={pending || undefined}
+          className="rounded-[2px] border border-subtle px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink hover:border-brand hover:text-brand disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {pending ? (
+            <span className="inline-flex items-center gap-2">
+              <LoadingSpinner size={10} tone="current" label="" />
+              Sending…
+            </span>
+          ) : (
+            label
+          )}
+        </button>
+        {!coolingDown && (
+          <span className="text-subtle">
+            Check spam if it doesn&apos;t arrive within a minute.
+          </span>
+        )}
+      </div>
+      {feedback && (
+        <p
+          role="status"
+          className={
+            feedback.startsWith("A fresh code")
+              ? "mt-2 text-success"
+              : "mt-2 text-danger"
+          }
+        >
+          {feedback}
+        </p>
+      )}
+    </div>
   );
 }

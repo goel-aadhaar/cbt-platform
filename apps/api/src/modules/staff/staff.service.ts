@@ -126,6 +126,7 @@ export class StaffService {
         id: true,
         name: true,
         email: true,
+        phone: true,
         roles: true,
         status: true,
         createdAt: true,
@@ -149,6 +150,7 @@ export class StaffService {
       id: u.id,
       name: u.name,
       email: u.email,
+      phone: u.phone,
       roles: u.roles,
       status: u.status,
       joinedAt: u.createdAt,
@@ -168,12 +170,29 @@ export class StaffService {
       await this.assertRoleChangeAllowed(owned, dto.roles, ctx?.userId);
     }
 
-    if (dto.name !== undefined || dto.roles !== undefined) {
+    if (
+      dto.name !== undefined ||
+      dto.roles !== undefined ||
+      dto.phone !== undefined
+    ) {
       await this.prisma.user.update({
         where: { id: owned.id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name } : {}),
           ...(dto.roles !== undefined ? { roles: dto.roles } : {}),
+          // null means "clear it"; an empty string is a client-side mistake
+          // (the DTO allows it through Matches) so we coerce. We trim too —
+          // reformatting-without-trimming is how the displayed value drifts
+          // from the stored value, and `+91 987...` reads better than
+          // `  +91  987...  ` everywhere it appears.
+          ...(dto.phone !== undefined
+            ? {
+                phone:
+                  dto.phone == null || dto.phone.trim() === ''
+                    ? null
+                    : dto.phone.trim(),
+              }
+            : {}),
         },
       });
     }

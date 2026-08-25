@@ -49,6 +49,12 @@ export interface ExamDetail {
   submittedAt: string | null;
   approvedAt: string | null;
   rejectionReason: string | null;
+  /// Live-exit audit (§ pause/end admin actions). Always present on the wire
+  /// (the API returns them on every exam now), so the admin UI can render
+  /// "paused for X" or "force-ended by Y on Z" without a separate fetch.
+  pauseReason: string | null;
+  forceEndedAt: string | null;
+  forceEndedBy: { id: string; name: string } | null;
   createdBy: { id: string; name: string } | null;
   reviewer: { id: string; name: string } | null;
   approvedBy: { id: string; name: string } | null;
@@ -80,6 +86,78 @@ export interface ExamDetail {
 /** GET /exams/:id — includes sections and assigned batches. */
 export function fetchExam(examId: string): Promise<ExamDetail> {
   return apiFetch<ExamDetail>(`/exams/${examId}`, auth());
+}
+
+/* ---------------- Live-exit admin controls ----------------
+ *
+ * Distinct from POST /exams/:id (publish/unpublish etc.) because the
+ * brief asked for admin-only live controls separate from the approval
+ * lifecycle. The DTOs are tiny on purpose: every endpoint accepts an
+ * optional short `reason` that lands on the row's `pauseReason` column,
+ * so the API gets verbatim admin input without the client having to
+ * reason about column-vs-event semantics. */
+
+function adminAction(
+  examId: string,
+  suffix: string,
+  reason?: string,
+): Promise<ExamDetail> {
+  return apiFetch<ExamDetail>(`/exams/${examId}/${suffix}`, {
+    method: "POST",
+    body: JSON.stringify(reason !== undefined ? { reason } : {}),
+    ...auth(),
+  });
+}
+
+/** POST /exams/:id/pause — ADMIN. Holds a live exam. */
+export function pauseExam(
+  examId: string,
+  reason?: string,
+): Promise<ExamDetail> {
+  return adminAction(examId, "pause", reason);
+}
+
+/** POST /exams/:id/resume — ADMIN. Lifts the hold; preserves attempts' clocks. */
+export function resumeExam(examId: string): Promise<ExamDetail> {
+  return apiFetch<ExamDetail>(`/exams/${examId}/resume`, {
+    method: "POST",
+    ...auth(),
+  });
+}
+
+/**
+ * POST /exams/:id/end — ADMIN. Force-end: archives the exam and
+ * auto-submits every IN_PROGRESS attempt as flagged AUTO_SUBMITTED. The
+ * reason, if provided, lands on `pauseReason`; the API also stamps
+ * `forceEndedAt` and `forceEndedById` regardless.
+ */
+export function forceEndExam(
+  examId: string,
+  reason?: string,
+): Promise<{ examId: string; autoSubmitted: number }> {
+  return apiFetch(`/exams/${examId}/end`, {
+    method: "POST",
+    body: JSON.stringify(reason !== undefined ? { reason } : {}),
+    ...auth(),
+  });
+}
+
+/** PATCH /exams/:id/live — ADMIN. Edit live-exam timing and surface text. */
+export function updateLiveExam(
+  examId: string,
+  dto: {
+    durationMinutes?: number;
+    startAt?: string;
+    endAt?: string;
+    instructions?: string;
+    passingMarks?: number;
+  },
+): Promise<ExamDetail> {
+  return apiFetch(`/exams/${examId}/live`, {
+    method: "PATCH",
+    body: JSON.stringify(dto),
+    ...auth(),
+  });
 }
 
 /** POST /exams/:id/evaluate — score every submitted attempt. */
@@ -288,7 +366,15 @@ export function fetchExamAnalytics(examId: string): Promise<ExamAnalytics> {
  * ------------------------------------------------------------------ */
 
 export type MonitorStudentStatus =
-  "NOT_STARTED" | "IN_PROGRESS" | "SUBMITTED" | "AUTO_SUBMITTED";
+  | "NOT_STARTED"
+  // Entry-approval states (§ exam entry approval) — waiting on, or decided
+  // by, an admin; none of these have a running clock.
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "DENIED"
+  | "IN_PROGRESS"
+  | "SUBMITTED"
+  | "AUTO_SUBMITTED";
 
 export interface MonitorStudent {
   studentId: string;
@@ -317,6 +403,9 @@ export interface ExamMonitor {
   totalQuestions: number;
   counts: {
     notStarted: number;
+    pendingApproval: number;
+    approved: number;
+    denied: number;
     inProgress: number;
     submitted: number;
     autoSubmitted: number;
@@ -335,6 +424,54 @@ export function fetchExamMonitor(
   if (opts.status) qs.set("status", opts.status);
   const suffix = qs.toString() ? `?${qs}` : "";
   return apiFetch<ExamMonitor>(`/exams/${examId}/monitor${suffix}`, auth());
+}
+
+/* ------------------------------------------------------------------ *
+ * ENTRY APPROVAL — who's waiting to get in (§ exam entry approval)    *
+ * ------------------------------------------------------------------ */
+
+export interface EntryRequestRow {
+  id: string;
+  status: "PENDING_APPROVAL" | "APPROVED" | "DENIED";
+  denialReason: string | null;
+  createdAt: string;
+  approvedAt: string | null;
+  deniedAt: string | null;
+  student: {
+    id: string;
+    rollNumber: string;
+    user: { id: string; name: string };
+  };
+}
+
+/**
+ * GET /exams/:id/entry-requests — students waiting on (or recently decided
+ * for) entry into this exam. Poll on interval, same as fetchExamMonitor.
+ */
+export function fetchEntryRequests(examId: string): Promise<EntryRequestRow[]> {
+  return apiFetch<EntryRequestRow[]>(`/exams/${examId}/entry-requests`, auth());
+}
+
+/** POST /attempts/:id/approve — let a waiting student in. */
+export function approveEntry(
+  attemptId: string,
+): Promise<{ id: string; status: string }> {
+  return apiFetch(`/attempts/${attemptId}/approve`, {
+    method: "POST",
+    ...auth(),
+  });
+}
+
+/** POST /attempts/:id/deny — decline a student's entry request. */
+export function denyEntry(
+  attemptId: string,
+  reason?: string,
+): Promise<{ id: string; status: string; denialReason: string | null }> {
+  return apiFetch(`/attempts/${attemptId}/deny`, {
+    method: "POST",
+    body: reason ? { reason } : {},
+    ...auth(),
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -896,6 +1033,12 @@ export interface StaffRow {
   id: string;
   name: string;
   email: string;
+  /**
+   * Recovery contact number, nullable. The detail drawer uses it on the
+   * profile screen but never for outgoing communication; an admin who
+   * recorded what a teacher dictated over the phone is the only writer.
+   */
+  phone: string | null;
   roles: ("ADMIN" | "TEACHER")[];
   status: "PENDING" | "ACTIVE" | "DISABLED";
   joinedAt: string;
@@ -944,6 +1087,12 @@ export function updateStaff(
   id: string,
   body: {
     name?: string;
+    /**
+     * Optional phone. An empty string clears it (null on the wire). The
+     * `User.phone` column is a recovery field — admins set it on behalf of a
+     * teacher/staff member who locked themselves out of self-service.
+     */
+    phone?: string | null;
     /**
      * Replaces the account's roles outright — pass every role it should end up
      * with, not just the new one.

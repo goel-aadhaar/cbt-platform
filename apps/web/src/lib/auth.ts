@@ -146,6 +146,87 @@ export async function verifyLoginOtp(
 }
 
 /**
+ * The first-factor login returns `otpRequired: true` along with the issued
+ * challengeId; `OtpRequired` is exactly that. Re-exposed here so the OTP step
+ * in the login screen can use the same shape that resend returns, since both
+ * routes return the same envelope.
+ */
+export type OtpRequired = OtpChallenge;
+
+export type ResendOtpErrorReason = "NoActiveChallenge" | "ResendTooSoon";
+
+/** Server-side validation failure on a resend. */
+export class ResendOtpError extends Error {
+  /** Visible milliseconds until the cooldown completes. Zero on terminal errors. */
+  readonly retryAfterMs: number;
+  /** Whichever signal the server picked — cooldown vs. "challenge is no longer live". */
+  readonly reason: ResendOtpErrorReason;
+  constructor(
+    reason: ResendOtpErrorReason,
+    retryAfterMs: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ResendOtpError";
+    this.reason = reason;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * POST /auth/login/resend — issue a fresh code against the same challenge.
+ *
+ * Returns a fresh `OtpRequired` so the login screen can swap in the new
+ * `challengeId` and continue trying — the previous code is consumed by the
+ * server before this returns, so the in-flight id the screen is holding is
+ * no longer the one the verify endpoint expects.
+ *
+ * The 30-second cooldown lives server-side. This function translates the
+ * structured error into a typed exception that carries the remaining
+ * cooldown, so the OTP step can disable the button until exactly the
+ * moment resend becomes legal again — rather than guessing.
+ */
+export async function resendLoginOtp(
+  challengeId: string,
+): Promise<OtpRequired> {
+  try {
+    return await apiFetch<OtpRequired>("/auth/login/resend", {
+      method: "POST",
+      body: { challengeId },
+    });
+  } catch (err) {
+    /**
+     * The server returns a structured 400 body (`{ error, message,
+     * details: { retryAfterMs } }`) so the UI does not have to parse
+     * English. The shape the global validation filter emits nests the
+     * structured fields under `details`; flat top-level would also have
+     * been fine but `details` is what we get.
+     */
+    const body = (
+      err as {
+        body?: {
+          error?: string;
+          message?: string;
+          details?: { retryAfterMs?: number };
+        };
+      }
+    ).body;
+    const retryMs = body?.details?.retryAfterMs ?? 0;
+    if (
+      body?.error === "NoActiveChallenge" ||
+      body?.error === "ResendTooSoon"
+    ) {
+      throw new ResendOtpError(
+        body.error,
+        retryMs,
+        body.message ?? "We could not resend your code.",
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * GET /auth/me — validates the stored session against the server and returns the
  * canonical user. Throws ApiError(401) if the token is missing/expired/revoked.
  */

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import type { AuthConfig } from '../../../config/auth.config';
 import {
+  ContactMessageEmail,
   InvitationEmail,
   MailService,
   OtpEmail,
@@ -36,6 +37,7 @@ export class SesMailService extends MailService {
    */
   private readonly fromEmail: string;
   private readonly fromName: string;
+  private readonly contactEmail: string;
   private readonly region: string;
   /** Typed loosely: the SDK is an optional peer, resolved at runtime. */
   private client: unknown = null;
@@ -45,6 +47,7 @@ export class SesMailService extends MailService {
     const auth = config.getOrThrow<AuthConfig>('auth');
     this.fromEmail = auth.sesFromEmail ?? '';
     this.fromName = auth.sesFromName;
+    this.contactEmail = auth.contactEmail;
     this.region = config.get<string>('AWS_REGION') ?? 'ap-south-1';
   }
 
@@ -73,12 +76,17 @@ export class SesMailService extends MailService {
     subject: string;
     html: string;
     text: string;
+    /** Set on outbound notifications that a human should be able to just
+     * hit "Reply" on — e.g. the contact form, where the visitor's own
+     * address is the useful destination for a reply, not this From. */
+    replyTo?: string;
   }): Promise<void> {
     const { client, SendEmailCommand } = await this.sdk();
     await client.send(
       new SendEmailCommand({
         Source: `${this.fromName} <${this.fromEmail}>`,
         Destination: { ToAddresses: [params.to] },
+        ...(params.replyTo ? { ReplyToAddresses: [params.replyTo] } : {}),
         Message: {
           Subject: { Data: params.subject, Charset: 'UTF-8' },
           Body: {
@@ -194,6 +202,37 @@ export class SesMailService extends MailService {
         detailsText +
         `\nSign in: ${email.loginUrl}\n`,
     });
+  }
+
+  /**
+   * Delivers a public contact-form submission to the business inbox, with
+   * Reply-To set to the visitor's own address — answering it is one click,
+   * same as replying to a forwarded email.
+   */
+  async sendContactMessage(email: ContactMessageEmail): Promise<void> {
+    const subject = `New contact form message from ${email.name}`;
+    const orgLine = email.organization
+      ? `<p><strong>Organization:</strong> ${escapeHtml(email.organization)}</p>`
+      : '';
+    const orgLineText = email.organization
+      ? `Organization: ${email.organization}\n`
+      : '';
+
+    await this.send({
+      to: this.contactEmail,
+      replyTo: email.email,
+      subject,
+      html: layout(`
+        <p><strong>From:</strong> ${escapeHtml(email.name)} &lt;${escapeHtml(email.email)}&gt;</p>
+        ${orgLine}
+        <p style="white-space:pre-wrap;">${escapeHtml(email.message)}</p>
+      `),
+      text:
+        `From: ${email.name} <${email.email}>\n` +
+        orgLineText +
+        `\n${email.message}\n`,
+    });
+    this.logger.log(`Contact form message emailed from ${email.email}`);
   }
 }
 

@@ -1,6 +1,7 @@
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -35,6 +36,21 @@ export interface OtpChallengeIssued {
  *  - The roles the original door allowed are captured on the challenge, so a
  *    code minted at the staff login cannot be redeemed for a platform session.
  */
+
+/**
+ * The minimum delay the resend endpoint enforces between two codes for the
+ * same account. The brief reads this as "you can ask for a new code after
+ * 30 seconds" and that is exactly the user-visible button label on the OTP
+ * step — a number short enough to feel responsive, long enough that
+ * hammering it does not bypass the per-window issuance cap that already
+ * covers longer-run spam.
+ *
+ * Source-of-truth in milliseconds rather than seconds-as-integer so the
+ * boundary comparison in `resend()` is exact; rounding seconds has bitten
+ * similar timers before.
+ */
+export const RESEND_COOLDOWN_MS = 30_000;
+
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
@@ -143,6 +159,133 @@ export class OtpService {
     }
 
     return { challengeId: challenge.id, expiresAt: challenge.expiresAt };
+  }
+
+  /**
+   * Mint a fresh code for an already-issued challenge.
+   *
+   * Two pins in place so this never widens the brute-force surface:
+   *
+   *  1. The old challenge is consumed before the new one is created. Two
+   *     codes never exist at the same time — `assertIssueRateOk` and the
+   *     redeem-guesses cap already key on "the latest live challenge", and
+   *     leaving two valid would let either be used.
+   *  2. A cooldown between issues, per user. The brief asks for 30 seconds;
+   *     spamming faster than that returns 400 with a `retryAfterMs` so the
+   *     button can disable itself precisely until the boundary.
+   *
+   * The window-level issuance cap (`otpMaxPerWindow` / `otpWindowMinutes`)
+   * that already throttles `issue()` still applies — so a user who
+   * legitimately resends a dozen times in an hour hits the same ceiling
+   * they would on twelve deliberate sign-ins. Resend does not give anyone
+   * a way around that bound.
+   *
+   * The mask in the response is the same one `issue()` returns; the UI
+   * reads `sentTo` from the new challenge rather than trusting the now-
+   * superseded one.
+   */
+  async resend(
+    challengeId: string,
+  ): Promise<{ challengeId: string; retryAfterMs: number }> {
+    /**
+     * Load the existing challenge first. A challenge that has been
+     * consumed, expired, or never existed all collapse to the same
+     * "no live challenge for that id" response — the same way a wrong
+     * code does in `verify()`. Exposing which one tripped would turn
+     * the endpoint into a probe. `allowedRoles` is included so the
+     * new code inherits the door the user started at — a code minted
+     * on the staff login cannot be redeemed by reaching platform.js.
+     */
+    const existing = await this.prisma.otpChallenge.findUnique({
+      where: { id: challengeId },
+      select: {
+        id: true,
+        userId: true,
+        consumedAt: true,
+        expiresAt: true,
+        allowedRoles: true,
+      },
+    });
+    const invalid = () =>
+      new BadRequestException({
+        message:
+          'There is no active sign-in to resend a code for. Start over from the login screen.',
+        error: 'NoActiveChallenge',
+        retryAfterMs: 0,
+      });
+    if (
+      !existing ||
+      existing.consumedAt !== null ||
+      existing.expiresAt <= new Date()
+    ) {
+      throw invalid();
+    }
+
+    /**
+     * Cooldown check. We look at the most-recent create for this user
+     * (not just the previous challenge) so a payload of "challenge, then a
+     * re-resend without using either" cannot beat the timer.
+     */
+    const recent = await this.prisma.otpChallenge.findFirst({
+      where: { userId: existing.userId },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (recent) {
+      const elapsed = Date.now() - recent.createdAt.getTime();
+      if (elapsed < RESEND_COOLDOWN_MS) {
+        throw new BadRequestException({
+          message: `You can ask for a new code in ${Math.ceil(
+            (RESEND_COOLDOWN_MS - elapsed) / 1000,
+          )} second${RESEND_COOLDOWN_MS - elapsed > 1000 ? 's' : ''}.`,
+          error: 'ResendTooSoon',
+          retryAfterMs: RESEND_COOLDOWN_MS - elapsed,
+        });
+      }
+    }
+
+    /**
+     * Eat the old challenge before issuing the new one. Using
+     * `updateMany` here keeps the consume race-proof against a concurrent
+     * `verify()` — exactly one of "redeem the old code" and "send a new
+     * code" wins.
+     */
+    const consumeResult = await this.prisma.otpChallenge.updateMany({
+      where: { id: challengeId, consumedAt: null },
+      data: { consumedAt: new Date() },
+    });
+    if (consumeResult.count === 0) {
+      // Someone redeemed the code in the gap between our read and our write.
+      // Reject — the same probe-masking rule as the read above.
+      throw invalid();
+    }
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: existing.userId },
+      select: { id: true, name: true, email: true, roles: true, status: true },
+    });
+
+    const next = await this.issue({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      /**
+       * Carry the original door through to the new challenge. The
+       * `OtpChallenge.allowedRoles` row carries the set of roles the
+       * originating door allowed, so we use it verbatim rather than asking
+       * the caller to re-derive it. Masking the email is the
+       * AuthService-level caller's job — we return the challengeId here
+       * so the caller has everything it needs.
+       */
+      allowedRoles: existing.allowedRoles,
+      userAgent: undefined,
+      ip: undefined,
+    });
+
+    return {
+      challengeId: next.challengeId,
+      retryAfterMs: 0,
+    };
   }
 
   /**

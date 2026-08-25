@@ -29,6 +29,7 @@ import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { QueryStudentsDto } from './dto/query-students.dto';
+import { ReassignStudentsDto } from './dto/reassign-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { StudentsService } from './students.service';
 
@@ -97,6 +98,18 @@ export class StudentsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.students.findOne(id);
+  }
+
+  /**
+   * Bulk-reassign students to a different batch. Declared before `:id`
+   * routes because Nest matches routes in declaration order — the same
+   * trick `/students/import` and `/staff/me/batches` rely on ahead of the
+   * dynamic-id routes.
+   */
+  @Post('reassign-batch')
+  @HttpCode(HttpStatus.OK)
+  reassignBatch(@Body() dto: ReassignStudentsDto) {
+    return this.students.reassignBatch(dto.studentIds, dto.targetBatchId);
   }
 
   @Patch(':id')

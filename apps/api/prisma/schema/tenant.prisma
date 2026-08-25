@@ -11,6 +11,11 @@ model Institute {
   /// desync new roll numbers from every one already handed out.
   code      String   @unique @db.VarChar(4)
   isActive  Boolean  @default(true) @map("is_active")
+  /// Storage key of the institute's own logo (§ institute branding), set by
+  /// its ADMIN via upload-then-attach — same pattern as a question's
+  /// mediaKeys. Null means "no custom logo": every surface falls back to the
+  /// platform's default mark, never a broken image.
+  logoKey   String?  @map("logo_key")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

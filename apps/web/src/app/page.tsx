@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 
 import {
-  AiInsights,
   ClosingCta,
-  Features,
+  Contact,
+  GrowthAndObjective,
   Hero,
-  Integrations,
-  Testimonial,
+  PerformanceInsights,
+  PlatformFeatures,
+  Roles,
+  WhatWeDo,
 } from "@/components/landing/sections";
 import { SiteFooter } from "@/components/landing/site-footer";
 import { SiteNav } from "@/components/landing/site-nav";
@@ -24,9 +26,9 @@ import { SiteNav } from "@/components/landing/site-nav";
  * page that refuses to be looked at is a nuisance to the people who share it.
  */
 export const metadata: Metadata = {
-  title: "CodonMind Nexus — AI-Powered CBT Platform",
+  title: "CodonMind — Technology for Better Examinations",
   description:
-    "Create, conduct, monitor, and analyze computer-based exams with ease, accuracy, and security.",
+    "CodonMind builds software solutions that help educational institutes conduct, manage and understand examinations digitally.",
 };
 
 export default function Home() {
@@ -35,11 +37,13 @@ export default function Home() {
       <SiteNav />
       <main className="flex w-full flex-col items-start">
         <Hero />
-        <Features />
-        <AiInsights />
-        <Integrations />
-        <Testimonial />
+        <WhatWeDo />
+        <PlatformFeatures />
+        <Roles />
+        <PerformanceInsights />
+        <GrowthAndObjective />
         <ClosingCta />
+        <Contact />
       </main>
       <SiteFooter />
     </div>

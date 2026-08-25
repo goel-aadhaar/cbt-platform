@@ -182,6 +182,18 @@ export class MediaService {
     const ctx = this.tenant.get();
     if (ctx?.role !== Role.STUDENT) return;
 
+    /**
+     * The institute's own logo (§ institute branding) — every member may
+     * see it by definition, no further entitlement to check. Cheapest
+     * check first: this is the common case once a tenant has branded
+     * itself, and every other check below does at least one more query.
+     */
+    const isOwnLogo = await this.prisma.institute.findFirst({
+      where: { id: ctx.instituteId ?? undefined, logoKey: key },
+      select: { id: true },
+    });
+    if (isOwnLogo) return;
+
     const student = await this.prisma.student.findUnique({
       where: { userId: ctx.userId },
       select: { id: true, batchId: true },

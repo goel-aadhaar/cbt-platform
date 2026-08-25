@@ -6,6 +6,7 @@ import {
 
 import { AttemptStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { isCorrect } from '../results/scoring';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -288,7 +289,12 @@ export class AnalyticsService {
 
     const attempts = await this.prisma.attempt.findMany({
       where: { studentId: student.id },
-      orderBy: { startedAt: 'desc' },
+      // Deliberately unfiltered — the student should see their own pending/
+      // approved/denied entry requests in this history. Ordered by
+      // createdAt, not startedAt: a pending request has no startedAt yet,
+      // and Postgres sorts nulls FIRST on a DESC order, which would put a
+      // brand-new request above attempts the student actually just sat.
+      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
         status: true,
@@ -321,12 +327,15 @@ export class AnalyticsService {
     return attempts.map(({ result, ...attempt }) => ({
       ...attempt,
       /**
+       * PENDING_APPROVAL/APPROVED/DENIED — entry-approval states
+       *   (§ exam entry approval); reported as-is, the clock hasn't started
        * IN_PROGRESS  — still sitting it
        * PENDING      — submitted; not evaluated, or evaluated but held back
        * PUBLISHED    — released to the student
        */
-      resultState:
-        attempt.status === 'IN_PROGRESS'
+      resultState: PRE_START_ATTEMPT_STATUSES.includes(attempt.status)
+        ? attempt.status
+        : attempt.status === 'IN_PROGRESS'
           ? ('IN_PROGRESS' as const)
           : result?.published
             ? ('PUBLISHED' as const)

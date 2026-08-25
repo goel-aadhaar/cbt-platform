@@ -20,6 +20,8 @@ export interface AuthConfig {
   sesFromEmail?: string;
   /** Display name on the From header. Falls back to a generic default. */
   sesFromName: string;
+  /** Inbox the public site's contact form delivers to. */
+  contactEmail: string;
 }
 
 /** Keys are stored base64-encoded in env (so multi-line PEMs fit on one line). */
@@ -40,4 +42,5 @@ export const authConfig = registerAs('auth', (): AuthConfig => ({
   otpWindowMinutes: Number(process.env.OTP_WINDOW_MINUTES ?? 15),
   sesFromEmail: process.env.AWS_SES_FROM_EMAIL || undefined,
   sesFromName: process.env.AWS_SES_FROM_NAME ?? 'Codonmind Nexus',
+  contactEmail: process.env.CONTACT_EMAIL || 'hello@codonmind.in',
 }));

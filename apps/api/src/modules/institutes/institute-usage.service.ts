@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { UserStatus } from '../auth/auth.types';
 
 /**
@@ -104,7 +105,12 @@ export class InstituteUsageService {
         where: { instituteId: id, createdAt: { gte: since } },
       }),
       this.prisma.question.count({ where: { instituteId: id } }),
-      this.prisma.attempt.count({ where: { instituteId: id } }),
+      this.prisma.attempt.count({
+        where: {
+          instituteId: id,
+          status: { notIn: PRE_START_ATTEMPT_STATUSES },
+        },
+      }),
       this.prisma.attempt.count({
         where: { instituteId: id, startedAt: { gte: since } },
       }),
@@ -112,7 +118,12 @@ export class InstituteUsageService {
         where: { instituteId: id, status: 'IN_PROGRESS' },
       }),
       this.prisma.attempt.findFirst({
-        where: { instituteId: id },
+        // See dashboard/institutes: unfiltered + DESC would let a pending
+        // entry request's null startedAt shadow the real last activity.
+        where: {
+          instituteId: id,
+          status: { notIn: PRE_START_ATTEMPT_STATUSES },
+        },
         orderBy: { startedAt: 'desc' },
         select: { startedAt: true },
       }),

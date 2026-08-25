@@ -350,6 +350,19 @@ export const ClockIcon = (p: P) => (
   </Base>
 );
 
+export const PauseIcon = (p: P) => (
+  <Base {...p}>
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </Base>
+);
+
+export const PlayIcon = (p: P) => (
+  <Base {...p}>
+    <path d="M5 3v18l15-9z" />
+  </Base>
+);
+
 export const SaveIcon = (p: P) => (
   <Base {...p}>
     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />

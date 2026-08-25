@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { getToken } from "@/lib/auth";
 import { mediaSrc } from "@/lib/media";
@@ -21,10 +21,15 @@ export function AuthedImage({
   url,
   alt,
   className,
+  fallback,
 }: {
   url: string;
   alt: string;
   className?: string;
+  /** Rendered instead of the "Image unavailable" placeholder on a fetch
+   * failure — for a persistent UI element (e.g. a brand mark) where a
+   * broken-image box would be worse than quietly falling back. */
+  fallback?: ReactNode;
 }) {
   const resolved = mediaSrc(url);
   const isDirect = /^https?:\/\//i.test(url);
@@ -59,6 +64,7 @@ export function AuthedImage({
   }, [resolved, isDirect]);
 
   if (failed) {
+    if (fallback !== undefined) return <>{fallback}</>;
     return (
       <div
         className={`flex items-center justify-center bg-admin-surface text-[10px] text-admin-subtle ${className ?? ""}`}

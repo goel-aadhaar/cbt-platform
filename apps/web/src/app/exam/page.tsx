@@ -36,10 +36,12 @@ import { useProctoring } from "@/hooks/use-proctoring";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 import {
   abandonAttempt,
+  beginAttempt,
+  getAttempt,
+  getEntry,
   reportSectionTime,
   reportViolation,
   saveResponse,
-  startAttempt,
   submitAttempt,
   type AttemptResponse,
   type AttemptState,
@@ -70,23 +72,43 @@ function ExamPageSkeleton() {
 function ExamPageInner() {
   const params = useSearchParams();
   const router = useRouter();
-  const examId = params.get("examId");
+  // The instructions page only ever sends a student here once their attempt
+  // is APPROVED (or already IN_PROGRESS, for a reconnect) — the entry
+  // request itself, and the wait for admin approval, both happen there.
+  const attemptId = params.get("attemptId");
 
   const [attempt, setAttempt] = useState<AttemptState | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
-  // Active start path: POST /attempts with the URL's examId.
   const startFn = useCallback(async () => {
-    if (!examId) {
+    if (!attemptId) {
       setStartError("No exam specified. Return to the dashboard.");
       return;
     }
     setStartError(null);
     setStarting(true);
     try {
-      const state = await startAttempt(examId);
+      const entry = await getEntry(attemptId);
+      const state =
+        entry.status === "APPROVED"
+          ? // The server clock starts on this call.
+            await beginAttempt(attemptId)
+          : entry.status === "IN_PROGRESS"
+            ? // Already running — a refresh/reconnect mid-exam.
+              await getAttempt(attemptId)
+            : null;
+      if (!state) {
+        setStartError(
+          entry.status === "PENDING_APPROVAL"
+            ? "Still waiting for admin approval — return to the exam instructions page."
+            : entry.status === "DENIED"
+              ? "Your entry request was declined. Return to the exam instructions page."
+              : "This attempt cannot be started from here. Return to the exam instructions page.",
+        );
+        return;
+      }
       setAttempt(state);
     } catch (err) {
       /**
@@ -104,7 +126,7 @@ function ExamPageInner() {
     } finally {
       setStarting(false);
     }
-  }, [examId]);
+  }, [attemptId]);
 
   /**
    * Logout mid-exam. The server discards the responses and marks the attempt

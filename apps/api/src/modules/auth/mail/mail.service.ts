@@ -29,6 +29,15 @@ export interface WelcomeEmail {
   loginUrl: string;
 }
 
+/** A visitor's submission of the public site's contact form. */
+export interface ContactMessageEmail {
+  name: string;
+  /** The visitor's own address — set as Reply-To so answering is one click. */
+  email: string;
+  organization?: string;
+  message: string;
+}
+
 /**
  * Mail port (abstract class used as the DI token). Concrete adapters:
  *   - ConsoleMailService — dev: logs the message + invite link / OTP.
@@ -40,4 +49,6 @@ export abstract class MailService {
   abstract sendLoginOtp(email: OtpEmail): Promise<void>;
   /** Sent once, right after the invitee sets their password and activates. */
   abstract sendWelcome(email: WelcomeEmail): Promise<void>;
+  /** Delivers a public contact-form submission to the business inbox. */
+  abstract sendContactMessage(email: ContactMessageEmail): Promise<void>;
 }

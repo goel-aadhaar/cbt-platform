@@ -168,10 +168,12 @@ export class MonitoringService {
         status: a.status,
         startedAt: a.startedAt,
         submittedAt: a.submittedAt,
+        // Non-null: only read when inProgress, and IN_PROGRESS is only ever
+        // reached via begin(), which sets expiresAt in the same write.
         remainingSeconds: inProgress
-          ? Math.max(0, Math.floor((a.expiresAt.getTime() - now) / 1000))
+          ? Math.max(0, Math.floor((a.expiresAt!.getTime() - now) / 1000))
           : null,
-        timeUp: inProgress && a.expiresAt.getTime() <= now,
+        timeUp: inProgress && a.expiresAt!.getTime() <= now,
         answered: answeredByAttempt.get(a.id) ?? 0,
         violations: a.violationCount,
         flagged: a.flagged,
@@ -183,12 +185,20 @@ export class MonitoringService {
 
     const counts = {
       notStarted: 0,
+      // Entry-approval states (§ exam entry approval) — waiting on, or
+      // decided by, an admin; none of these have a running clock.
+      pendingApproval: 0,
+      approved: 0,
+      denied: 0,
       inProgress: 0,
       submitted: 0,
       autoSubmitted: 0,
     };
     for (const r of rows) {
       if (r.status === 'NOT_STARTED') counts.notStarted++;
+      else if (r.status === 'PENDING_APPROVAL') counts.pendingApproval++;
+      else if (r.status === 'APPROVED') counts.approved++;
+      else if (r.status === 'DENIED') counts.denied++;
       else if (r.status === 'IN_PROGRESS') counts.inProgress++;
       else if (r.status === 'SUBMITTED') counts.submitted++;
       else if (r.status === 'AUTO_SUBMITTED') counts.autoSubmitted++;
@@ -227,7 +237,14 @@ export class MonitoringService {
       rollNumber: s.rollNumber,
       name: s.name,
       batch: s.batch?.name ?? '',
-      present: s.status !== 'NOT_STARTED',
+      // A pending/approved/denied entry request means the student never
+      // actually sat down — only a row that has begun (or gone straight to
+      // a terminal state) counts as attendance.
+      present:
+        s.status !== 'NOT_STARTED' &&
+        s.status !== 'PENDING_APPROVAL' &&
+        s.status !== 'APPROVED' &&
+        s.status !== 'DENIED',
       status: s.status,
       startedAt: s.startedAt,
       submittedAt: s.submittedAt,

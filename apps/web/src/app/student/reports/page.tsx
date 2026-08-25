@@ -15,6 +15,7 @@ import {
 } from "@/components/student/icons";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
 import { usePracticeFacets } from "@/hooks/use-practice";
+import { hasSatExam } from "@/lib/student";
 
 type Tab = "overall" | "subject" | "mock";
 
@@ -98,7 +99,7 @@ function OverallTab() {
     );
   }
 
-  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const sat = attempts.filter(hasSatExam);
   const scored = sat.filter((a) => a.result !== null).map((a) => a.result!);
 
   const totalCorrect = scored.reduce((n, r) => n + r.correctCount, 0);
@@ -291,8 +292,10 @@ function OverallTab() {
                     </>
                   )}
                   <span className="text-admin-muted">
+                    {/* Non-null: `sat` (hasSatExam) excludes every status
+                        without a real submittedAt/startedAt. */}
                     {new Date(
-                      a.submittedAt ?? a.startedAt,
+                      a.submittedAt ?? a.startedAt!,
                     ).toLocaleDateString()}
                   </span>
                 </Link>
@@ -437,7 +440,7 @@ function MockTab() {
   // has been sat but not yet published would otherwise vanish from the portal.
   const { items: attempts, loading, error } = useMyAttempts();
 
-  const sat = attempts.filter((a) => a.resultState !== "IN_PROGRESS");
+  const sat = attempts.filter(hasSatExam);
   const scored = sat.filter((a) => a.result !== null);
 
   const stats = scored.length
@@ -567,7 +570,9 @@ function MockTab() {
                 </>
               )}
               <span className="text-admin-muted">
-                {new Date(a.submittedAt ?? a.startedAt).toLocaleDateString()}
+                {/* Non-null: `sat` (hasSatExam) excludes every status
+                    without a real submittedAt/startedAt. */}
+                {new Date(a.submittedAt ?? a.startedAt!).toLocaleDateString()}
               </span>
             </Link>
           ))}
