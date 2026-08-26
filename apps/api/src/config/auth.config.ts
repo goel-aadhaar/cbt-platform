@@ -56,5 +56,5 @@ export const authConfig = registerAs('auth', (): AuthConfig => ({
   resendApiKey: process.env.RESEND_API_KEY || undefined,
   resendFromEmail: process.env.RESEND_FROM_EMAIL || undefined,
   resendFromName: process.env.RESEND_FROM_NAME ?? 'Codonmind Nexus',
-  contactEmail: process.env.CONTACT_EMAIL || 'hello@codonmind.in',
+  contactEmail: process.env.CONTACT_EMAIL || 'business@codonmind.in',
 }));

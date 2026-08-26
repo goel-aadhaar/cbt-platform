@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Award,
   BarChart3,
-  BrainCircuit,
   BookOpenText,
   Building2,
   CalendarClock,
@@ -170,9 +169,14 @@ export default function Home() {
 
             <header className="hero-html-header">
               <a className="hero-brand" href="#top" aria-label="CodonMind home">
-                <span className="hero-brand-mark" aria-hidden="true">
-                  <BrainCircuit size={30} strokeWidth={1.7} />
-                </span>
+                <Image
+                  src="/brand/codonmind-logo.png"
+                  alt=""
+                  width={84}
+                  height={84}
+                  priority
+                  className="hero-brand-mark-img"
+                />
                 <span className="hero-brand-copy">
                   <strong>CODON MIND</strong>
                   <small>NEXUS</small>
@@ -254,7 +258,7 @@ export default function Home() {
 
             <div className="hero-html-content">
               <h1>
-                <span>Now I take Exam from</span>
+                <span>Now take Exam from</span>
                 <strong>Anywhere, Anytime</strong>
               </h1>
               <p>
@@ -313,7 +317,7 @@ export default function Home() {
                   <UserRound aria-hidden="true" />
                   <span>
                     <strong>Personalised</strong>
-                    <small>Adaptive for You</small>
+                    <small>Adaptive for students</small>
                   </span>
                 </a>
               </div>
@@ -337,8 +341,8 @@ export default function Home() {
 
             <a className="hero-html-security" href="#what-we-do">
               <ShieldCheck aria-hidden="true" />
-              <span>Secure. Reliable. Fair.</span>
-              <b>Built for institutions. Trusted by thousands.</b>
+              <span>Secure by Design. Private by Default.</span>
+              <b>Built for Leading Institutions</b>
             </a>
           </div>
           <div className="hero-orb hero-orb-one" aria-hidden="true" />
@@ -751,9 +755,13 @@ export default function Home() {
             <div className="contact-copy">
               <h2>Contact</h2>
               <div className="contact-brand">
-                <span className="brand-mark" aria-hidden="true">
-                  <span />
-                </span>
+                <Image
+                  src="/brand/codonmind-logo.png"
+                  alt=""
+                  width={36}
+                  height={36}
+                  className="logo-badge"
+                />
                 <div>
                   <strong>CodonMind</strong>
                   <span>Examination Technology Platform</span>
@@ -765,7 +773,9 @@ export default function Home() {
                 </span>
                 <div>
                   <strong>Business Email:</strong>
-                  <a href="mailto:hello@codonmind.in">hello@codonmind.in</a>
+                  <a href="mailto:business@codonmind.in">
+                    business@codonmind.in
+                  </a>
                 </div>
               </div>
               <div className="contact-detail">
@@ -791,12 +801,13 @@ export default function Home() {
           <div className="shell footer-main">
             <div>
               <a className="brand footer-brand" href="#top">
-                <span
-                  className="brand-mark brand-mark-light"
-                  aria-hidden="true"
-                >
-                  <span />
-                </span>
+                <Image
+                  src="/brand/codonmind-logo.png"
+                  alt=""
+                  width={36}
+                  height={36}
+                  className="logo-badge"
+                />
                 <span>CodonMind</span>
               </a>
               <p>Examination Technology Platform</p>
