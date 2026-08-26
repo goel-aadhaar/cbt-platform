@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Suspense,
@@ -13,6 +12,7 @@ import {
 } from "react";
 
 import { AuthedImage } from "@/components/authed-image";
+import { InstituteLogo } from "@/components/institute-logo";
 import { RichText } from "@/components/rich-text";
 import { AuthGate } from "@/components/auth-gate";
 import { ExamSidebar } from "@/components/exam/exam-sidebar";
@@ -31,6 +31,7 @@ import { InstructionsModal } from "@/components/exam/instructions-modal";
 import { LeaveConfirmModal } from "@/components/exam/leave-confirm-modal";
 import { SubmitConfirmModal } from "@/components/exam/submit-confirm-modal";
 import { useCountdown } from "@/hooks/use-countdown";
+import { useMyInstitute } from "@/hooks/use-my-institute";
 import { useProctoring } from "@/hooks/use-proctoring";
 
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
@@ -290,6 +291,8 @@ function ExamRunner({
   onSubmit: () => void;
   onLeave: () => void | Promise<void>;
 }) {
+  const { institute } = useMyInstitute();
+
   /**
    * Flatten the backend's section → question tree into a single array.
    *
@@ -664,16 +667,13 @@ function ExamRunner({
   return (
     <div className="flex h-screen flex-col bg-surface">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-y-2 border-b border-line bg-surface px-3 py-2 sm:px-6 lg:h-16 lg:flex-nowrap lg:py-0">
-        <div className="flex items-center gap-4">
-          <Image
-            src="/brand/codonmind-mark.png"
-            alt=""
-            width={39}
-            height={39}
-            className="size-[39px] object-contain"
+        <div className="flex min-w-0 items-center gap-4">
+          <InstituteLogo
+            size={39}
+            className="size-[39px] shrink-0 object-contain"
           />
-          <span className="text-xl font-bold tracking-[-0.5px] text-brand">
-            CODON MIND NEXUS
+          <span className="truncate text-xl font-bold tracking-[-0.5px] text-brand">
+            {institute?.name ?? "CODON MIND NEXUS"}
           </span>
         </div>
 

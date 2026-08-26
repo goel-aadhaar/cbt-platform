@@ -14,6 +14,7 @@ import { useAuthUser } from "@/hooks/use-auth";
 import { ActionButton } from "@/components/action-button";
 import { InstituteLogo } from "@/components/institute-logo";
 import { useAsyncAction } from "@/hooks/use-async-action";
+import { useMyInstitute } from "@/hooks/use-my-institute";
 import { logout, type Role } from "@/lib/auth";
 import {
   NavDrawerBackdrop,
@@ -87,6 +88,7 @@ function StaffSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const user = useAuthUser();
+  const { institute } = useMyInstitute();
   const { open } = useNavDrawer();
   const hidden = useSidebarAriaHidden();
 
@@ -105,9 +107,9 @@ function StaffSidebar({
     >
       <div className="flex items-center gap-3 px-2">
         <InstituteLogo size={40} className="size-10 object-contain" />
-        <div className="leading-none">
-          <p className="text-lg font-extrabold tracking-tight text-admin-ink">
-            CODON MIND
+        <div className="min-w-0 flex-1 leading-none">
+          <p className="truncate text-lg font-extrabold tracking-tight text-admin-ink">
+            {institute?.name ?? "CODON MIND"}
           </p>
           <p className="text-[11px] font-semibold tracking-[0.2em] text-admin-muted">
             NEXUS

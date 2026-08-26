@@ -13,6 +13,7 @@ import { useSyncExternalStore } from "react";
 import { ActionButton } from "@/components/action-button";
 import { InstituteLogo } from "@/components/institute-logo";
 import { useAsyncAction } from "@/hooks/use-async-action";
+import { useMyInstitute } from "@/hooks/use-my-institute";
 import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 
 import {
@@ -61,6 +62,7 @@ export function StudentSidebar() {
   const { open } = useNavDrawer();
   const hidden = useSidebarAriaHidden();
   const router = useRouter();
+  const { institute } = useMyInstitute();
   const user = useSyncExternalStore(
     subscribeSession,
     getUserSnapshot,
@@ -99,9 +101,9 @@ export function StudentSidebar() {
         <span className="flex size-10 items-center justify-center rounded-lg bg-white/95">
           <InstituteLogo size={30} className="size-[30px] object-contain" />
         </span>
-        <div className="leading-none">
-          <p className="text-lg font-extrabold tracking-tight text-white">
-            CODON MIND
+        <div className="min-w-0 flex-1 leading-none">
+          <p className="truncate text-lg font-extrabold tracking-tight text-white">
+            {institute?.name ?? "CODON MIND"}
           </p>
           <p className="text-[11px] font-semibold tracking-[0.18em] text-white/70">
             STUDENT PORTAL
