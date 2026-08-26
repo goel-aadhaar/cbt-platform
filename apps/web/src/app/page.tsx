@@ -170,10 +170,10 @@ export default function Home() {
             <header className="hero-html-header">
               <a className="hero-brand" href="#top" aria-label="CodonMind home">
                 <Image
-                  src="/brand/codonmind-logo.png"
+                  src="/brand/codonmind-mark.png"
                   alt=""
-                  width={84}
-                  height={84}
+                  width={62}
+                  height={62}
                   priority
                   className="hero-brand-mark-img"
                 />
@@ -756,7 +756,7 @@ export default function Home() {
               <h2>Contact</h2>
               <div className="contact-brand">
                 <Image
-                  src="/brand/codonmind-logo.png"
+                  src="/brand/codonmind-mark.png"
                   alt=""
                   width={36}
                   height={36}
@@ -801,13 +801,14 @@ export default function Home() {
           <div className="shell footer-main">
             <div>
               <a className="brand footer-brand" href="#top">
-                <Image
-                  src="/brand/codonmind-logo.png"
-                  alt=""
-                  width={36}
-                  height={36}
-                  className="logo-badge"
-                />
+                <span className="logo-badge-light">
+                  <Image
+                    src="/brand/codonmind-mark.png"
+                    alt=""
+                    width={26}
+                    height={26}
+                  />
+                </span>
                 <span>CodonMind</span>
               </a>
               <p>Examination Technology Platform</p>

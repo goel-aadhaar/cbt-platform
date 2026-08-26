@@ -116,6 +116,19 @@ a { color: inherit; text-decoration: none; }
   object-fit: contain;
 }
 
+/* The mark's dark hexagon fill needs a light backing to read against a dark
+   surface (the footer) — same reasoning as the student sidebar's badge. */
+.logo-badge-light {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .desktop-nav {
   display: flex;
   align-items: center;
@@ -796,8 +809,8 @@ a { color: inherit; text-decoration: none; }
 }
 
 .hero-brand-mark-img {
-  width: 84px;
-  height: 84px;
+  width: 62px;
+  height: 62px;
   flex: 0 0 auto;
   object-fit: contain;
   filter: drop-shadow(0 7px 10px rgba(17, 44, 76, 0.16));
