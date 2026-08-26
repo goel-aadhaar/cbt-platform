@@ -66,12 +66,17 @@ export const envSchema = z.object({
   OTP_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
   /**
    * Email delivery (§2.6). Optional: invite links and OTP codes log to the
-   * console until this is set, matching the media module's "S3 the moment a
-   * bucket is configured" pattern — MailService switches to the SES adapter
-   * the moment a from-address is present.
+   * console until one of these is set, matching the media module's "S3 the
+   * moment a bucket is configured" pattern. Resend is the PRIMARY transport
+   * (activates on RESEND_API_KEY + RESEND_FROM_EMAIL); SES is the
+   * SECONDARY, used alone if Resend isn't configured, or as a live fallback
+   * if a Resend send fails — see AuthModule's `MailService` factory.
    */
   AWS_SES_FROM_EMAIL: blankAsUnset(z.string().email().optional()),
   AWS_SES_FROM_NAME: blankAsUnset(z.string().optional()),
+  RESEND_API_KEY: blankAsUnset(z.string().optional()),
+  RESEND_FROM_EMAIL: blankAsUnset(z.string().email().optional()),
+  RESEND_FROM_NAME: blankAsUnset(z.string().optional()),
   /** Inbox the public site's contact form delivers to. */
   CONTACT_EMAIL: blankAsUnset(z.string().email().default('hello@codonmind.in')),
 });

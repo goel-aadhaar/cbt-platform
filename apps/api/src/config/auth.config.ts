@@ -14,12 +14,23 @@ export interface AuthConfig {
   otpMaxPerWindow: number;
   otpWindowMinutes: number;
   /**
-   * Verified SES sender address. Its presence is what selects the SES mail
-   * adapter over the console one — see MailModule/AuthModule wiring.
+   * Verified SES sender address — the SECONDARY mail transport. Used alone
+   * if Resend isn't configured, or as AuthModule's live fallback when a
+   * Resend send fails.
    */
   sesFromEmail?: string;
   /** Display name on the From header. Falls back to a generic default. */
   sesFromName: string;
+  /**
+   * Resend API key — the PRIMARY mail transport. Its presence (alongside
+   * `resendFromEmail`) is what selects the Resend adapter over SES/console —
+   * see AuthModule's `MailService` factory.
+   */
+  resendApiKey?: string;
+  /** Verified sender address/domain in the Resend account. */
+  resendFromEmail?: string;
+  /** Display name on the From header. Falls back to a generic default. */
+  resendFromName: string;
   /** Inbox the public site's contact form delivers to. */
   contactEmail: string;
 }
@@ -42,5 +53,8 @@ export const authConfig = registerAs('auth', (): AuthConfig => ({
   otpWindowMinutes: Number(process.env.OTP_WINDOW_MINUTES ?? 15),
   sesFromEmail: process.env.AWS_SES_FROM_EMAIL || undefined,
   sesFromName: process.env.AWS_SES_FROM_NAME ?? 'Codonmind Nexus',
+  resendApiKey: process.env.RESEND_API_KEY || undefined,
+  resendFromEmail: process.env.RESEND_FROM_EMAIL || undefined,
+  resendFromName: process.env.RESEND_FROM_NAME ?? 'Codonmind Nexus',
   contactEmail: process.env.CONTACT_EMAIL || 'hello@codonmind.in',
 }));

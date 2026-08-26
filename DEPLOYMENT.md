@@ -70,9 +70,11 @@ real production values:
   is fail-closed, not fail-open).
 - `FRONTEND_URL=https://app.yourdomain.com` — used to build invite-accept
   links in emails.
-- `AWS_SES_FROM_EMAIL` / `AWS_SES_FROM_NAME` / `AWS_REGION`, plus
-  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` if not using an IAM role — see
-  the "Email delivery" section of `.env.example`.
+- `RESEND_API_KEY` / `RESEND_FROM_EMAIL` (primary email transport) and/or
+  `AWS_SES_FROM_EMAIL` / `AWS_SES_FROM_NAME` / `AWS_REGION` plus
+  `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` if not using an IAM role
+  (secondary — used alone if Resend isn't set, or as a live fallback if a
+  Resend send fails) — see the "Email delivery" section of `.env.example`.
 - `SEED_SUPERADMIN_EMAIL` / `SEED_SUPERADMIN_PASSWORD` — set these _before_
   seeding (next section), so you choose the password instead of digging a
   generated one out of logs.
@@ -99,12 +101,12 @@ real `.env` files, so it cannot drift from what the app refuses to boot
 without, and then checks the settings the schema deliberately allows to be
 absent but a deployment cannot survive:
 
-| Left unset            | What actually happens                                                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_SES_FROM_EMAIL`  | `MailService` silently falls back to the console adapter. OTP codes and invite links go to the API log and are never sent — **nobody can sign in.**     |
-| `NEXT_PUBLIC_API_URL` | Falls back to `http://localhost:4000/api/v1` and is compiled into the bundle. The build succeeds; every visitor's browser then calls their own machine. |
-| `AWS_S3_BUCKET`       | Uploaded media lands on the instance's local disk — it survives a restart but not a replacement instance.                                               |
-| `CORS_ORIGINS`        | The API rejects every cross-origin request. Invisible while nginx serves both on one origin; fatal the day the app gets its own hostname.               |
+| Left unset                                     | What actually happens                                                                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEND_API_KEY` + `AWS_SES_FROM_EMAIL` (both) | `MailService` silently falls back to the console adapter. OTP codes and invite links go to the API log and are never sent — **nobody can sign in.**     |
+| `NEXT_PUBLIC_API_URL`                          | Falls back to `http://localhost:4000/api/v1` and is compiled into the bundle. The build succeeds; every visitor's browser then calls their own machine. |
+| `AWS_S3_BUCKET`                                | Uploaded media lands on the instance's local disk — it survives a restart but not a replacement instance.                                               |
+| `CORS_ORIGINS`                                 | The API rejects every cross-origin request. Invisible while nginx serves both on one origin; fatal the day the app gets its own hostname.               |
 
 It also rejects a `FRONTEND_URL` pointing at a raw IP — email links built from
 one read as phishing, cannot be served over TLS, and break when the instance is

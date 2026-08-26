@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowRight, CheckCircle2, Send } from "lucide-react";
 
 import { submitContactForm } from "@/lib/contact";
 
@@ -44,85 +45,77 @@ export function ContactForm() {
 
   if (sent) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-3xl border border-site-line bg-white p-10 text-center">
-        <p className="font-display text-[22px] text-site-ink">Message sent</p>
-        <p className="text-[15px] leading-[1.6] text-site-muted">
-          Thanks for reaching out — we&rsquo;ll get back to you shortly.
-        </p>
+      <div className="form-success">
+        <span>
+          <CheckCircle2 size={24} aria-hidden="true" />
+        </span>
+        <h3>Message sent</h3>
+        <p>Thanks for reaching out — we&rsquo;ll get back to you shortly.</p>
       </div>
     );
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="flex flex-col gap-5 rounded-3xl border border-site-line bg-white p-8 shadow-[0_8px_12px_rgba(15,23,42,0.03)]"
-    >
-      <div className="grid gap-5 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-semibold text-site-ink">Name</span>
-          <input
-            required
-            minLength={2}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            className="rounded-xl border border-site-line px-4 py-3 text-[14px] text-site-body outline-none focus:border-site-accent"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-semibold text-site-ink">Email</span>
-          <input
-            required
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            className="rounded-xl border border-site-line px-4 py-3 text-[14px] text-site-body outline-none focus:border-site-accent"
-          />
-        </label>
-      </div>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-semibold text-site-ink">
-          Organization / Institute
+    <form className="contact-form" onSubmit={submit}>
+      <div className="form-heading">
+        <span>
+          <Send size={19} aria-hidden="true" />
         </span>
+        <h3>Contact Form</h3>
+      </div>
+      <label>
+        <span>Name</span>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          type="text"
+          autoComplete="name"
+          minLength={2}
+          required
+        />
+      </label>
+      <label>
+        <span>Email</span>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          autoComplete="email"
+          required
+        />
+      </label>
+      <label>
+        <span>Organization / Institute</span>
         <input
           value={organization}
           onChange={(e) => setOrganization(e.target.value)}
-          placeholder="Your institute's name (optional)"
-          className="rounded-xl border border-site-line px-4 py-3 text-[14px] text-site-body outline-none focus:border-site-accent"
+          type="text"
+          autoComplete="organization"
+          placeholder="Optional"
         />
       </label>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[13px] font-semibold text-site-ink">Message</span>
+      <label>
+        <span>Message</span>
         <textarea
-          required
-          minLength={10}
-          rows={5}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Tell us about your institute and what you're looking for."
-          className="resize-none rounded-xl border border-site-line px-4 py-3 text-[14px] text-site-body outline-none focus:border-site-accent"
+          rows={4}
+          minLength={10}
+          required
         />
       </label>
-
       {error && (
-        <p
-          role="alert"
-          className="rounded-xl border border-danger/30 bg-danger/5 px-4 py-2.5 text-[13px] text-danger"
-        >
+        <p className="form-error" role="alert">
           {error}
         </p>
       )}
-
       <button
+        className="button button-primary submit-button"
         type="submit"
         disabled={submitting}
-        className="flex items-center justify-center rounded-full bg-site-ink px-7 py-3.5 text-[15px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {submitting ? "Sending…" : "Submit"}
+        <ArrowRight size={18} aria-hidden="true" />
       </button>
     </form>
   );

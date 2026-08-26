@@ -12,7 +12,9 @@ import { InvitationController } from './invitation/invitation.controller';
 import { InvitationService } from './invitation/invitation.service';
 import { RolesGuard } from './guards/roles.guard';
 import { ConsoleMailService } from './mail/console-mail.service';
+import { FailoverMailService } from './mail/failover-mail.service';
 import { MailService } from './mail/mail.service';
+import { ResendMailService } from './mail/resend-mail.service';
 import { SesMailService } from './mail/ses-mail.service';
 import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
@@ -61,17 +63,38 @@ import { TenantContextService } from './tenant/tenant-context.service';
     TeacherScopeService,
     ConsoleMailService,
     SesMailService,
-    // Mail port (§2.6): SES is selected the moment a verified sender is
-    // configured, matching MediaModule's "S3 the moment a bucket is set"
-    // pattern — console logging remains the fallback until then.
+    ResendMailService,
+    /**
+     * Mail port (§2.6). Resend is PRIMARY, SES is SECONDARY, console logging
+     * is the dev fallback until either is configured — matching MediaModule's
+     * "S3 the moment a bucket is set" pattern. When BOTH are configured, a
+     * failed Resend send is retried live against SES (`FailoverMailService`)
+     * rather than the choice being made once at boot and never revisited.
+     */
     {
       provide: MailService,
-      inject: [ConfigService, ConsoleMailService, SesMailService],
+      inject: [
+        ConfigService,
+        ConsoleMailService,
+        SesMailService,
+        ResendMailService,
+      ],
       useFactory: (
         config: ConfigService,
         console: ConsoleMailService,
         ses: SesMailService,
-      ) => (config.getOrThrow<AuthConfig>('auth').sesFromEmail ? ses : console),
+        resend: ResendMailService,
+      ): MailService => {
+        const auth = config.getOrThrow<AuthConfig>('auth');
+        const resendReady = Boolean(auth.resendApiKey && auth.resendFromEmail);
+        const sesReady = Boolean(auth.sesFromEmail);
+        if (resendReady && sesReady) {
+          return new FailoverMailService(resend, ses);
+        }
+        if (resendReady) return resend;
+        if (sesReady) return ses;
+        return console;
+      },
     },
     // Order matters: authenticate (JwtAuthGuard) before authorize (RolesGuard).
     { provide: APP_GUARD, useClass: JwtAuthGuard },

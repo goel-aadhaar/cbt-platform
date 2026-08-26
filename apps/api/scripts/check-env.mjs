@@ -142,11 +142,20 @@ if (!frontendUrl) {
   }
 }
 
-if (isProd && !api.AWS_SES_FROM_EMAIL) {
+const hasResend = Boolean(api.RESEND_API_KEY && api.RESEND_FROM_EMAIL);
+const hasSes = Boolean(api.AWS_SES_FROM_EMAIL);
+if (isProd && !hasResend && !hasSes) {
   fail(
-    'AWS_SES_FROM_EMAIL is unset. MailService falls back to the console adapter, ' +
-      'so OTP codes and invite links are written to the API log and never sent - ' +
+    'Neither RESEND_API_KEY+RESEND_FROM_EMAIL (primary) nor AWS_SES_FROM_EMAIL ' +
+      '(secondary) is set. MailService falls back to the console adapter, so ' +
+      'OTP codes and invite links are written to the API log and never sent - ' +
       'nobody can sign in or accept an invitation.',
+  );
+} else if (isProd && !hasResend) {
+  warn(
+    'RESEND_API_KEY/RESEND_FROM_EMAIL are unset, so mail runs on AWS SES alone ' +
+      'with no live fallback if it has a bad day. Configure Resend as the ' +
+      'primary transport, or leave this as an accepted single-provider setup.',
   );
 }
 

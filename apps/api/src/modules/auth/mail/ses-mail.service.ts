@@ -3,6 +3,12 @@ import { ConfigService } from '@nestjs/config';
 
 import type { AuthConfig } from '../../../config/auth.config';
 import {
+  contactMessageContent,
+  invitationContent,
+  loginOtpContent,
+  welcomeContent,
+} from './mail-content';
+import {
   ContactMessageEmail,
   InvitationEmail,
   MailService,
@@ -11,7 +17,8 @@ import {
 } from './mail.service';
 
 /**
- * AWS SES mail adapter (§2.6) — the production adapter.
+ * AWS SES mail adapter (§2.6) — the secondary transport, used when Resend is
+ * unconfigured or fails (see AuthModule's `MailService` factory).
  *
  * The AWS SDK is loaded lazily so the package is only required once SES is
  * actually configured; the platform ships and runs without it (infrastructure
@@ -99,109 +106,19 @@ export class SesMailService extends MailService {
   }
 
   async sendInvitation(email: InvitationEmail): Promise<void> {
-    const subject = email.institute
-      ? `You're invited to join ${email.institute} on Codonmind Nexus`
-      : "You're invited to Codonmind Nexus";
-    const greeting = `Hi ${escapeHtml(email.name)},`;
-    const body = email.institute
-      ? `You've been invited to join <strong>${escapeHtml(email.institute)}</strong> as ${escapeHtml(roleLabel(email.role))}.`
-      : `You've been invited to Codonmind Nexus as ${escapeHtml(roleLabel(email.role))}.`;
-
-    await this.send({
-      to: email.to,
-      subject,
-      html: layout(`
-        <p>${greeting}</p>
-        <p>${body}</p>
-        <p style="margin: 28px 0;">
-          <a href="${email.inviteUrl}" style="${buttonStyle}">Accept invitation</a>
-        </p>
-        <p style="color:#6b7280;font-size:13px;">
-          If the button doesn't work, copy this link into your browser:<br />
-          <a href="${email.inviteUrl}">${email.inviteUrl}</a>
-        </p>
-      `),
-      text:
-        `${greeting}\n\n` +
-        `${stripHtml(body)}\n\n` +
-        `Accept your invitation: ${email.inviteUrl}\n`,
-    });
+    const { subject, html, text } = invitationContent(email);
+    await this.send({ to: email.to, subject, html, text });
   }
 
-  /**
-   * The code is never logged here — only the console adapter does that, and
-   * only because it has no other way to deliver it in development.
-   */
   async sendLoginOtp(email: OtpEmail): Promise<void> {
-    const subject = `${email.code} is your Codonmind Nexus sign-in code`;
-    await this.send({
-      to: email.to,
-      subject,
-      html: layout(`
-        <p>Hi ${escapeHtml(email.name)},</p>
-        <p>Use this code to finish signing in. It expires in ${email.expiresInMinutes} minutes.</p>
-        <p style="margin: 28px 0; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #111827;">
-          ${email.code}
-        </p>
-        <p style="color:#6b7280;font-size:13px;">
-          Didn't try to sign in? You can ignore this email — the code will
-          simply expire.
-        </p>
-      `),
-      text:
-        `Hi ${email.name},\n\n` +
-        `Your Codonmind Nexus sign-in code: ${email.code}\n` +
-        `Expires in ${email.expiresInMinutes} minutes.\n\n` +
-        `Didn't try to sign in? You can ignore this email.\n`,
-    });
+    const { subject, html, text } = loginOtpContent(email);
+    await this.send({ to: email.to, subject, html, text });
     this.logger.log(`Login code emailed to ${email.to}`);
   }
 
-  /**
-   * Sent once, right after the invitee sets their password. Never includes
-   * the password itself — email is not a secure channel and they just chose
-   * it themselves — only the identifiers they need to sign in again.
-   */
   async sendWelcome(email: WelcomeEmail): Promise<void> {
-    const subject = email.institute
-      ? `Welcome to ${email.institute} on Codonmind Nexus`
-      : 'Welcome to Codonmind Nexus';
-    const details = [
-      email.institute
-        ? `<li><strong>Institute:</strong> ${escapeHtml(email.institute)}</li>`
-        : '',
-      email.rollNumber
-        ? `<li><strong>Roll number:</strong> ${escapeHtml(email.rollNumber)}</li>`
-        : '',
-      `<li><strong>Email:</strong> ${escapeHtml(email.to)}</li>`,
-    ].join('');
-    const detailsText = [
-      email.institute ? `Institute: ${email.institute}\n` : '',
-      email.rollNumber ? `Roll number: ${email.rollNumber}\n` : '',
-      `Email: ${email.to}\n`,
-    ].join('');
-
-    await this.send({
-      to: email.to,
-      subject,
-      html: layout(`
-        <p>Hi ${escapeHtml(email.name)},</p>
-        <p>Thanks for accepting your invitation — your account is now active.</p>
-        <ul style="padding-left:18px;color:#111827;">${details}</ul>
-        <p style="margin: 28px 0;">
-          <a href="${email.loginUrl}" style="${buttonStyle}">Sign in</a>
-        </p>
-        <p style="color:#6b7280;font-size:13px;">
-          If the button doesn't work, copy this link into your browser:<br />
-          <a href="${email.loginUrl}">${email.loginUrl}</a>
-        </p>
-      `),
-      text:
-        `Hi ${email.name},\n\n` +
-        `Thanks for accepting your invitation — your account is now active.\n\n` +
-        detailsText +
-        `\nSign in: ${email.loginUrl}\n`,
-    });
+    const { subject, html, text } = welcomeContent(email);
+    await this.send({ to: email.to, subject, html, text });
   }
 
   /**
@@ -210,62 +127,14 @@ export class SesMailService extends MailService {
    * same as replying to a forwarded email.
    */
   async sendContactMessage(email: ContactMessageEmail): Promise<void> {
-    const subject = `New contact form message from ${email.name}`;
-    const orgLine = email.organization
-      ? `<p><strong>Organization:</strong> ${escapeHtml(email.organization)}</p>`
-      : '';
-    const orgLineText = email.organization
-      ? `Organization: ${email.organization}\n`
-      : '';
-
+    const { subject, html, text } = contactMessageContent(email);
     await this.send({
       to: this.contactEmail,
       replyTo: email.email,
       subject,
-      html: layout(`
-        <p><strong>From:</strong> ${escapeHtml(email.name)} &lt;${escapeHtml(email.email)}&gt;</p>
-        ${orgLine}
-        <p style="white-space:pre-wrap;">${escapeHtml(email.message)}</p>
-      `),
-      text:
-        `From: ${email.name} <${email.email}>\n` +
-        orgLineText +
-        `\n${email.message}\n`,
+      html,
+      text,
     });
     this.logger.log(`Contact form message emailed from ${email.email}`);
   }
-}
-
-const buttonStyle =
-  'display:inline-block;background:#111827;color:#ffffff;text-decoration:none;' +
-  'padding:12px 24px;border-radius:6px;font-weight:600;font-size:14px;';
-
-function layout(inner: string): string {
-  return `<!doctype html>
-<html>
-  <body style="margin:0;padding:24px;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#111827;">
-    <table role="presentation" width="100%" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:32px;">
-      <tr><td>
-        <p style="font-weight:700;font-size:18px;margin:0 0 20px;">Codonmind Nexus</p>
-        ${inner}
-      </td></tr>
-    </table>
-  </body>
-</html>`;
-}
-
-function roleLabel(role: string): string {
-  return role.charAt(0) + role.slice(1).toLowerCase();
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function stripHtml(value: string): string {
-  return value.replace(/<[^>]+>/g, '');
 }
