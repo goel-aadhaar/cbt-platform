@@ -15,6 +15,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -56,16 +57,36 @@ import {
   type QuestionFilters,
   type QuestionListItem,
 } from "@/lib/questions";
+import { isRichTextEmpty } from "@/lib/rich-text";
 
 import { CheckIcon, EyeIcon, GripVerticalIcon, PlusIcon, XIcon } from "./icons";
 import { planExamEdit } from "@/lib/exam-edit-plan";
 import { PreFlightPanel } from "./preflight-panel";
 import { QuestionFilterBar } from "./question-filters";
 import { QuestionPreviewModal } from "./question-preview-modal";
-import { isRichTextEmpty, RichTextEditor } from "./rich-text-editor";
 import { useQuestionPreview } from "./use-question-preview";
 
 import { useBatchPaths } from "./academic-cascade";
+
+/**
+ * Tiptap (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`,
+ * `@tiptap/extensions`, plus their shared `@tiptap/pm` core — six packages)
+ * only does anything on step 3's instructions field, yet a static import
+ * shipped all of it in this drawer's bundle for every teacher who opens
+ * "New Exam" and never gets past picking questions (§ bundle-splitting fix).
+ * Loaded on demand instead; the skeleton below matches the one
+ * `RichTextEditor` itself shows while Tiptap initialises, so there is no
+ * visible second loading state stacked on top of this one.
+ */
+const RichTextEditor = dynamic(
+  () => import("./rich-text-editor").then((m) => m.RichTextEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[150px] animate-pulse rounded-lg border border-admin-line bg-admin-bg" />
+    ),
+  },
+);
 
 const ADMIN_STEPS = [
   "Basic Info",
@@ -83,6 +104,18 @@ const TEACHER_STEPS = [
   "Approval",
   "Review",
 ] as const;
+
+/**
+ * Ceiling on how many rows "Load more" can accumulate in the question picker
+ * (§ rendering-cost fix). The bank is specified to hold 20,000+ questions, and
+ * the picker appends rather than pages — with no cap, repeatedly clicking
+ * "Load more" against an unfiltered bank could mount thousands of rows inside
+ * a 320px scroll container. Past this point the picker asks for a narrower
+ * filter instead of loading further; server-side filtering (already how this
+ * picker searches) is the actual way to reach a specific question in a bank
+ * this size, not scrolling through all of it.
+ */
+const MAX_PICKER_QUESTIONS = 1000;
 
 interface DraftSection {
   /** Local-only stable id, used as the drag-and-drop identity — the array
@@ -244,6 +277,12 @@ export function ExamBuilderDrawer({
   const [programs, setPrograms] = useState<Program[]>([]);
   const [batches, setBatches] = useState<BatchRow[]>([]);
   const [approved, setApproved] = useState<QuestionListItem[]>([]);
+  /** Server's true count for the current query — how "Load more" knows
+   *  whether the bank has more than what's loaded (§ question bank pagination:
+   *  the bank is specified to hold 20,000+ questions, so a paper author must
+   *  be able to reach past the first page without narrowing filters). */
+  const [approvedTotal, setApprovedTotal] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   /** Unfiltered sample used to build the filter dropdowns' options. */
   const [facetSource, setFacetSource] = useState<QuestionListItem[]>([]);
   const [filters, setFilters] = useState<QuestionFilters>({});
@@ -290,6 +329,7 @@ export function ExamBuilderDrawer({
       if (subj.status === "fulfilled") setSubjects(subj.value);
       if (q.status === "fulfilled") {
         setApproved(q.value.items);
+        setApprovedTotal(q.value.total);
         setFacetSource(q.value.items);
         setQuestionCache(
           (prev) =>
@@ -354,6 +394,7 @@ export function ExamBuilderDrawer({
       .then((r) => {
         if (!cancelled) {
           setApproved(r.items);
+          setApprovedTotal(r.total);
           setQuestionCache(
             (prev) =>
               new Map([...prev, ...r.items.map((x) => [x.id, x] as const)]),
@@ -364,6 +405,7 @@ export function ExamBuilderDrawer({
       .catch(() => {
         if (!cancelled) {
           setApproved([]);
+          setApprovedTotal(0);
           setQLoading(false);
         }
       });
@@ -371,6 +413,34 @@ export function ExamBuilderDrawer({
       cancelled = true;
     };
   }, [open, effectiveFilters]);
+
+  /**
+   * Fetches the next 200 approved questions past whatever's already loaded,
+   * appending rather than replacing — a "load more" for the picker rather
+   * than a full pager, since this is a scrollable list an author is browsing,
+   * not a table being paged through.
+   */
+  function loadMoreQuestions() {
+    setLoadingMore(true);
+    const hasFilter = Object.values(effectiveFilters).some(Boolean);
+    const params = hasFilter
+      ? { ...effectiveFilters, status: "APPROVED" as const }
+      : { status: "APPROVED" as const };
+    listQuestions({ ...params, limit: 200, offset: approved.length })
+      .then((r) => {
+        setApproved((prev) => [...prev, ...r.items]);
+        setApprovedTotal(r.total);
+        setQuestionCache(
+          (prev) =>
+            new Map([...prev, ...r.items.map((x) => [x.id, x] as const)]),
+        );
+      })
+      .catch(() => {
+        // Whatever's already loaded stays on screen — a failed "load more"
+        // should not wipe out the questions already visible.
+      })
+      .finally(() => setLoadingMore(false));
+  }
 
   const totalQuestions = useMemo(
     () => sections.reduce((n, s) => n + s.questionIds.length, 0),
@@ -1091,7 +1161,7 @@ export function ExamBuilderDrawer({
                       setFilters(next);
                     }}
                     facetSource={facetSource}
-                    resultCount={approved.length}
+                    resultCount={approvedTotal}
                     subjectLocked
                   />
                   <div className="max-h-[320px] overflow-auto rounded-xl border border-admin-line/60">
@@ -1190,6 +1260,27 @@ export function ExamBuilderDrawer({
                       </p>
                     )}
                   </div>
+                  {approved.length > 0 &&
+                    approved.length < approvedTotal &&
+                    (approved.length < MAX_PICKER_QUESTIONS ? (
+                      <button
+                        type="button"
+                        disabled={loadingMore}
+                        onClick={loadMoreQuestions}
+                        className="mt-2 w-full rounded-lg border border-admin-line bg-white py-2 text-sm font-semibold text-admin-ink hover:bg-admin-bg disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {loadingMore
+                          ? "Loading…"
+                          : `Load more (${approved.length} of ${approvedTotal})`}
+                      </button>
+                    ) : (
+                      <p className="mt-2 rounded-lg border border-dashed border-admin-line p-3 text-center text-xs text-admin-muted">
+                        Showing the first {approved.length.toLocaleString()} of{" "}
+                        {approvedTotal.toLocaleString()} — narrow the filters
+                        above to find a specific question instead of loading
+                        further.
+                      </p>
+                    ))}
                 </>
               )}
             </div>

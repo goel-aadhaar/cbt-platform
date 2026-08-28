@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { PaginationBar } from "@/components/pagination-bar";
 import { apiFetch } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
@@ -148,29 +149,16 @@ export default function AdminAuditPage() {
         </div>
 
         <div className="rounded-2xl border border-admin-line/60 bg-white">
-          <div className="flex items-center justify-between border-b border-admin-line/60 px-5 py-4">
-            <p className="text-sm font-semibold text-admin-ink">
-              {total.toLocaleString("en-IN")} recorded{" "}
-              {total === 1 ? "action" : "actions"}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={offset === 0}
-                onClick={() => setOffset((o) => Math.max(0, o - PAGE))}
-                className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-              >
-                Newer
-              </button>
-              <button
-                type="button"
-                disabled={offset + PAGE >= total}
-                onClick={() => setOffset((o) => o + PAGE)}
-                className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-              >
-                Older
-              </button>
-            </div>
+          <div className="border-b border-admin-line/60 px-5 py-4">
+            <PaginationBar
+              offset={offset}
+              pageSize={PAGE}
+              total={total}
+              onOffsetChange={setOffset}
+              prevLabel="Newer"
+              nextLabel="Older"
+              caption={`${total.toLocaleString("en-IN")} recorded ${total === 1 ? "action" : "actions"}`}
+            />
           </div>
 
           {entries === null ? (

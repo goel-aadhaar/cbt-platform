@@ -52,7 +52,7 @@ const TABS = ["All", "Held", "Published", "Processing"];
  */
 function useResultRows() {
   const loader = useCallback(async () => {
-    const exams = await listExams();
+    const exams = (await listExams()).items;
     const finished = exams.filter((e) => {
       const s = examDisplayStatus(e);
       return s === "COMPLETED" || s === "PUBLISHED";
@@ -61,7 +61,7 @@ function useResultRows() {
       finished.map(async (e) => {
         let results: ExamResultRow[] = [];
         try {
-          results = await listExamResults(e.id);
+          results = (await listExamResults(e.id)).items;
         } catch {
           // An un-evaluated exam has no result rows yet — treat as processing.
         }
@@ -194,8 +194,7 @@ function ResultsScreen() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold text-admin-ink">Results</h2>
-            <p className="mt-1 text-sm text-admin-muted">
+            <p className="text-sm text-admin-muted">
               Review, publish, and manage results for all your exams
             </p>
           </div>

@@ -58,7 +58,7 @@ function remainingLabel(m: ExamMonitor): string {
 /** Live exams + their monitor payloads, plus recently-closed exams. */
 function useMonitoring() {
   const loader = useCallback(async () => {
-    const exams = await listExams();
+    const exams = (await listExams()).items;
     const live = exams.filter((e) => examDisplayStatus(e) === "LIVE");
     /**
      * Recently-concluded exams are fetched in full, not just named.
@@ -312,7 +312,7 @@ export default function MonitoringPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   /** Whichever exam's roster the drawer is showing — live or concluded. */
   const [active, setActive] = useState<ExamMonitor | null>(null);
-  const { data, loading, error, refreshedAt } = useMonitoring();
+  const { data, loading, error, refreshedAt, reload } = useMonitoring();
 
   const SESSIONS = useMemo(() => data?.sessions ?? [], [data]);
   const CONCLUDED = useMemo(() => data?.concluded ?? [], [data]);
@@ -368,8 +368,7 @@ export default function MonitoringPage() {
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
         {/* Header */}
         <div>
-          <h2 className="text-3xl font-bold text-admin-ink">Live Monitoring</h2>
-          <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-admin-line bg-white px-4 py-2 text-sm font-semibold text-admin-ink">
+          <span className="inline-flex items-center gap-2 rounded-full border border-admin-line bg-white px-4 py-2 text-sm font-semibold text-admin-ink">
             <span className="size-2 rounded-full bg-admin" />
             {loading
               ? "Loading live sessions…"
@@ -580,6 +579,8 @@ export default function MonitoringPage() {
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
         monitor={active ?? undefined}
+        canControl
+        onActed={reload}
       />
     </AdminShell>
   );

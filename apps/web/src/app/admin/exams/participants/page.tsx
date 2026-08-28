@@ -97,7 +97,7 @@ function toRow(
 /** Monitor + results for the exam named in `?examId=`, else the best default. */
 function useParticipants(examIdParam: string | null) {
   const loader = useCallback(async () => {
-    const exams = await listExams();
+    const exams = (await listExams()).items;
     const pick =
       exams.find((e) => e.id === examIdParam) ??
       exams.find((e) => examDisplayStatus(e) === "LIVE") ??
@@ -108,7 +108,7 @@ function useParticipants(examIdParam: string | null) {
     const monitor: ExamMonitor = await fetchExamMonitor(pick.id);
     const scores = new Map<string, { score: number; max: number }>();
     try {
-      for (const r of await listExamResults(pick.id)) {
+      for (const r of (await listExamResults(pick.id)).items) {
         // Results are keyed by roll number; map back via the monitor rows.
         const match = monitor.students.find(
           (s) => s.rollNumber === r.student.rollNumber,

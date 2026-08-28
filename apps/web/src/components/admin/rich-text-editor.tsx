@@ -6,15 +6,6 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 /**
- * An untouched Tiptap editor still emits `<p></p>` from `getHTML()` — a plain
- * `.trim()` on that string is never empty. Callers deciding whether to send
- * `instructions` at all should check this instead of truthiness on the HTML.
- */
-export function isRichTextEmpty(html: string): boolean {
-  return !html.replace(/<[^>]*>/g, "").trim();
-}
-
-/**
  * Rich-text field for exam instructions (§2.3) — the only place in the app a
  * teacher/admin authors HTML rather than plain text. Uncontrolled internally
  * (Tiptap's own model owns keystrokes); `value` only seeds the editor once on

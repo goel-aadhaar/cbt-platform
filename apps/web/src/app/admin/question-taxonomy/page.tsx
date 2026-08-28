@@ -15,6 +15,7 @@ import {
   listChapters,
   listSubjects,
   listTopics,
+  refreshQuestionTaxonomyCatalogue,
   renameChapter,
   renameSubject,
   renameTopic,
@@ -125,6 +126,7 @@ export default function QuestionTaxonomyPage() {
       try {
         await createSubject(name.trim());
         setRefreshTick((n) => n + 1);
+        refreshQuestionTaxonomyCatalogue();
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : "Could not create subject.");
       } finally {
@@ -170,6 +172,7 @@ export default function QuestionTaxonomyPage() {
       if (level === "chapter") await renameChapter(id, next.trim());
       if (level === "topic") await renameTopic(id, next.trim());
       setRefreshTick((n) => n + 1);
+      if (level === "subject") refreshQuestionTaxonomyCatalogue();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not rename that row.");
     } finally {
@@ -186,6 +189,7 @@ export default function QuestionTaxonomyPage() {
       if (level === "chapter") await archiveChapter(id);
       if (level === "topic") await archiveTopic(id);
       setRefreshTick((n) => n + 1);
+      if (level === "subject") refreshQuestionTaxonomyCatalogue();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not archive that row.");
     } finally {

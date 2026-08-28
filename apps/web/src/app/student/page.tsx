@@ -226,8 +226,8 @@ function StatTile({ stat }: { stat: Stat }) {
   );
 }
 
-/** Ticks once a minute — the display only goes down to minutes. */
-function useNow(intervalMs = 30_000): number {
+/** Ticks once a second — the display goes down to seconds. */
+function useNow(intervalMs = 1_000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), intervalMs);
@@ -250,7 +250,8 @@ function CountdownCard({
   const parts = useMemo(() => {
     if (!next) return null;
     const ms = Math.max(0, Date.parse(next.startAt) - now);
-    const mins = Math.floor(ms / 60_000);
+    const totalSecs = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSecs / 60);
     return [
       {
         value: String(Math.floor(mins / 1440)).padStart(2, "0"),
@@ -261,6 +262,7 @@ function CountdownCard({
         label: "HRS",
       },
       { value: String(mins % 60).padStart(2, "0"), label: "MINS" },
+      { value: String(totalSecs % 60).padStart(2, "0"), label: "SECS" },
     ];
   }, [next, now]);
 

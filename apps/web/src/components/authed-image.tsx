@@ -6,6 +6,71 @@ import { getToken } from "@/lib/auth";
 import { mediaSrc } from "@/lib/media";
 
 /**
+ * Shared, ref-counted object-URL cache (§ rendering-cost fix).
+ *
+ * The media library grid (`MediaPicker`) can render up to 200 of these at
+ * once, and the same key often appears twice on one screen (a question's
+ * "attached" thumbnail plus its tile in the full library grid). Without a
+ * cache, every `<AuthedImage>` mount fired its own independent
+ * fetch-then-blob-decode for the same bytes — 200 concurrent authenticated
+ * requests with no sharing. One in-flight fetch per resolved URL, keyed by
+ * ref count so an object URL is only revoked once nothing on screen still
+ * points at it, fixes both the duplicate network traffic and the duplicate
+ * decode work.
+ */
+interface ImageCacheEntry {
+  promise: Promise<string>;
+  refCount: number;
+  objectUrl: string | null;
+}
+
+const imageCache = new Map<string, ImageCacheEntry>();
+
+function acquireImage(resolvedUrl: string): Promise<string> {
+  const existing = imageCache.get(resolvedUrl);
+  if (existing) {
+    existing.refCount++;
+    return existing.promise;
+  }
+  const token = getToken();
+  const entry: ImageCacheEntry = {
+    refCount: 1,
+    objectUrl: null,
+    promise: fetch(
+      resolvedUrl,
+      token ? { headers: { Authorization: `Bearer ${token}` } } : {},
+    )
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        return res.blob();
+      })
+      .then((blob) => {
+        const objectUrl = URL.createObjectURL(blob);
+        // Every consumer may have already unmounted and released while this
+        // was in flight — revoke rather than leak in that case.
+        if (entry.refCount <= 0) {
+          URL.revokeObjectURL(objectUrl);
+        } else {
+          entry.objectUrl = objectUrl;
+        }
+        return objectUrl;
+      }),
+  };
+  imageCache.set(resolvedUrl, entry);
+  return entry.promise;
+}
+
+function releaseImage(resolvedUrl: string): void {
+  const entry = imageCache.get(resolvedUrl);
+  if (!entry) return;
+  entry.refCount--;
+  if (entry.refCount <= 0) {
+    if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
+    imageCache.delete(resolvedUrl);
+  }
+}
+
+/**
  * `<img>` cannot send an Authorization header, and `GET /media/file/:key`
  * (the fallback route used whenever there's no CDN/S3 in front of media —
  * i.e. always in dev) requires one. A bare `<img src={mediaSrc(url)}>` on
@@ -39,27 +104,16 @@ export function AuthedImage({
   useEffect(() => {
     if (isDirect) return;
     let cancelled = false;
-    let created: string | null = null;
-    const token = getToken();
-    fetch(
-      resolved,
-      token ? { headers: { Authorization: `Bearer ${token}` } } : {},
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.blob();
-      })
-      .then((blob) => {
-        if (cancelled) return;
-        created = URL.createObjectURL(blob);
-        setObjectUrl(created);
+    acquireImage(resolved)
+      .then((objectUrl) => {
+        if (!cancelled) setObjectUrl(objectUrl);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
       });
     return () => {
       cancelled = true;
-      if (created) URL.revokeObjectURL(created);
+      releaseImage(resolved);
     };
   }, [resolved, isDirect]);
 

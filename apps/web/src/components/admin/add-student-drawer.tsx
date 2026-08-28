@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
+import { useOrgCatalogue } from "@/hooks/use-org-catalogue";
 
-import {
-  inviteStudent,
-  listBatches,
-  listClasses,
-  listPrograms,
-  type BatchRow,
-  type ClassRow,
-  type Program,
-} from "@/lib/admin";
+import { inviteStudent } from "@/lib/admin";
 
 import { KeyIcon, UserIcon, XIcon } from "./icons";
 
@@ -46,40 +39,22 @@ export function AddStudentDrawer({
   const [classId, setClassId] = useState("");
   const [batchId, setBatchId] = useState("");
 
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [classes, setClasses] = useState<ClassRow[]>([]);
-  const [batches, setBatches] = useState<BatchRow[]>([]);
+  const catalogue = useOrgCatalogue();
+  const programs = catalogue?.programs ?? [];
+
+  const visibleClasses = useMemo(() => {
+    const classes = catalogue?.classes ?? [];
+    return programId
+      ? classes.filter((c) => c.programId === programId)
+      : classes;
+  }, [catalogue, programId]);
+  const visibleBatches = useMemo(() => {
+    const batches = catalogue?.batches ?? [];
+    return classId ? batches.filter((b) => b.classId === classId) : batches;
+  }, [catalogue, classId]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    Promise.all([listPrograms(), listClasses(), listBatches()])
-      .then(([p, c, b]) => {
-        if (cancelled) return;
-        setPrograms(p);
-        setClasses(c);
-        setBatches(b);
-      })
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Could not load org data."),
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
-  const visibleClasses = useMemo(
-    () =>
-      programId ? classes.filter((c) => c.programId === programId) : classes,
-    [classes, programId],
-  );
-  const visibleBatches = useMemo(
-    () => (classId ? batches.filter((b) => b.classId === classId) : batches),
-    [batches, classId],
-  );
   const { path: batchPath } = useBatchPaths(open);
 
   const valid =

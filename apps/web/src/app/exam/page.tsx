@@ -209,7 +209,19 @@ function StartGate({
         )}
         <button
           type="button"
-          onClick={onStart}
+          onClick={() => {
+            /**
+             * Must fire synchronously inside the click handler — browsers only
+             * grant `requestFullscreen()` within a real user gesture. `onStart`
+             * itself is async (it awaits network calls before the exam
+             * actually begins), so requesting fullscreen after any part of it
+             * had already run would land outside that gesture and be silently
+             * refused. Errors (unsupported browser, refusal) are swallowed —
+             * the exam still starts either way.
+             */
+            void document.documentElement.requestFullscreen?.().catch(() => {});
+            onStart();
+          }}
           disabled={starting}
           className="mt-8 flex w-full items-center justify-center gap-2 rounded bg-brand px-6 py-3 text-sm font-bold uppercase text-white hover:opacity-95 disabled:opacity-60"
         >

@@ -340,3 +340,80 @@ export function setMyInstituteLogo(
     token: token(),
   });
 }
+
+/**
+ * Shared cache for `GET /institutes/me` (§ institute branding, § stale-UI /
+ * duplicate-fetch fix).
+ *
+ * Every workspace shell (admin/student/staff sidebars, the exam runner,
+ * `InstituteLogo`) needs this same row, and used to fetch it independently —
+ * two network calls per shell mount (once for the name, again inside the
+ * nested `InstituteLogo`), repeated on every client-side navigation since
+ * none of these consoles have a persistent layout. Worse, a rename or logo
+ * change made on the organization page updated only that page's own local
+ * state — every OTHER mounted consumer (the very sidebar on the same page)
+ * kept showing the old value until a hard refresh, because there was no
+ * shared cache to push the new value into.
+ *
+ * One in-memory cache + subscriber list, mirroring the session-snapshot
+ * pattern in `lib/auth.ts`, fixes both: `subscribeMyInstitute` triggers at
+ * most one shared fetch no matter how many components mount at once, and
+ * `setMyInstituteCache` (called by the rename/logo mutations below) pushes
+ * the fresh row to every mounted consumer immediately.
+ */
+let instituteCache: MyInstitute | null = null;
+let instituteFetch: Promise<MyInstitute> | null = null;
+const instituteListeners = new Set<() => void>();
+
+function notifyInstituteListeners(): void {
+  for (const l of instituteListeners) l();
+}
+
+/** Synchronous read for `useSyncExternalStore` — null until the shared fetch resolves. */
+export function getMyInstituteSnapshot(): MyInstitute | null {
+  return instituteCache;
+}
+
+/** Fetches once and shares the in-flight promise, so simultaneous mounts
+ *  (a shell plus its own nested `InstituteLogo`) never fire more than one
+ *  `GET /institutes/me`. */
+function ensureMyInstituteFetched(): void {
+  if (instituteCache || instituteFetch) return;
+  instituteFetch = getMyInstitute()
+    .then((row) => {
+      instituteCache = row;
+      notifyInstituteListeners();
+      return row;
+    })
+    .finally(() => {
+      instituteFetch = null;
+    });
+}
+
+export function subscribeMyInstitute(listener: () => void): () => void {
+  instituteListeners.add(listener);
+  ensureMyInstituteFetched();
+  return () => {
+    instituteListeners.delete(listener);
+  };
+}
+
+/**
+ * Pushes an already-fresh row (the direct response of a rename/logo
+ * mutation) into the shared cache and notifies every mounted consumer —
+ * no extra round trip, and every sidebar/exam-runner/etc. updates in the
+ * same tick as the page that made the edit.
+ */
+export function setMyInstituteCache(next: MyInstitute): void {
+  instituteCache = next;
+  notifyInstituteListeners();
+}
+
+/** Forces a genuine re-fetch (cache invalidation) rather than pushing a
+ *  known-fresh value — for the rare case nothing local already has the
+ *  new row to push. */
+export function refreshMyInstitute(): void {
+  instituteCache = null;
+  instituteFetch = null;
+  ensureMyInstituteFetched();
+}

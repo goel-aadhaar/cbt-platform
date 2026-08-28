@@ -14,6 +14,9 @@ import {
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
 } from './dto/announcement.dto';
+import { QueryAnnouncementsDto } from './dto/query-announcements.dto';
+
+const DEFAULT_ANNOUNCEMENTS_PAGE_SIZE = 50;
 
 /** Fields safe to return to a student — no author email, no draft metadata. */
 const studentSelect = {
@@ -122,14 +125,26 @@ export class AnnouncementsService {
     return [...new Set(keys)];
   }
 
-  /** Everything in the tenant, drafts included — this is the authoring view. */
-  listForStaff() {
+  /**
+   * Everything in the tenant, drafts included — this is the authoring view
+   * (§ pagination). Grows without bound over years of posting.
+   */
+  async listForStaff(query: QueryAnnouncementsDto = {}) {
     const { instituteId } = this.ctx();
-    return this.prisma.announcement.findMany({
-      where: { instituteId },
-      orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
-      select: staffSelect,
-    });
+    const where: Prisma.AnnouncementWhereInput = { instituteId };
+    const limit = query.limit ?? DEFAULT_ANNOUNCEMENTS_PAGE_SIZE;
+    const offset = query.offset ?? 0;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.announcement.findMany({
+        where,
+        orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
+        select: staffSelect,
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.announcement.count({ where }),
+    ]);
+    return { items, total, limit, offset };
   }
 
   async update(id: string, dto: UpdateAnnouncementDto) {

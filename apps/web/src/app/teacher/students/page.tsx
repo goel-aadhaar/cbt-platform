@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { PaginationBar } from "@/components/pagination-bar";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { listStudents, type StudentListItem } from "@/lib/students";
@@ -58,32 +59,16 @@ export default function TeacherStudentsPage() {
       )}
 
       <Panel
-        title={rows ? `${total.toLocaleString("en-IN")} students` : "Students"}
+        title="Students"
         subtitle="Read-only — the roster is managed by an administrator"
         action={
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-admin-muted">
-              {total === 0
-                ? ""
-                : `${offset + 1}–${Math.min(offset + PAGE, total)}`}
-            </span>
-            <button
-              type="button"
-              disabled={offset === 0}
-              onClick={() => setOffset((o) => Math.max(0, o - PAGE))}
-              className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              disabled={offset + PAGE >= total}
-              onClick={() => setOffset((o) => o + PAGE)}
-              className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
+          <PaginationBar
+            offset={offset}
+            pageSize={PAGE}
+            total={total}
+            onOffsetChange={setOffset}
+            itemLabel="students"
+          />
         }
       >
         {rows === null ? (

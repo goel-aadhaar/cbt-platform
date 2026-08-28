@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { PaginationBar } from "@/components/pagination-bar";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { SuperadminShell } from "@/components/staff/superadmin-shell";
 import { apiFetch } from "@/lib/api";
@@ -69,24 +70,15 @@ export default function AuditPage() {
         title={`${total.toLocaleString("en-IN")} recorded actions`}
         subtitle="Every mutating request across the platform (§2.13)"
         action={
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              disabled={offset === 0}
-              onClick={() => setOffset((o) => Math.max(0, o - PAGE))}
-              className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-            >
-              Newer
-            </button>
-            <button
-              type="button"
-              disabled={offset + PAGE >= total}
-              onClick={() => setOffset((o) => o + PAGE)}
-              className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-40"
-            >
-              Older
-            </button>
-          </div>
+          <PaginationBar
+            offset={offset}
+            pageSize={PAGE}
+            total={total}
+            onOffsetChange={setOffset}
+            prevLabel="Newer"
+            nextLabel="Older"
+            caption={null}
+          />
         }
       >
         {entries === null ? (

@@ -4,15 +4,13 @@ import { useEffect, useState } from "react";
 
 import {
   listChapters,
-  listSubjects,
   listTopics,
   type ChapterRow,
-  type Subject,
   type TopicRow,
 } from "@/lib/admin";
 import { useAuthUser } from "@/hooks/use-auth";
+import { useQuestionTaxonomyCatalogue } from "@/hooks/use-question-taxonomy-catalogue";
 import { ApiError } from "@/lib/api";
-import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   createQuestion,
   updateQuestion,
@@ -82,12 +80,11 @@ export function QuestionAuthorDrawer({
   /** Provide to edit an existing question; omit to author a new one. */
   editing?: QuestionDetail | null;
 }) {
-  const [subjects, setSubjects] = useState<Subject[] | null>(null);
+  const taxonomy = useQuestionTaxonomyCatalogue();
+  const subjects = taxonomy?.subjects ?? null;
+  const examCategories = taxonomy?.examCategories ?? null;
   const [chapters, setChapters] = useState<ChapterRow[] | null>(null);
   const [topics, setTopics] = useState<TopicRow[] | null>(null);
-  const [examCategories, setExamCategories] = useState<ExamCategory[] | null>(
-    null,
-  );
   const [subjectId, setSubjectId] = useState(editing?.subjectId ?? "");
   const [chapterId, setChapterId] = useState(editing?.chapterId ?? "");
   const [topicId, setTopicId] = useState(editing?.topicId ?? "");
@@ -163,18 +160,9 @@ export function QuestionAuthorDrawer({
     onClose();
   }
 
-  // Subject and exam-category catalogues load once the drawer opens; chapter
-  // and topic cascade off whichever parent is currently selected.
-  useEffect(() => {
-    if (!open) return;
-    listSubjects()
-      .then(setSubjects)
-      .catch(() => setSubjects([]));
-    listExamCategories(true)
-      .then((r) => setExamCategories(r.items))
-      .catch(() => setExamCategories([]));
-  }, [open]);
-
+  // Subject and exam-category catalogues come from the shared cache above;
+  // chapter and topic still cascade off whichever parent is currently
+  // selected, since neither has an unfiltered "whole catalogue" shape.
   useEffect(() => {
     if (!subjectId) return;
     listChapters(subjectId)

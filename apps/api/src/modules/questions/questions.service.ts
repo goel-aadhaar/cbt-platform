@@ -544,6 +544,19 @@ export class QuestionsService {
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
     const offset = query.offset ?? 0;
 
+    /**
+     * Status tallies for the bank's tabs, over the WHOLE filtered set rather
+     * than just the returned page — with the bank paginated at a real page
+     * size (not "200 and hope that covers it"), counting the loaded page
+     * itself would make every tab badge wrong the moment a filter's results
+     * exceed one page. Mirrors StudentsService's `withStatus` pattern: drop
+     * only `status` from the where-clause so search/subject/etc. filters
+     * still narrow what's being tallied.
+     */
+    const countsWhere: Prisma.QuestionWhereInput = { ...structuralWhere };
+    delete countsWhere.status;
+    const counts = await this.statusCounts(countsWhere);
+
     const term = query.search?.trim();
     if (!term) {
       const [items, total] = await this.prisma.$transaction([
@@ -556,14 +569,15 @@ export class QuestionsService {
         }),
         this.prisma.question.count({ where: structuralWhere }),
       ]);
-      return { items, total, limit, offset };
+      return { items, total, limit, offset, counts };
     }
 
     // Search via the Search port (§2.6) — relevance-ranked ids — then hydrate
     // the rows through Prisma (applying the structural filters) and restore the
     // relevance order.
     const rankedIds = await this.search.search({ instituteId, term });
-    if (rankedIds.length === 0) return { items: [], total: 0, limit, offset };
+    if (rankedIds.length === 0)
+      return { items: [], total: 0, limit, offset, counts };
 
     const rows = await this.prisma.question.findMany({
       where: { ...structuralWhere, id: { in: rankedIds } },
@@ -579,7 +593,32 @@ export class QuestionsService {
       total: rows.length,
       limit,
       offset,
+      counts,
     };
+  }
+
+  /** Per-status tallies (§ question bank pagination) — see `findAll`'s comment. */
+  private async statusCounts(where: Prisma.QuestionWhereInput) {
+    const [all, draft, review, approved, rejected, archived] =
+      await this.prisma.$transaction([
+        this.prisma.question.count({ where }),
+        this.prisma.question.count({
+          where: { ...where, status: QuestionStatus.DRAFT },
+        }),
+        this.prisma.question.count({
+          where: { ...where, status: QuestionStatus.REVIEW },
+        }),
+        this.prisma.question.count({
+          where: { ...where, status: QuestionStatus.APPROVED },
+        }),
+        this.prisma.question.count({
+          where: { ...where, status: QuestionStatus.REJECTED },
+        }),
+        this.prisma.question.count({
+          where: { ...where, status: QuestionStatus.ARCHIVED },
+        }),
+      ]);
+    return { all, draft, review, approved, rejected, archived };
   }
 
   async findOne(id: string) {

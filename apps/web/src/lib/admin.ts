@@ -7,6 +7,8 @@
 
 import { apiFetch } from "./api";
 import { getToken } from "./auth";
+import { listExamCategories, type ExamCategory } from "./exam-categories";
+import type { Paginated } from "./students";
 
 const auth = () => ({ token: getToken() ?? undefined });
 
@@ -29,9 +31,26 @@ export interface ExamResultRow {
   attempt: { flagged: boolean; violationCount: number };
 }
 
-/** GET /exams/:id/results — ranked rows for one exam. */
-export function listExamResults(examId: string): Promise<ExamResultRow[]> {
-  return apiFetch<ExamResultRow[]>(`/exams/${examId}/results`, auth());
+/**
+ * GET /exams/:id/results — ranked rows for one exam.
+ *
+ * Always paginated server-side (§ pagination), but `limit` defaults
+ * generously — a single exam's candidate count is bounded by batch size, not
+ * institute-wide scale, so most callers (score enrichment, the results-count
+ * preview) need the whole ranked set and don't pass one.
+ */
+export function listExamResults(
+  examId: string,
+  params: { limit?: number; offset?: number } = {},
+): Promise<Paginated<ExamResultRow>> {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  const qs = q.toString();
+  return apiFetch<Paginated<ExamResultRow>>(
+    `/exams/${examId}/results${qs ? `?${qs}` : ""}`,
+    auth(),
+  );
 }
 
 export interface ExamDetail {
@@ -411,17 +430,32 @@ export interface ExamMonitor {
     autoSubmitted: number;
   };
   serverTime: string;
+  /** Page of the (possibly `status`-filtered) roster — see `studentsTotal`
+   *  for how many exist in total. Unset `limit`/`offset` returns everyone. */
   students: MonitorStudent[];
+  /** Total candidates matching the current `status` filter, for paging
+   *  `students` — distinct from `totalStudents`, which is the whole roster
+   *  regardless of any filter. */
+  studentsTotal: number;
+  limit: number;
+  offset: number;
 }
 
 /** GET /exams/:id/monitor — live per-student progress for one exam. */
 export function fetchExamMonitor(
   examId: string,
-  opts: { batchId?: string; status?: MonitorStudentStatus } = {},
+  opts: {
+    batchId?: string;
+    status?: MonitorStudentStatus;
+    limit?: number;
+    offset?: number;
+  } = {},
 ): Promise<ExamMonitor> {
   const qs = new URLSearchParams();
   if (opts.batchId) qs.set("batchId", opts.batchId);
   if (opts.status) qs.set("status", opts.status);
+  if (opts.limit != null) qs.set("limit", String(opts.limit));
+  if (opts.offset != null) qs.set("offset", String(opts.offset));
   const suffix = qs.toString() ? `?${qs}` : "";
   return apiFetch<ExamMonitor>(`/exams/${examId}/monitor${suffix}`, auth());
 }
@@ -872,6 +906,74 @@ export function archiveBatch(id: string): Promise<BatchRow> {
   return apiFetch(`/batches/${id}`, { method: "DELETE", ...auth() });
 }
 
+/**
+ * Shared cache for the active, unfiltered program/class/batch catalogue
+ * (§ duplicate-fetch fix — mirrors `lib/platform.ts`'s institute cache).
+ *
+ * `AddStudentDrawer`, `EditStudentDrawer`, `BulkReassignDrawer`,
+ * `useBatchPaths` and the students roster's own filter bar each used to run
+ * their own `listPrograms()`/`listClasses()`/`listBatches()` on mount —
+ * opening "Add Student" alone fired programs/classes/batches three times
+ * over, all for the identical active-only, unfiltered rows. One shared fetch
+ * (triggered by the first subscriber, reused by every consumer after) is
+ * enough: this catalogue changes only from the organization page, which
+ * calls `refreshOrgCatalogue()` after every create/rename/archive so the
+ * cache never serves a stale row to a drawer opened elsewhere in the session.
+ */
+export interface OrgCatalogue {
+  programs: Program[];
+  classes: ClassRow[];
+  batches: BatchRow[];
+}
+
+let orgCatalogueCache: OrgCatalogue | null = null;
+let orgCatalogueFetch: Promise<OrgCatalogue> | null = null;
+const orgCatalogueListeners = new Set<() => void>();
+
+function notifyOrgCatalogueListeners(): void {
+  for (const l of orgCatalogueListeners) l();
+}
+
+/** Synchronous read for `useSyncExternalStore` — null until the shared fetch resolves. */
+export function getOrgCatalogueSnapshot(): OrgCatalogue | null {
+  return orgCatalogueCache;
+}
+
+function ensureOrgCatalogueFetched(): void {
+  if (orgCatalogueCache || orgCatalogueFetch) return;
+  orgCatalogueFetch = Promise.all([
+    listPrograms(),
+    listClasses(),
+    listBatches(),
+  ])
+    .then(([programs, classes, batches]) => {
+      const next = { programs, classes, batches };
+      orgCatalogueCache = next;
+      notifyOrgCatalogueListeners();
+      return next;
+    })
+    .finally(() => {
+      orgCatalogueFetch = null;
+    });
+}
+
+export function subscribeOrgCatalogue(listener: () => void): () => void {
+  orgCatalogueListeners.add(listener);
+  ensureOrgCatalogueFetched();
+  return () => {
+    orgCatalogueListeners.delete(listener);
+  };
+}
+
+/** Cache invalidation after a create/rename/archive on the organization page —
+ *  there is no single fresh row to push (a create adds one, an archive just
+ *  flips a flag), so this forces the next read to re-fetch. */
+export function refreshOrgCatalogue(): void {
+  orgCatalogueCache = null;
+  orgCatalogueFetch = null;
+  ensureOrgCatalogueFetched();
+}
+
 /* ------------------------------------------------------------------ *
  * QUESTION TAXONOMY — subject → chapter → topic (§2.4)                *
  * ------------------------------------------------------------------ */
@@ -980,6 +1082,72 @@ export function renameTopic(id: string, name: string): Promise<TopicRow> {
 /** DELETE /topics/:id — ADMIN. Archives it; questions keep the reference. */
 export function archiveTopic(id: string): Promise<TopicRow> {
   return apiFetch(`/topics/${id}`, { method: "DELETE", ...auth() });
+}
+
+/**
+ * Shared cache for the Question Bank's two authoring catalogues — active
+ * subjects and active exam categories (§ duplicate-fetch fix, same pattern
+ * as `OrgCatalogue` above). `QuestionFilterBar` and `QuestionAuthorDrawer`
+ * each used to run their own `listSubjects()`+`listExamCategories(true)` on
+ * mount, so opening the author drawer on the Question Bank page (filter bar
+ * already mounted) fired both calls twice over. Chapter/topic are left out:
+ * unlike subjects, they only ever load scoped to one selected parent, so
+ * there is no unfiltered "whole catalogue" shape to share.
+ *
+ * Invalidated by `refreshQuestionTaxonomyCatalogue()`, called from the
+ * subject-management and exam-category-management pages after any
+ * create/rename/archive.
+ */
+export interface QuestionTaxonomyCatalogue {
+  subjects: Subject[];
+  examCategories: ExamCategory[];
+}
+
+let taxonomyCatalogueCache: QuestionTaxonomyCatalogue | null = null;
+let taxonomyCatalogueFetch: Promise<QuestionTaxonomyCatalogue> | null = null;
+const taxonomyCatalogueListeners = new Set<() => void>();
+
+function notifyTaxonomyCatalogueListeners(): void {
+  for (const l of taxonomyCatalogueListeners) l();
+}
+
+/** Synchronous read for `useSyncExternalStore` — null until the shared fetch resolves. */
+export function getQuestionTaxonomyCatalogueSnapshot(): QuestionTaxonomyCatalogue | null {
+  return taxonomyCatalogueCache;
+}
+
+function ensureQuestionTaxonomyCatalogueFetched(): void {
+  if (taxonomyCatalogueCache || taxonomyCatalogueFetch) return;
+  taxonomyCatalogueFetch = Promise.all([
+    listSubjects(),
+    listExamCategories(true),
+  ])
+    .then(([subjects, categories]) => {
+      const next = { subjects, examCategories: categories.items };
+      taxonomyCatalogueCache = next;
+      notifyTaxonomyCatalogueListeners();
+      return next;
+    })
+    .finally(() => {
+      taxonomyCatalogueFetch = null;
+    });
+}
+
+export function subscribeQuestionTaxonomyCatalogue(
+  listener: () => void,
+): () => void {
+  taxonomyCatalogueListeners.add(listener);
+  ensureQuestionTaxonomyCatalogueFetched();
+  return () => {
+    taxonomyCatalogueListeners.delete(listener);
+  };
+}
+
+/** Cache invalidation after a subject or exam-category create/rename/archive. */
+export function refreshQuestionTaxonomyCatalogue(): void {
+  taxonomyCatalogueCache = null;
+  taxonomyCatalogueFetch = null;
+  ensureQuestionTaxonomyCatalogueFetched();
 }
 
 /* ------------------------------------------------------------------ *

@@ -2,15 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useQuestionTaxonomyCatalogue } from "@/hooks/use-question-taxonomy-catalogue";
 import {
   listChapters,
-  listSubjects,
   listTopics,
   type ChapterRow,
-  type Subject,
   type TopicRow,
 } from "@/lib/admin";
-import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import type {
   Difficulty,
   QuestionFilters,
@@ -64,19 +62,11 @@ export function QuestionFilterBar({
    */
   subjectLocked?: boolean;
 }) {
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const taxonomy = useQuestionTaxonomyCatalogue();
+  const subjects = taxonomy?.subjects ?? [];
+  const examCategories = taxonomy?.examCategories ?? [];
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
   const [topics, setTopics] = useState<TopicRow[]>([]);
-  const [examCategories, setExamCategories] = useState<ExamCategory[]>([]);
-
-  useEffect(() => {
-    listSubjects()
-      .then(setSubjects)
-      .catch(() => setSubjects([]));
-    listExamCategories(true)
-      .then((r) => setExamCategories(r.items))
-      .catch(() => setExamCategories([]));
-  }, []);
 
   useEffect(() => {
     if (!value.subjectId) return;

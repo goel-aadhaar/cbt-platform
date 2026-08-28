@@ -38,7 +38,7 @@ function ExamsScreen() {
 
   const load = useCallback(async () => {
     try {
-      setExams(await listExams());
+      setExams((await listExams()).items);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not load exams");

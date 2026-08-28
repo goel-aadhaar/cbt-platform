@@ -3,6 +3,9 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { QueryImportsDto } from './dto/query-imports.dto';
+
+const DEFAULT_IMPORTS_PAGE_SIZE = 50;
 
 /**
  * Import history.
@@ -71,25 +74,33 @@ export class ImportsService {
     }
   }
 
-  /** Most recent runs for this tenant. */
-  list() {
+  /** Runs for this tenant, newest first (§ pagination). */
+  async list(query: QueryImportsDto = {}) {
     const { instituteId } = this.ctx();
-    return this.prisma.importRun.findMany({
-      where: { instituteId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-      select: {
-        id: true,
-        kind: true,
-        fileName: true,
-        totalRows: true,
-        importedRows: true,
-        failedRows: true,
-        failures: true,
-        target: true,
-        createdAt: true,
-        createdBy: { select: { name: true } },
-      },
-    });
+    const where: Prisma.ImportRunWhereInput = { instituteId };
+    const limit = query.limit ?? DEFAULT_IMPORTS_PAGE_SIZE;
+    const offset = query.offset ?? 0;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.importRun.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+        select: {
+          id: true,
+          kind: true,
+          fileName: true,
+          totalRows: true,
+          importedRows: true,
+          failedRows: true,
+          failures: true,
+          target: true,
+          createdAt: true,
+          createdBy: { select: { name: true } },
+        },
+      }),
+      this.prisma.importRun.count({ where }),
+    ]);
+    return { items, total, limit, offset };
   }
 }

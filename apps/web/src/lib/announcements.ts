@@ -8,6 +8,7 @@
 
 import { apiFetch, ApiError } from "./api";
 import { getToken } from "./auth";
+import type { Paginated } from "./students";
 
 export type AnnouncementCategory =
   "GENERAL" | "EXAM" | "RESULT" | "SCHEDULE" | "MAINTENANCE";
@@ -75,9 +76,21 @@ export function markAnnouncementsSeen(): Promise<{ count: number }> {
   });
 }
 
-/** GET /announcements — every notice in the tenant, drafts included. */
-export function listAnnouncements(): Promise<StaffAnnouncement[]> {
-  return apiFetch<StaffAnnouncement[]>("/announcements", { token: token() });
+/**
+ * GET /announcements — every notice in the tenant, drafts included.
+ * Always paginated server-side (§ pagination); `limit` defaults generously.
+ */
+export function listAnnouncements(
+  params: { limit?: number; offset?: number } = {},
+): Promise<Paginated<StaffAnnouncement>> {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  const qs = q.toString();
+  return apiFetch<Paginated<StaffAnnouncement>>(
+    `/announcements${qs ? `?${qs}` : ""}`,
+    { token: token() },
+  );
 }
 
 export interface CreateAnnouncementInput {

@@ -410,7 +410,14 @@ export class StudentsService {
           id: true,
           rollNumber: true,
           createdAt: true,
-          user: { select: { name: true, email: true, status: true } },
+          user: {
+            select: {
+              name: true,
+              email: true,
+              status: true,
+              invitedBy: { select: { name: true } },
+            },
+          },
           batch: { select: { id: true, name: true } },
         },
         orderBy,
@@ -433,6 +440,7 @@ export class StudentsService {
         status: s.user.status,
         batch: s.batch,
         createdAt: s.createdAt,
+        addedBy: s.user.invitedBy?.name ?? null,
       })),
       total,
       limit: take,

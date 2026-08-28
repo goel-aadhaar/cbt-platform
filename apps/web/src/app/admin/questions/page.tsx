@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
+import { PaginationBar } from "@/components/pagination-bar";
+import { StatCard } from "@/components/staff/charts";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import {
@@ -74,11 +76,34 @@ export default function QuestionBankPage() {
    * is the one that used to fire a request per keystroke.
    */
   const debouncedSearch = useDebouncedValue(filters.search, 250);
+  const active = TABS[tab].status;
   const query = useMemo(
-    () => ({ ...filters, search: debouncedSearch }),
-    [filters, debouncedSearch],
+    () => ({
+      ...filters,
+      search: debouncedSearch,
+      status: active ?? undefined,
+      mine: onlyMine || undefined,
+    }),
+    [filters, debouncedSearch, active, onlyMine],
   );
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 50;
+
+  /**
+   * A changed filter (or tab, or the "only mine" toggle) invalidates whatever
+   * page the operator was on — showing page 3 of a now-different result set
+   * would just look like the filter silently found nothing. Reset during
+   * render (React's documented "adjust state when a prop changes" pattern)
+   * rather than in an effect, which would cost an extra render + a flash of
+   * the wrong page before the reset lands.
+   */
+  const queryKey = JSON.stringify(query);
+  const [prevQueryKey, setPrevQueryKey] = useState(queryKey);
+  if (queryKey !== prevQueryKey) {
+    setPrevQueryKey(queryKey);
+    setOffset(0);
+  }
 
   /** Curate (or un-curate) a question for the student practice library. */
   async function togglePractice(q: QuestionListItem) {
@@ -102,10 +127,11 @@ export default function QuestionBankPage() {
     }
   }
 
-  // Filters are applied server-side; `deps` re-runs the query when they change.
+  // Filters (including the tab's status and "only mine") are applied
+  // server-side, `offset` pages through whatever that filtered set is.
   const { data, loading, error, refreshing, reload } = useAdminData(
-    () => listQuestions({ ...query, limit: 200 }),
-    [JSON.stringify(query)],
+    () => listQuestions({ ...query, limit: PAGE, offset }),
+    [JSON.stringify(query), offset],
   );
   /**
    * True from the first keystroke until the matching results are on screen —
@@ -114,8 +140,17 @@ export default function QuestionBankPage() {
    */
   const searchPending =
     (filters.search ?? "") !== (debouncedSearch ?? "") || refreshing;
-  const all = useMemo(() => data?.items ?? [], [data]);
+  const rows = useMemo(() => data?.items ?? [], [data]);
+  // Total for the CURRENT tab/filter combination — what pagination pages
+  // through. Distinct from `counts.all` below, which ignores the tab.
   const total = data?.total ?? 0;
+  /**
+   * Status tallies over the whole bank (minus the tab's own status filter),
+   * from the server — not derived from whatever page happens to be loaded.
+   * A 20,000-question bank paginated at 50 rows would make client-computed
+   * tab badges wrong the instant a status has more than one page of rows.
+   */
+  const counts = data?.counts;
 
   // The filter dropdowns are populated from a separate, UNFILTERED query so the
   // available options don't collapse to whatever the current filter returned.
@@ -125,11 +160,15 @@ export default function QuestionBankPage() {
   );
   const facetSource = useMemo(() => facetData?.items ?? [], [facetData]);
 
-  const count = (s: QuestionStatus) => all.filter((q) => q.status === s).length;
-  const approved = count("APPROVED");
-
-  const active = TABS[tab].status;
-  const rows = active ? all.filter((q) => q.status === active) : all;
+  const countFor = (s: QuestionStatus | null): number => {
+    if (!counts) return 0;
+    if (s === null) return counts.all;
+    const key = s.toLowerCase() as
+      "draft" | "review" | "approved" | "rejected" | "archived";
+    return counts[key];
+  };
+  const bankTotal = counts?.all ?? 0;
+  const approved = counts?.approved ?? 0;
 
   return (
     <AdminShell title="Question Bank">
@@ -145,8 +184,7 @@ export default function QuestionBankPage() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold text-admin-ink">Question Bank</h2>
-            <p className="mt-1 text-sm text-admin-muted">
+            <p className="text-sm text-admin-muted">
               Manage and review all your exam questions in one place
             </p>
           </div>
@@ -177,28 +215,31 @@ export default function QuestionBankPage() {
           <StatCard
             icon={DatabaseIcon}
             label="Total Questions"
-            value={fmt(total)}
+            value={fmt(bankTotal)}
           />
           <StatCard
             icon={CheckCircleIcon}
             label="Approved"
             value={fmt(approved)}
-            badge={total ? `${Math.round((approved / total) * 100)}%` : "0%"}
-            progress={total ? Math.round((approved / total) * 100) : 0}
+            hint={
+              bankTotal ? `${Math.round((approved / bankTotal) * 100)}%` : "0%"
+            }
+            tone="good"
+            progress={bankTotal ? Math.round((approved / bankTotal) * 100) : 0}
           />
           <StatCard
             icon={SlidersIcon}
             label="Needs Your Review"
-            value={fmt(count("REVIEW"))}
+            value={fmt(counts?.review ?? 0)}
             chip="Pending + Corrections"
             accent
           />
           <StatCard
             icon={CheckCircleIcon}
             label="Archived"
-            value={fmt(count("ARCHIVED"))}
-            badge="INACTIVE"
-            plain
+            value={fmt(counts?.archived ?? 0)}
+            hint="INACTIVE"
+            tone="muted"
           />
         </div>
 
@@ -210,7 +251,7 @@ export default function QuestionBankPage() {
               onChange={setFilters}
               searching={searchPending}
               facetSource={facetSource}
-              resultCount={all.length}
+              resultCount={total}
             />
           </div>
           <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
@@ -239,7 +280,7 @@ export default function QuestionBankPage() {
           {/* Tabs */}
           <div className="flex flex-wrap gap-6 border-b border-admin-line/60 px-4">
             {TABS.map((t, i) => {
-              const c = t.status ? count(t.status) : total;
+              const c = countFor(t.status);
               return (
                 <button
                   key={t.label}
@@ -296,10 +337,14 @@ export default function QuestionBankPage() {
             </table>
           </div>
 
-          <div className="flex items-center justify-between border-t border-admin-line/60 px-4 py-3">
-            <p className="text-sm text-admin-muted">
-              Showing {rows.length} of {fmt(total)} questions
-            </p>
+          <div className="border-t border-admin-line/60 px-4 py-3">
+            <PaginationBar
+              offset={offset}
+              pageSize={PAGE}
+              total={total}
+              onOffsetChange={setOffset}
+              itemLabel="questions"
+            />
           </div>
         </section>
       </div>
@@ -474,64 +519,6 @@ function TableMessage({
         {children}
       </td>
     </tr>
-  );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  badge,
-  chip,
-  progress,
-  accent,
-  plain,
-}: {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  value: string;
-  badge?: string;
-  chip?: string;
-  progress?: number;
-  accent?: boolean;
-  plain?: boolean;
-}) {
-  return (
-    <div
-      className={`relative rounded-2xl border border-admin-line/60 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${accent ? "border-t-2 border-t-warn" : ""}`}
-    >
-      <div className="flex items-start justify-between">
-        <span
-          className={`flex size-11 items-center justify-center rounded-full ${accent ? "bg-warn/15 text-warn" : "bg-admin-surface text-admin-muted"}`}
-        >
-          <Icon className="size-5" />
-        </span>
-        {badge && (
-          <span
-            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${plain ? "bg-admin-surface text-admin-muted" : "bg-admin-mint/50 text-admin"}`}
-          >
-            {badge}
-          </span>
-        )}
-      </div>
-      <p className="mt-4 text-sm text-admin-muted">{label}</p>
-      <div className="mt-1 flex items-end gap-3">
-        <p className="text-3xl font-bold text-admin-ink">{value}</p>
-        {chip && (
-          <span className="mb-1 rounded bg-admin-surface px-2 py-0.5 text-[11px] font-medium leading-tight text-admin-muted">
-            {chip}
-          </span>
-        )}
-      </div>
-      {progress !== undefined && (
-        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-admin-line/50">
-          <div
-            className="h-full rounded-full bg-admin"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      )}
-    </div>
   );
 }
 

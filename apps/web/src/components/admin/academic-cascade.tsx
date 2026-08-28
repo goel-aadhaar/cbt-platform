@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useOrgCatalogue } from "@/hooks/use-org-catalogue";
 import {
   listBatches,
   listClasses,
@@ -210,39 +211,31 @@ export function useAcademicCascade(active: boolean): AcademicCascade {
  *
  * Falls back to the bare name if the parents cannot be resolved, which is
  * better than rendering "undefined › undefined › 23b1".
+ *
+ * Backed by the shared org catalogue (§ duplicate-fetch fix) — six call
+ * sites (this drawer, the exam scheduler, the exam builder, the staff roster
+ * and its drawers, admin announcements) each used to run their own
+ * `listPrograms()`+`listClasses()` on mount; now they all read the one
+ * shared cache. `active` is kept for API compatibility with those call sites
+ * but no longer gates a fetch of its own.
  */
 export function useBatchPaths(active: boolean): {
   path: (batch: { id: string; name: string; classId: string }) => string;
   loaded: boolean;
 } {
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [classes, setClasses] = useState<ClassRow[]>([]);
-
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    Promise.all([listPrograms(), listClasses()])
-      .then(([p, c]) => {
-        if (cancelled) return;
-        setPrograms(p);
-        setClasses(c);
-      })
-      // Silent: a missing path degrades to the bare batch name, which is what
-      // every one of these screens showed before anyway.
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [active]);
+  void active;
+  const catalogue = useOrgCatalogue();
 
   const byId = useMemo(() => {
-    const classById = new Map(classes.map((c) => [c.id, c]));
-    const programById = new Map(programs.map((p) => [p.id, p]));
+    const classById = new Map((catalogue?.classes ?? []).map((c) => [c.id, c]));
+    const programById = new Map(
+      (catalogue?.programs ?? []).map((p) => [p.id, p]),
+    );
     return { classById, programById };
-  }, [classes, programs]);
+  }, [catalogue]);
 
   return {
-    loaded: classes.length > 0,
+    loaded: (catalogue?.classes.length ?? 0) > 0,
     path: (batch) => {
       const cls = byId.classById.get(batch.classId);
       const program = cls ? byId.programById.get(cls.programId) : undefined;

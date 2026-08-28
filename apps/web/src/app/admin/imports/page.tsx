@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { UploadIcon } from "@/components/admin/icons";
+import { PaginationBar } from "@/components/pagination-bar";
 import { apiFetch } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
@@ -43,14 +44,23 @@ const KIND_LABEL: Record<ImportRun["kind"], string> = {
  */
 export default function AdminImportsPage() {
   const [runs, setRuns] = useState<ImportRun[] | null>(null);
+  const [runsTotal, setRunsTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 50;
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ImportRun[]>("/imports", { token: getToken() ?? undefined })
+    apiFetch<{ items: ImportRun[]; total: number }>(
+      `/imports?limit=${PAGE}&offset=${offset}`,
+      { token: getToken() ?? undefined },
+    )
       .then((data) => {
-        if (!cancelled) setRuns(data);
+        if (!cancelled) {
+          setRuns(data.items);
+          setRunsTotal(data.total);
+        }
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -62,7 +72,7 @@ export default function AdminImportsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [offset]);
 
   return (
     <AdminShell title="Imports">
@@ -214,6 +224,15 @@ export default function AdminImportsPage() {
               );
             })}
           </ul>
+        )}
+        {runs !== null && runs.length > 0 && (
+          <PaginationBar
+            offset={offset}
+            pageSize={PAGE}
+            total={runsTotal}
+            onOffsetChange={setOffset}
+            itemLabel="imports"
+          />
         )}
       </div>
     </AdminShell>

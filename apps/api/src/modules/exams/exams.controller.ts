@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -27,6 +28,7 @@ import {
   UpdateSectionDto,
   SubmitExamDto,
 } from './dto/exam-parts.dto';
+import { QueryExamsDto } from './dto/query-exams.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
 import { UpdateLiveExamDto } from './dto/update-live-exam.dto';
 import { ExamsService } from './exams.service';
@@ -51,8 +53,8 @@ export class ExamsController {
   }
 
   @Get()
-  findAll() {
-    return this.exams.findAll();
+  findAll(@Query() query: QueryExamsDto) {
+    return this.exams.findAll(query);
   }
 
   @Get(':id')

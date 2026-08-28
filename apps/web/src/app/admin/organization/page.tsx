@@ -6,11 +6,11 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
 import { AuthedImage } from "@/components/authed-image";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { useMyInstitute } from "@/hooks/use-my-institute";
 import { uploadMedia } from "@/lib/media";
 import {
-  type MyInstitute,
-  getMyInstitute,
   renameMyInstitute,
+  setMyInstituteCache,
   setMyInstituteLogo,
 } from "@/lib/platform";
 import {
@@ -23,6 +23,7 @@ import {
   listBatches,
   listClasses,
   listPrograms,
+  refreshOrgCatalogue,
   renameBatch,
   renameClass,
   renameProgram,
@@ -50,13 +51,14 @@ export default function OrganizationPage() {
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
 
   /**
-   * The institute identity card. Loaded once on mount, with a single
-   * rename mutation path through `renameMyInstitute`. The four-digit
-   * code is shown but never editable — it is embedded in every student
-   * roll number this institute has ever issued, and changing it
-   * retroactively would orphan the roll numbers themselves.
+   * The institute identity card — the shared cache (see `useMyInstitute`),
+   * not a page-local copy, so a rename/logo change here is reflected in the
+   * sidebar rendered by this very page immediately, with no extra fetch.
+   * The four-digit code is shown but never editable — it is embedded in
+   * every student roll number this institute has ever issued, and changing
+   * it retroactively would orphan the roll numbers themselves.
    */
-  const [institute, setInstitute] = useState<MyInstitute | null>(null);
+  const { institute } = useMyInstitute();
   const [renamingInstitute, setRenamingInstitute] = useState(false);
   const [savingLogo, setSavingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -79,23 +81,6 @@ export default function OrganizationPage() {
         setError(msg(e, "Could not load programs"));
         setPrograms([]);
       });
-  }, []);
-
-  /** Single load of the institute row at the top of the page. */
-  useEffect(() => {
-    let cancelled = false;
-    getMyInstitute()
-      .then((row) => !cancelled && setInstitute(row))
-      .catch(
-        (e: unknown) =>
-          !cancelled &&
-          setError(
-            e instanceof Error ? e.message : "Could not load institute.",
-          ),
-      );
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
   useEffect(() => {
@@ -147,6 +132,10 @@ export default function OrganizationPage() {
       setNotice(`Batch "${b.name}" created.`);
     }
     setModal(null);
+    // The shared catalogue (add-student drawer, batch pickers elsewhere) is
+    // stale the moment this succeeds — force it to re-fetch rather than
+    // leave every other consumer showing last session's rows.
+    refreshOrgCatalogue();
   }
 
   async function submitRename(level: Level, id: string, name: string) {
@@ -170,6 +159,7 @@ export default function OrganizationPage() {
       setNotice(`Renamed to "${b.name}".`);
     }
     setModal(null);
+    refreshOrgCatalogue();
   }
 
   async function renameInstitute(name: string) {
@@ -178,7 +168,7 @@ export default function OrganizationPage() {
     setError(null);
     try {
       const next = await renameMyInstitute(name.trim());
-      setInstitute(next);
+      setMyInstituteCache(next);
       setNotice("Institute renamed.");
     } catch (e: unknown) {
       setError(msg(e, "Could not rename the institute."));
@@ -200,7 +190,7 @@ export default function OrganizationPage() {
     try {
       const uploaded = await uploadMedia(file, "Institute logo", "IMAGE");
       const next = await setMyInstituteLogo(uploaded.key);
-      setInstitute(next);
+      setMyInstituteCache(next);
       setNotice("Logo updated.");
     } catch (e: unknown) {
       setError(msg(e, "Could not update the logo."));
@@ -215,7 +205,7 @@ export default function OrganizationPage() {
     setError(null);
     try {
       const next = await setMyInstituteLogo(null);
-      setInstitute(next);
+      setMyInstituteCache(next);
       setNotice("Logo removed — back to the default mark.");
     } catch (e: unknown) {
       setError(msg(e, "Could not remove the logo."));
@@ -252,6 +242,7 @@ export default function OrganizationPage() {
         setBatches((prev) => (prev ?? []).map((x) => (x.id === id ? b : x)));
       }
       setNotice(`${name} archived.`);
+      refreshOrgCatalogue();
     } catch (e: unknown) {
       setError(msg(e, `Could not archive "${name}"`));
     } finally {

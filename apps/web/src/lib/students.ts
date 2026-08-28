@@ -10,6 +10,8 @@ export interface StudentListItem {
   status: "PENDING" | "ACTIVE" | "DISABLED";
   batch: { id: string; name: string } | null;
   createdAt: string;
+  /** Name of the staff member whose invite created this account, if any. */
+  addedBy: string | null;
 }
 
 export interface Paginated<T> {

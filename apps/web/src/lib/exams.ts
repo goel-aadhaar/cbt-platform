@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { getToken } from "./auth";
+import type { Paginated } from "./students";
 
 export type ExamStatus =
   | "DRAFT"
@@ -54,9 +55,25 @@ export interface ExamListItem {
   _count: { sections: number; questions: number; batches: number };
 }
 
-/** GET /exams — teacher/admin, tenant-scoped. Returns an array. */
-export function listExams(): Promise<ExamListItem[]> {
-  return apiFetch<ExamListItem[]>("/exams", { token: getToken() ?? undefined });
+/**
+ * GET /exams — teacher/admin, tenant-scoped.
+ *
+ * Always paginated server-side (§ pagination), but `limit` defaults
+ * generously (see the API's QueryExamsDto) — most callers use this to
+ * compute a derived view (which exams are live, populate a dropdown) and
+ * need the WHOLE catalogue, not a page of it. Pass `limit`/`offset`
+ * explicitly only where a screen is genuinely browsing a growing table.
+ */
+export function listExams(
+  params: { limit?: number; offset?: number } = {},
+): Promise<Paginated<ExamListItem>> {
+  const q = new URLSearchParams();
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  const qs = q.toString();
+  return apiFetch<Paginated<ExamListItem>>(`/exams${qs ? `?${qs}` : ""}`, {
+    token: getToken() ?? undefined,
+  });
 }
 
 /** Derive the exam's lifecycle state from status + schedule window. */

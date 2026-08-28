@@ -43,10 +43,10 @@ export default function TeacherDashboardPage() {
       listStudents({ limit: 1 }),
       getMyBatches(),
     ])
-      .then(([exams, all, mine, students, batches]) => {
+      .then(([examsRes, all, mine, students, batches]) => {
         if (cancelled) return;
         setData({
-          exams,
+          exams: examsRes.items,
           questions: all.total,
           myQuestions: mine.total,
           students: students.total,

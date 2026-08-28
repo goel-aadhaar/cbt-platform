@@ -10,18 +10,44 @@ import type { ComponentType, SVGProps } from "react";
  * admin console's card language so the three consoles look like one product.
  */
 
+/**
+ * The one stat-card shape shared by every dashboard/list header across the
+ * three consoles (§ duplicate-UI fix). Four near-identical copies of this —
+ * admin/students, admin/questions, and staff-roster-view's own private
+ * `StatCard`s — grew independently, each adding just the one extra feature
+ * (a chip, a progress bar, an accent border) its own page needed. This is
+ * the union of all of them; every prop beyond `icon`/`label`/`value` is
+ * optional, so a caller that only ever needed the plain card (the majority)
+ * looks and behaves exactly as before.
+ */
 export function StatCard({
   icon: Icon,
   label,
   value,
   hint,
   tone = "default",
+  chip,
+  progress,
+  accent = false,
+  iconTone = "default",
 }: {
   icon?: ComponentType<SVGProps<SVGSVGElement>>;
   label: string;
   value: string | number | undefined;
+  /** Small pill next to the icon — a status word, a percentage, a count. */
   hint?: string;
-  tone?: "default" | "warn" | "good";
+  tone?: "default" | "warn" | "good" | "muted";
+  /** Small inline chip next to the value itself, e.g. "Pending + Corrections". */
+  chip?: string;
+  /** 0-100 — renders a thin progress bar under the label. */
+  progress?: number;
+  /** A warm top border + amber-tinted icon circle, for a card that wants to
+   *  stand out without necessarily carrying a "warn" hint pill. */
+  accent?: boolean;
+  /** Icon circle tint, independent of `accent`/`tone` — for a card that
+   *  wants a bit of visual rhythm (e.g. every other stat card) rather than
+   *  signaling status. */
+  iconTone?: "default" | "brand";
 }) {
   const pill =
     tone === "warn"
@@ -29,12 +55,21 @@ export function StatCard({
       : tone === "good"
         ? "bg-admin-mint/50 text-admin"
         : "bg-admin-surface text-admin-muted";
+  const iconTint = accent
+    ? "bg-warn/15 text-warn"
+    : iconTone === "brand"
+      ? "bg-admin/10 text-admin"
+      : "bg-admin-surface text-admin-muted";
 
   return (
-    <div className="rounded-2xl border border-admin-line/60 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <div
+      className={`rounded-2xl border bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${accent ? "border-admin-line/60 border-t-2 border-t-warn" : "border-admin-line/60"}`}
+    >
       <div className="flex items-start justify-between">
         {Icon && (
-          <span className="flex size-12 items-center justify-center rounded-full bg-admin-surface text-admin-muted">
+          <span
+            className={`flex size-12 items-center justify-center rounded-full ${iconTint}`}
+          >
             <Icon className="size-5" />
           </span>
         )}
@@ -46,16 +81,31 @@ export function StatCard({
           </span>
         )}
       </div>
-      <p className="mt-4 text-3xl font-bold text-admin-ink">
-        {value === undefined
-          ? "…"
-          : typeof value === "number"
-            ? value.toLocaleString("en-IN")
-            : value}
-      </p>
+      <div className="mt-4 flex items-end gap-3">
+        <p className="text-3xl font-bold text-admin-ink">
+          {value === undefined
+            ? "…"
+            : typeof value === "number"
+              ? value.toLocaleString("en-IN")
+              : value}
+        </p>
+        {chip && (
+          <span className="mb-1 rounded bg-admin-surface px-2 py-0.5 text-[11px] font-medium leading-tight text-admin-muted">
+            {chip}
+          </span>
+        )}
+      </div>
       <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-admin-muted">
         {label}
       </p>
+      {progress !== undefined && (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-admin-line/50">
+          <div
+            className="h-full rounded-full bg-admin"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }

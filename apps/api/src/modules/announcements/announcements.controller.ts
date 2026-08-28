@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -19,6 +20,7 @@ import {
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
 } from './dto/announcement.dto';
+import { QueryAnnouncementsDto } from './dto/query-announcements.dto';
 
 /** Authoring side — staff only. Drafts live here until published. */
 @ApiTags('announcements')
@@ -29,8 +31,8 @@ export class AnnouncementsController {
   constructor(private readonly announcements: AnnouncementsService) {}
 
   @Get()
-  list() {
-    return this.announcements.listForStaff();
+  list(@Query() query: QueryAnnouncementsDto) {
+    return this.announcements.listForStaff(query);
   }
 
   @Post()

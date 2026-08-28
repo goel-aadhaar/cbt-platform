@@ -27,8 +27,12 @@ import {
   UpdateSectionDto,
 } from './dto/exam-parts.dto';
 import { UpdateExamDto } from './dto/update-exam.dto';
+import { QueryExamsDto } from './dto/query-exams.dto';
 import { UpdateLiveExamDto } from './dto/update-live-exam.dto';
 import { ExamStatus } from './exam.types';
+
+/** See QueryExamsDto for why this default is generous rather than tight. */
+const DEFAULT_PAGE_SIZE = 500;
 
 const examSelect = {
   id: true,
@@ -192,15 +196,31 @@ export class ExamsService {
     });
   }
 
-  async findAll() {
-    return this.prisma.exam.findMany({
-      where: await this.visibilityWhere(),
-      orderBy: { createdAt: 'desc' },
-      select: {
-        ...examSelect,
-        _count: { select: { sections: true, questions: true, batches: true } },
-      },
-    });
+  /**
+   * Always paginated (§ pagination), unlike the question bank the default
+   * `limit` is generous (see QueryExamsDto) — every internal caller that
+   * doesn't pass one (monitoring, results, report dropdowns) needs the WHOLE
+   * catalogue to compute correctly, not a truncated slice of it.
+   */
+  async findAll(query: QueryExamsDto = {}) {
+    const where = await this.visibilityWhere();
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+    const offset = query.offset ?? 0;
+    const select = {
+      ...examSelect,
+      _count: { select: { sections: true, questions: true, batches: true } },
+    };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.exam.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        select,
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.exam.count({ where }),
+    ]);
+    return { items, total, limit, offset };
   }
 
   async findOne(id: string) {

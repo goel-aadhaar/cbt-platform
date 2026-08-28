@@ -89,8 +89,8 @@ export function PublishResultsModal({
         ),
       );
     listExamResults(examId)
-      .then((rows) => {
-        if (!cancelled) setResultCount(rows.length);
+      .then((res) => {
+        if (!cancelled) setResultCount(res.total);
       })
       .catch(() => {
         // The footer count is informational — a failed fetch here shouldn't

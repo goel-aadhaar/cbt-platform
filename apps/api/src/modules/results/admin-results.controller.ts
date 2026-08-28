@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { QueryResultsDto } from './dto/query-results.dto';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
 import { SetManualScoresDto } from './dto/set-manual-scores.dto';
 import { SetScoringDto } from './dto/set-scoring.dto';
@@ -37,8 +38,11 @@ export class AdminResultsController {
 
   @Roles(Role.ADMIN, Role.TEACHER)
   @Get(':id/results')
-  list(@Param('id', ParseUUIDPipe) id: string) {
-    return this.results.listForExam(id);
+  list(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: QueryResultsDto,
+  ) {
+    return this.results.listForExam(id, query);
   }
 
   /** Download the ranked result sheet as CSV (§2.14). */

@@ -368,6 +368,8 @@ function TenantsScreen() {
                 "Email sending isn't configured, so the accept-invite link is printed to the API's server console instead — copy it from there.",
             );
             setInvitingFor(null);
+            // The tenant row's staff count is stale until this reloads it.
+            void reload();
           }}
         />
       )}

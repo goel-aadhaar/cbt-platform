@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
 import { ActionButton } from "@/components/action-button";
@@ -14,7 +15,20 @@ import {
 } from "@/lib/instruction-templates";
 
 import { PlusIcon, XIcon } from "./icons";
-import { RichTextEditor } from "./rich-text-editor";
+
+/** Tiptap loaded on demand — this modal only opens from an explicit
+ *  "Instruction Templates" button, so the editor's six-package dependency
+ *  has no business in the initial bundle for the exams page (§ bundle-
+ *  splitting fix — see `exam-builder-drawer.tsx` for the fuller rationale). */
+const RichTextEditor = dynamic(
+  () => import("./rich-text-editor").then((m) => m.RichTextEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[150px] animate-pulse rounded-lg border border-admin-line bg-admin-bg" />
+    ),
+  },
+);
 
 /**
  * Admin-managed catalogue of reusable exam instructions (§ exam authoring) —

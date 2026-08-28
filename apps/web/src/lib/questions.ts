@@ -79,16 +79,33 @@ export type QuestionFilters = Pick<
 >;
 
 /**
+ * Status tallies over the WHOLE filtered set (minus the status filter itself),
+ * not just the returned page — mirrors StudentRoster's `counts`. Needed once
+ * the bank is paginated at a real page size instead of "200 and hope that
+ * covers it": tab badges computed from one loaded page would be wrong the
+ * moment a filter's results exceed one page.
+ */
+export interface QuestionRoster extends Paginated<QuestionListItem> {
+  counts?: {
+    all: number;
+    draft: number;
+    review: number;
+    approved: number;
+    rejected: number;
+    archived: number;
+  };
+}
+
+/**
  * GET /questions — teacher/admin, tenant-scoped.
  *
- * NOTE: the endpoint returns a BARE ARRAY (verified against the live API), not
- * an `{items,total}` envelope like /students. We normalise it into `Paginated`
- * here so callers keep one shape; `total` is the number of rows returned, so
- * pass a `limit` high enough to cover the bank if you rely on it for counts.
+ * Some earlier deployments returned a BARE ARRAY rather than an
+ * `{items,total}` envelope; the array branch below is a defensive fallback
+ * for that, not the shape the current API actually sends.
  */
 export async function listQuestions(
   q: QuestionQuery = {},
-): Promise<Paginated<QuestionListItem>> {
+): Promise<QuestionRoster> {
   const params = new URLSearchParams();
   if (q.status) params.set("status", q.status);
   if (q.subjectId) params.set("subjectId", q.subjectId);
@@ -107,7 +124,7 @@ export async function listQuestions(
   params.set("limit", String(limit));
   params.set("offset", String(offset));
 
-  const res = await apiFetch<QuestionListItem[] | Paginated<QuestionListItem>>(
+  const res = await apiFetch<QuestionListItem[] | QuestionRoster>(
     `/questions?${params}`,
     { token: getToken() ?? undefined },
   );

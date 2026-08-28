@@ -330,6 +330,23 @@ describe('AttemptsService — exam entry approval', () => {
       );
     });
 
+    it('grants the full exam duration even when the entry window is about to close', async () => {
+      const { service, getAttemptRow } = build({
+        attempt: { status: AttemptStatus.APPROVED },
+        examWindow: {
+          startAt: new Date(Date.now() - 120_000),
+          // Window closes in 2 minutes — far short of the 60-minute duration.
+          // The window only gates entry; once in, the student gets the full
+          // duration the teacher set, not whatever's left of the window.
+          endAt: new Date(Date.now() + 120_000),
+        },
+      });
+      const state = await service.begin(ATTEMPT_ID);
+      const expiresAt = getAttemptRow()?.expiresAt as Date;
+      expect(expiresAt.getTime() - Date.now()).toBeGreaterThan(50 * 60_000);
+      expect(state.remainingSeconds).toBeGreaterThan(50 * 60);
+    });
+
     it('refuses to start once the exam window has closed', async () => {
       const { service } = build({
         attempt: { status: AttemptStatus.APPROVED },

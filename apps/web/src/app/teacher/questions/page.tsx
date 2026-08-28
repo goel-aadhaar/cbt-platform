@@ -3,11 +3,13 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { PlusIcon, SearchIcon, UploadIcon } from "@/components/admin/icons";
+import { PaginationBar } from "@/components/pagination-bar";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { QuestionImportModal } from "@/components/admin/question-modals";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { useKeyedAsyncAction } from "@/hooks/use-async-action";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { getUserSnapshot } from "@/lib/auth";
 import { actOnQuestion } from "@/lib/admin";
@@ -43,6 +45,8 @@ function QuestionsScreen() {
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<QuestionListItem[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 50;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -51,29 +55,56 @@ function QuestionsScreen() {
   // has always allowed TEACHER — and a teacher is who actually builds a bank.
   const [importOpen, setImportOpen] = useState(false);
 
-  const load = useCallback(async (s: Scope, term: string) => {
-    setRows(null);
-    try {
-      const res = await listQuestions({
-        limit: 50,
-        ...(s === "mine" ? { mine: true } : {}),
-        ...(term ? { search: term } : {}),
-      });
-      setRows(res.items);
-      setTotal(res.total);
-      setError(null);
-    } catch (e: unknown) {
-      setError(
-        e instanceof Error ? e.message : "Could not load the question bank",
-      );
-      setRows([]);
-    }
-  }, []);
+  const load = useCallback(
+    async (s: Scope, term: string, at: number) => {
+      setRows(null);
+      try {
+        const res = await listQuestions({
+          limit: PAGE,
+          offset: at,
+          ...(s === "mine" ? { mine: true } : {}),
+          ...(term ? { search: term } : {}),
+        });
+        setRows(res.items);
+        setTotal(res.total);
+        setError(null);
+      } catch (e: unknown) {
+        setError(
+          e instanceof Error ? e.message : "Could not load the question bank",
+        );
+        setRows([]);
+      }
+    },
+    [PAGE],
+  );
+
+  // Only the typed term is debounced — scope changes and pagination clicks
+  // resolve in a single change, so delaying those would be lag with nothing
+  // to gain.
+  const debouncedSearch = useDebouncedValue(search, 250);
+
+  /**
+   * A changed scope or (settled) search term invalidates whatever page was
+   * loaded — reset during render (React's documented "adjust state when a
+   * prop changes" pattern) rather than in an effect, to avoid an extra
+   * render and a flash of the stale page before the reset lands.
+   */
+  const filterKey = JSON.stringify([scope, debouncedSearch]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setOffset(0);
+  }
 
   useEffect(() => {
-    const id = setTimeout(() => void load(scope, search.trim()), 250);
+    // Deferred a tick (not a real delay — debouncing already happened above
+    // for the search term) so `load`'s synchronous `setRows(null)` runs
+    // outside the effect body itself, same as the timer this replaced.
+    const id = setTimeout(
+      () => void load(scope, debouncedSearch.trim(), offset),
+    );
     return () => clearTimeout(id);
-  }, [scope, search, load]);
+  }, [scope, debouncedSearch, offset, load]);
 
   /**
    * Submit a draft for an administrator to approve. A teacher cannot approve
@@ -248,6 +279,17 @@ function QuestionsScreen() {
         )}
       </Panel>
 
+      {rows !== null && rows.length > 0 && (
+        <PaginationBar
+          offset={offset}
+          pageSize={PAGE}
+          total={total}
+          onOffsetChange={setOffset}
+          itemLabel="questions"
+          className="mt-4"
+        />
+      )}
+
       <QuestionDetailDrawer
         questionId={openId ?? undefined}
         open={openId !== null}
@@ -256,7 +298,7 @@ function QuestionsScreen() {
       <QuestionAuthorDrawer
         open={authorOpen}
         onClose={() => setAuthorOpen(false)}
-        onCreated={() => void load(scope, search.trim())}
+        onCreated={() => void load(scope, debouncedSearch.trim(), offset)}
       />
       <QuestionImportModal
         open={importOpen}
@@ -268,7 +310,7 @@ function QuestionsScreen() {
                 ? `, ${summary.failed.length} row(s) could not be read.`
                 : "."),
           );
-          void load(scope, search.trim());
+          void load(scope, debouncedSearch.trim(), offset);
         }}
       />
     </TeacherShell>

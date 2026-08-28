@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
+import { useOrgCatalogue } from "@/hooks/use-org-catalogue";
 
-import { listBatches, type BatchRow } from "@/lib/admin";
 import {
   type StudentListItem,
   type UpdateStudentInput,
@@ -40,7 +40,7 @@ export function EditStudentDrawer({
   onChanged?: () => void;
 }) {
   const [name, setName] = useState(student?.name ?? "");
-  const [allBatches, setAllBatches] = useState<BatchRow[]>([]);
+  const allBatches = useOrgCatalogue()?.batches ?? [];
   const [batchId, setBatchId] = useState<string>(student?.batch?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,20 +52,6 @@ export function EditStudentDrawer({
   // shown. No reset effect, by design — lint rule and React guidance both
   // forbid synchronously calling setState in an effect body, and a remount
   // gives the same correctness for free.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    listBatches()
-      .then((rows) => !cancelled && setAllBatches(rows))
-      .catch(
-        (e: unknown) =>
-          !cancelled &&
-          setError(e instanceof Error ? e.message : "Could not load batches."),
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
 
   if (!open || !student) return null;
 
@@ -259,22 +245,10 @@ export function BulkReassignDrawer({
   onChanged?: () => void;
 }) {
   const [targetBatchId, setTargetBatchId] = useState<string>("");
-  const [batches, setBatches] = useState<BatchRow[]>([]);
+  const batches = useOrgCatalogue()?.batches ?? [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    // The parent's onClose sets `reassignOpen: false`, which unmounts this
-    // component (`if (!open) return null` below), so a remount with default
-    // state already gives the reset effect we want — no setState in the body.
-    listBatches()
-      .then(setBatches)
-      .catch((e: unknown) =>
-        setError(e instanceof Error ? e.message : "Could not load batches."),
-      );
-  }, [open]);
 
   if (!open) return null;
 

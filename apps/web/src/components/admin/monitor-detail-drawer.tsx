@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 
-import type { ExamMonitor } from "@/lib/admin";
+import { forceEndExam, pauseExam, type ExamMonitor } from "@/lib/admin";
+import { PaginationBar } from "@/components/pagination-bar";
 
+import { ForceEndExamModal, PauseExamModal } from "./live-exam-actions";
 import { AlertTriangleIcon, ClipboardIcon, RadioIcon, XIcon } from "./icons";
 
 /**
@@ -93,12 +95,29 @@ export function MonitorDetailDrawer({
   open,
   onClose,
   monitor,
+  /**
+   * Pause/force-submit are ADMIN-only server-side (a teacher's pause is
+   * meaningless — teachers never touch a live exam, per the `/exams/:id/pause`
+   * guard). This drawer is shared with the teacher monitoring screen, so the
+   * caller states which role it's rendering for rather than the drawer
+   * guessing from a session it isn't given.
+   */
+  canControl = false,
+  /** Called after a pause/force-submit succeeds, so the caller can refetch
+   *  immediately instead of waiting for its own poll interval. */
+  onActed,
 }: {
   open: boolean;
   onClose: () => void;
   monitor?: ExamMonitor;
+  canControl?: boolean;
+  onActed?: () => void;
 }) {
   const [tab, setTab] = useState(0);
+  const [pausing, setPausing] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   if (!open || !monitor) return null;
 
   // The server's clock, not the browser's: the payload carries `serverTime`,
@@ -106,11 +125,65 @@ export function MonitorDetailDrawer({
   // because the invigilator's machine has drifted. Same principle the exam
   // timer follows — and pure, unlike `Date.now()` in render.
   const now = new Date(monitor.serverTime).getTime();
-  const STUDENTS: Student[] = monitor.students.slice(0, 24).map((s) => {
+  // Mirrors examDisplayStatus()'s LIVE branch (lib/exams.ts): published AND
+  // inside its own window. Pause/force-submit only make sense on an exam
+  // that is actually running right now — not a draft, not one that already
+  // concluded when its window closed.
+  const isLive =
+    monitor.examStatus === "PUBLISHED" &&
+    monitor.window.startAt !== null &&
+    monitor.window.endAt !== null &&
+    now >= Date.parse(monitor.window.startAt) &&
+    now <= Date.parse(monitor.window.endAt);
+
+  async function handlePause(reason: string | undefined) {
+    if (!monitor) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await pauseExam(monitor.examId, reason);
+      setPausing(false);
+      onActed?.();
+      // The drawer's `monitor` is a snapshot taken when it opened, not a live
+      // subscription — closing avoids showing a paused exam with its now-stale
+      // "live" controls until the caller's next poll happens to catch up.
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleForceEnd(reason: string | undefined) {
+    if (!monitor) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await forceEndExam(monitor.examId, reason);
+      setEnding(false);
+      onActed?.();
+      onClose();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const toStudent = (s: (typeof monitor.students)[number]): Student => {
     const idleFor = s.lastActivityAt
       ? now - new Date(s.lastActivityAt).getTime()
       : Infinity;
-    const status: Status = s.flagged
+    // `flagged` only ever becomes true when an auto-submit-for-malpractice
+    // actually fires (maxViolations reached) — a candidate with one or two
+    // recorded violations short of that threshold has `flagged: false` but
+    // `violations > 0`, and the grid used to show them as plain "Working" or
+    // "Submitted" with no indication anything had happened. That's the same
+    // "incident" the stat card and the badge count already use
+    // (`violations > 0 || flagged`) — the grid's own status just wasn't
+    // checking it.
+    const hasIncident = s.flagged || s.violations > 0;
+    const status: Status = hasIncident
       ? "flagged"
       : s.status === "NOT_STARTED" || s.status === "DENIED"
         ? "absent"
@@ -128,10 +201,14 @@ export function MonitorDetailDrawer({
       // hall of two hundred; roll numbers are what gets called out and written
       // on an incident report.
       rollNumber: s.rollNumber,
-      initials: s.flagged ? "!" : initialsOf(s.name),
+      initials: hasIncident ? "!" : initialsOf(s.name),
       status,
     };
-  });
+  };
+  // The grid caps at 24 cards for a scannable overview; the roster and
+  // incident tabs are lists, not cards, so every candidate belongs in them.
+  const ALL_STUDENTS: Student[] = monitor.students.map(toStudent);
+  const STUDENTS: Student[] = ALL_STUDENTS.slice(0, 24);
 
   const submittedCount =
     monitor.counts.submitted + monitor.counts.autoSubmitted;
@@ -258,6 +335,7 @@ export function MonitorDetailDrawer({
                   <Legend color="bg-warn" label="No activity" />
                   <Legend color="bg-success" label="Submitted" />
                   <Legend color="bg-admin-surface" label="Not started" />
+                  <Legend color="bg-[#3b82f6]" label="Awaiting approval" />
                   <Legend color="bg-danger" label="Flagged" />
                 </div>
               </div>
@@ -269,39 +347,74 @@ export function MonitorDetailDrawer({
                 ))}
               </div>
             </>
+          ) : tab === 1 ? (
+            <ParticipantsTable
+              students={monitor.students}
+              display={ALL_STUDENTS}
+            />
           ) : (
-            <p className="py-10 text-center text-admin-muted">
-              {tab === 1
-                ? "Participant roster will appear here."
-                : "Incident log will appear here."}
-            </p>
+            <IncidentsList students={monitor.students} />
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t border-admin-line/60 px-8 py-5">
-          <button
-            disabled
-            title="No broadcast endpoint yet"
-            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
-          >
-            📣 Announce
-          </button>
-          <button
-            disabled
-            title="No pause endpoint yet"
-            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
-          >
-            ❚❚ Pause Exam
-          </button>
-          <button
-            disabled
-            title="No force-submit endpoint yet"
-            className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-          >
-            Force Submit All
-          </button>
+        <footer className="flex flex-col gap-2 border-t border-admin-line/60 px-8 py-5">
+          {actionError && (
+            <p role="alert" className="text-right text-sm text-danger">
+              {actionError}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-3">
+            <button
+              disabled
+              title="No broadcast endpoint yet"
+              className="disabled:cursor-not-allowed disabled:opacity-40 rounded-lg border border-admin-line bg-white px-4 py-2.5 text-sm font-semibold text-admin-ink hover:bg-admin-bg"
+            >
+              📣 Announce
+            </button>
+            {canControl && isLive && (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setPausing(true)}
+                  className="rounded-lg border border-warn bg-white px-4 py-2.5 text-sm font-semibold text-warn hover:bg-warn/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ❚❚ Pause Exam
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setEnding(true)}
+                  className="rounded-lg bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Force Submit All
+                </button>
+              </>
+            )}
+          </div>
         </footer>
       </div>
+
+      {pausing && (
+        <PauseExamModal
+          open
+          examTitle={monitor.title}
+          defaultReason={null}
+          busy={busy}
+          onClose={() => setPausing(false)}
+          onConfirm={handlePause}
+        />
+      )}
+      {ending && (
+        <ForceEndExamModal
+          open
+          examTitle={monitor.title}
+          defaultReason={null}
+          busy={busy}
+          onClose={() => setEnding(false)}
+          onConfirm={handleForceEnd}
+        />
+      )}
     </div>
   );
 }
@@ -335,5 +448,152 @@ function Legend({ color, label }: { color: string; label: string }) {
     <span className="flex items-center gap-1.5">
       <span className={`size-2 rounded-full ${color}`} /> {label}
     </span>
+  );
+}
+
+/**
+ * Full roster, not the Live Grid's capped 24 cards — an invigilator scanning
+ * for one candidate by roll number needs everyone, not just the first screen.
+ */
+const ROSTER_PAGE = 50;
+
+function ParticipantsTable({
+  students,
+  display,
+}: {
+  students: ExamMonitor["students"];
+  display: Student[];
+}) {
+  const [offset, setOffset] = useState(0);
+
+  if (students.length === 0) {
+    return (
+      <p className="py-10 text-center text-admin-muted">
+        No candidates assigned to this exam.
+      </p>
+    );
+  }
+
+  const pageStudents = students.slice(offset, offset + ROSTER_PAGE);
+  const pageDisplay = display.slice(offset, offset + ROSTER_PAGE);
+
+  return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-admin-line/60">
+        <table className="w-full min-w-[520px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
+              <th className="px-4 py-3">Roll Number</th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">Progress</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-admin-line/50">
+            {pageStudents.map((s, i) => (
+              <tr key={s.studentId}>
+                <td className="px-4 py-3 [font-family:var(--font-courier-prime)] text-admin-subtle">
+                  {s.rollNumber}
+                </td>
+                <td className="px-4 py-3 font-semibold text-admin-ink">
+                  {s.name}
+                </td>
+                <td className="px-4 py-3 text-admin-muted">
+                  {STATUS_LOOK[pageDisplay[i].status].label}
+                </td>
+                <td className="px-4 py-3 text-right text-admin-muted">
+                  {s.answered} / {s.totalQuestions}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {students.length > ROSTER_PAGE && (
+        <PaginationBar
+          offset={offset}
+          pageSize={ROSTER_PAGE}
+          total={students.length}
+          onOffsetChange={setOffset}
+          itemLabel="candidates"
+          className="mt-3"
+        />
+      )}
+    </>
+  );
+}
+
+/** Candidates with a recorded violation or a manual flag — what the tab's badge counts. */
+function IncidentsList({ students }: { students: ExamMonitor["students"] }) {
+  const [offset, setOffset] = useState(0);
+  const rows = students.filter((s) => s.violations > 0 || s.flagged);
+
+  if (rows.length === 0) {
+    return (
+      <p className="py-10 text-center text-admin-muted">
+        No incidents recorded — every candidate is within their allowed
+        violations.
+      </p>
+    );
+  }
+
+  const pageRows = rows.slice(offset, offset + ROSTER_PAGE);
+
+  return (
+    <>
+      <div className="overflow-x-auto rounded-xl border border-admin-line/60">
+        <table className="w-full min-w-[560px] text-left text-sm">
+          <thead>
+            <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
+              <th className="px-4 py-3">Roll Number</th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Violations</th>
+              <th className="px-4 py-3">Last Activity</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-admin-line/50">
+            {pageRows.map((s) => (
+              <tr
+                key={s.studentId}
+                className={s.flagged ? "bg-danger-soft/20" : undefined}
+              >
+                <td className="px-4 py-3 [font-family:var(--font-courier-prime)] text-admin-subtle">
+                  {s.rollNumber}
+                </td>
+                <td className="px-4 py-3 font-semibold text-admin-ink">
+                  {s.name}
+                  {s.flagged && (
+                    <span className="ml-2 rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                      Flagged
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 font-semibold text-danger">
+                  {s.violations}
+                </td>
+                <td className="px-4 py-3 text-admin-muted">
+                  {s.lastActivityAt
+                    ? new Date(s.lastActivityAt).toLocaleTimeString("en-IN", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > ROSTER_PAGE && (
+        <PaginationBar
+          offset={offset}
+          pageSize={ROSTER_PAGE}
+          total={rows.length}
+          onOffsetChange={setOffset}
+          itemLabel="incidents"
+          className="mt-3"
+        />
+      )}
+    </>
   );
 }

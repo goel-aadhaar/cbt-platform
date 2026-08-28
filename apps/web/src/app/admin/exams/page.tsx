@@ -230,7 +230,7 @@ export default function ExamsPage() {
   }
 
   const { data, loading, error, reload } = useAdminData(() => listExams());
-  const exams = useMemo(() => data ?? [], [data]);
+  const exams = useMemo(() => data?.items ?? [], [data]);
 
   const withStatus = useMemo(
     () => exams.map((e) => ({ e, s: examDisplayStatus(e) })),
@@ -260,8 +260,7 @@ export default function ExamsPage() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold text-admin-ink">Exams</h2>
-            <p className="mt-1 text-sm text-admin-muted">
+            <p className="text-sm text-admin-muted">
               {exams.length} exams · {approvedQ} questions in use
             </p>
           </div>
@@ -328,149 +327,104 @@ export default function ExamsPage() {
           />
         </div>
 
-        {/* Two-column */}
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.9fr_1fr]">
-          <div className="flex flex-col gap-4">
-            {/* Tabs */}
-            <div className="flex flex-wrap gap-2">
-              {TABS.map((t, i) => {
-                const active = i === tab;
-                const c = t.match
-                  ? withStatus.filter((x) => t.match!.includes(x.s)).length
-                  : exams.length;
-                return (
-                  <button
-                    key={t.label}
-                    onClick={() => setTab(i)}
-                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${active ? "bg-admin text-white" : "bg-white text-admin-muted hover:bg-admin-bg"}`}
+        <div className="flex flex-col gap-4">
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {TABS.map((t, i) => {
+              const active = i === tab;
+              const c = t.match
+                ? withStatus.filter((x) => t.match!.includes(x.s)).length
+                : exams.length;
+              return (
+                <button
+                  key={t.label}
+                  onClick={() => setTab(i)}
+                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${active ? "bg-admin text-white" : "bg-white text-admin-muted hover:bg-admin-bg"}`}
+                >
+                  {t.label}
+                  <span
+                    className={active ? "text-white/80" : "text-admin-subtle"}
                   >
-                    {t.label}
-                    <span
-                      className={active ? "text-white/80" : "text-admin-subtle"}
-                    >
-                      {c}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Filter bar */}
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-admin-line/60 bg-white p-3">
-              <div className="ml-auto flex items-center gap-3">
-                <span className="text-sm text-admin-muted">
-                  Sort by:{" "}
-                  <span className="font-semibold text-admin-ink">
-                    Newest First
+                    {c}
                   </span>
-                </span>
-              </div>
-            </div>
+                </button>
+              );
+            })}
+          </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto rounded-xl border border-admin-line/60 bg-white">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-                    <th className="w-10 px-4 py-3">
-                      <input type="checkbox" className="size-4 accent-admin" />
-                    </th>
-                    <th className="px-4 py-3">Exam Name</th>
-                    <th className="px-4 py-3">Batches</th>
-                    <th className="px-4 py-3">Schedule</th>
-                    <th className="px-4 py-3">Questions</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-admin-line/50">
-                  {loading && <Msg>Loading exams…</Msg>}
-                  {!loading && error && <Msg tone="error">{error}</Msg>}
-                  {!loading && !error && rows.length === 0 && (
-                    <Msg>No exams in this view.</Msg>
-                  )}
-                  {!loading &&
-                    !error &&
-                    rows.map(({ e, s }) => (
-                      <ExamRow
-                        key={e.id}
-                        e={e}
-                        s={s}
-                        busy={busy !== null}
-                        onApprove={() => void approveFromList(e)}
-                        onReject={() => setRejectingExam(e)}
-                        onOpen={() => setReviewingId(e.id)}
-                        onSchedule={(status) =>
-                          setScheduling({ id: e.id, title: e.title, status })
-                        }
-                        onPause={(id, defaultReason) =>
-                          setPausingExam({
-                            id,
-                            title: e.title,
-                            defaultReason,
-                          })
-                        }
-                        onResume={(id) =>
-                          setResumingExam({
-                            id,
-                            title: e.title,
-                            currentReason: e.pauseReason ?? null,
-                          })
-                        }
-                        onEdit={(id) => void liveEditFromList(id)}
-                        onForceEnd={(id, defaultReason) =>
-                          setEndingExam({ id, title: e.title, defaultReason })
-                        }
-                      />
-                    ))}
-                </tbody>
-              </table>
-              <div className="border-t border-admin-line/60 px-4 py-3 text-sm text-admin-muted">
-                Showing {rows.length} of {exams.length} exams
-              </div>
+          {/* Filter bar */}
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-admin-line/60 bg-white p-3">
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-sm text-admin-muted">
+                Sort by:{" "}
+                <span className="font-semibold text-admin-ink">
+                  Newest First
+                </span>
+              </span>
             </div>
           </div>
 
-          {/* Right rail (static) */}
-          <div className="flex flex-col gap-6">
-            <Card>
-              <h3 className="text-lg font-bold text-admin-ink">
-                Live Snapshot
-              </h3>
-              <div className="mt-4 rounded-xl bg-admin-bg p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-admin-muted">Live exams</span>
-                  <span className="text-lg font-bold text-admin-ink">
-                    {countS("LIVE")}
-                  </span>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-col gap-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-admin-muted">Scheduled</span>
-                  <span className="font-semibold text-admin">
-                    {countS("SCHEDULED")}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-admin-muted">Completed</span>
-                  <span className="font-semibold text-admin-ink">
-                    {countS("COMPLETED")}
-                  </span>
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <h3 className="text-lg font-bold text-admin-ink">
-                Critical Alerts
-              </h3>
-              <div className="mt-4 flex items-start gap-3 rounded-xl border border-danger/20 bg-danger-soft/30 p-4">
-                <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-danger" />
-                <p className="text-sm text-admin-ink">
-                  Monitor live exams from the Live Monitoring section.
-                </p>
-              </div>
-            </Card>
+          {/* Table */}
+          <div className="overflow-x-auto rounded-xl border border-admin-line/60 bg-white">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
+                  <th className="w-10 px-4 py-3">
+                    <input type="checkbox" className="size-4 accent-admin" />
+                  </th>
+                  <th className="px-4 py-3">Exam Name</th>
+                  <th className="px-4 py-3">Batches</th>
+                  <th className="px-4 py-3">Schedule</th>
+                  <th className="px-4 py-3">Questions</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-admin-line/50">
+                {loading && <Msg>Loading exams…</Msg>}
+                {!loading && error && <Msg tone="error">{error}</Msg>}
+                {!loading && !error && rows.length === 0 && (
+                  <Msg>No exams in this view.</Msg>
+                )}
+                {!loading &&
+                  !error &&
+                  rows.map(({ e, s }) => (
+                    <ExamRow
+                      key={e.id}
+                      e={e}
+                      s={s}
+                      busy={busy !== null}
+                      onApprove={() => void approveFromList(e)}
+                      onReject={() => setRejectingExam(e)}
+                      onOpen={() => setReviewingId(e.id)}
+                      onSchedule={(status) =>
+                        setScheduling({ id: e.id, title: e.title, status })
+                      }
+                      onPause={(id, defaultReason) =>
+                        setPausingExam({
+                          id,
+                          title: e.title,
+                          defaultReason,
+                        })
+                      }
+                      onResume={(id) =>
+                        setResumingExam({
+                          id,
+                          title: e.title,
+                          currentReason: e.pauseReason ?? null,
+                        })
+                      }
+                      onEdit={(id) => void liveEditFromList(id)}
+                      onForceEnd={(id, defaultReason) =>
+                        setEndingExam({ id, title: e.title, defaultReason })
+                      }
+                    />
+                  ))}
+              </tbody>
+            </table>
+            <div className="border-t border-admin-line/60 px-4 py-3 text-sm text-admin-muted">
+              Showing {rows.length} of {exams.length} exams
+            </div>
           </div>
         </div>
       </div>

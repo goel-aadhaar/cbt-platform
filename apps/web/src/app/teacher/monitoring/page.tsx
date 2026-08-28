@@ -53,7 +53,7 @@ function remainingLabel(m: ExamMonitor): string {
  */
 function useMonitoring() {
   const loader = useCallback(async () => {
-    const exams = await listExams();
+    const exams = (await listExams()).items;
     const live = exams.filter((e) => examDisplayStatus(e) === "LIVE");
 
     const monitors = await Promise.all(
@@ -116,8 +116,7 @@ export default function TeacherMonitoringPage() {
     <TeacherShell title="Live Monitoring">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
         <div>
-          <h2 className="text-3xl font-bold text-admin-ink">Live Monitoring</h2>
-          <p className="mt-1 text-sm text-admin-muted">
+          <p className="text-sm text-admin-muted">
             Your assigned batches only — not the whole institute.
           </p>
           <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-admin-line bg-white px-4 py-2 text-sm font-semibold text-admin-ink">

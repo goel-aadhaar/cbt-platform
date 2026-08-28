@@ -6,6 +6,7 @@ import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { refreshQuestionTaxonomyCatalogue } from "@/lib/admin";
 import {
   createExamCategory,
   deleteExamCategory,
@@ -81,6 +82,7 @@ export default function ExamCategoriesPage() {
           ? `${updated.name} is offered again.`
           : `${updated.name} retired — existing papers keep it, new ones cannot use it.`,
       );
+      refreshQuestionTaxonomyCatalogue();
     });
   }
 
@@ -89,6 +91,7 @@ export default function ExamCategoriesPage() {
       await deleteExamCategory(c.id);
       setItems((prev) => (prev ?? []).filter((x) => x.id !== c.id));
       setNotice(`${c.name} deleted.`);
+      refreshQuestionTaxonomyCatalogue();
     });
   }
 
@@ -103,6 +106,7 @@ export default function ExamCategoriesPage() {
       );
       setNotice(`${updated.name} renamed.`);
       setEditing(null);
+      refreshQuestionTaxonomyCatalogue();
     });
   }
 
@@ -246,6 +250,7 @@ export default function ExamCategoriesPage() {
               `${c.name} created. Teachers can author papers under it now.`,
             );
             setCreating(false);
+            refreshQuestionTaxonomyCatalogue();
           }}
         />
       )}

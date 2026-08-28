@@ -435,9 +435,14 @@ export class AttemptsService {
     if (!exam.endAt || now > exam.endAt) {
       throw new BadRequestException('The exam has ended');
     }
-    // Server-owned deadline: earlier of (now + duration) and the exam window end.
-    const durationEnd = new Date(now.getTime() + exam.durationMinutes * 60_000);
-    const expiresAt = durationEnd < exam.endAt ? durationEnd : exam.endAt;
+    /**
+     * `exam.endAt` only gates ENTRY (checked just above) — the window during
+     * which a student may start. Once in, the clock is the full duration the
+     * teacher set at creation, regardless of how much of the entry window is
+     * left. A student who enters 5 minutes before the window closes still
+     * gets the whole exam, not just those 5 minutes.
+     */
+    const expiresAt = new Date(now.getTime() + exam.durationMinutes * 60_000);
 
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.attempt.updateMany({

@@ -204,6 +204,21 @@ export class MonitoringService {
       else if (r.status === 'AUTO_SUBMITTED') counts.autoSubmitted++;
     }
 
+    const filteredRows = query.status
+      ? rows.filter((r) => r.status === query.status)
+      : rows;
+    // Paged over the (possibly status-filtered) roster, not the DB query
+    // itself — `status` reflects joined attempt state, so it's resolved in
+    // application code either way; slicing here is what keeps a several-
+    // hundred-candidate sitting from shipping as one unscrollable table.
+    // `counts`/`totalStudents` above stay computed from the WHOLE roster,
+    // never from this page.
+    const pageOffset = query.offset ?? 0;
+    const pageRows =
+      query.limit != null
+        ? filteredRows.slice(pageOffset, pageOffset + query.limit)
+        : filteredRows;
+
     return {
       examId: exam.id,
       title: exam.title,
@@ -213,9 +228,10 @@ export class MonitoringService {
       totalQuestions,
       counts,
       serverTime: new Date().toISOString(),
-      students: query.status
-        ? rows.filter((r) => r.status === query.status)
-        : rows,
+      students: pageRows,
+      studentsTotal: filteredRows.length,
+      limit: query.limit ?? filteredRows.length,
+      offset: pageOffset,
     };
   }
 

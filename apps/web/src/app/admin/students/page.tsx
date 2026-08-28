@@ -2,7 +2,7 @@
 
 import type { ComponentType, SVGProps } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useMemo, useState, Suspense } from "react";
 
 import { AddStudentDrawer } from "@/components/admin/add-student-drawer";
 import {
@@ -15,6 +15,8 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { ImportStudentsModal } from "@/components/admin/import-students-modal";
 import { RowActionsMenu } from "@/components/admin/row-actions-menu";
 import { StudentHistoryModal } from "@/components/admin/student-history-modal";
+import { PaginationBar } from "@/components/pagination-bar";
+import { StatCard } from "@/components/staff/charts";
 import {
   CheckIcon,
   CopyIcon,
@@ -29,14 +31,7 @@ import {
   UserXIcon,
 } from "@/components/admin/icons";
 import { useIsHydrated } from "@/hooks/use-auth";
-import {
-  listBatches,
-  listClasses,
-  listPrograms,
-  type BatchRow,
-  type ClassRow,
-  type Program,
-} from "@/lib/admin";
+import { useOrgCatalogue } from "@/hooks/use-org-catalogue";
 import { ApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { getToken } from "@/lib/auth";
@@ -102,6 +97,8 @@ function StudentsPageInner() {
 
   const [rows, setRows] = useState<StudentListItem[] | null>(null);
   const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 200;
   /** Whole-set status tallies from the API (not counted over the loaded page). */
   const [counts, setCounts] = useState({
     all: 0,
@@ -113,7 +110,6 @@ function StudentsPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [batchId, setBatchId] = useState("");
-  const [batches, setBatches] = useState<BatchRow[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   /* Roster query state. Each of these used to be a decorative control. */
@@ -135,8 +131,19 @@ function StudentsPageInner() {
   /** Bulk reassign to a single destination batch — opened from the toolbar. */
   const [reassignOpen, setReassignOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [classes, setClasses] = useState<ClassRow[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
+  const catalogue = useOrgCatalogue();
+  const programs = catalogue?.programs ?? [];
+  const batches = catalogue?.batches ?? [];
+  // Classes narrow to the chosen program, mirroring the org hierarchy —
+  // filtered client-side from the shared catalogue rather than a
+  // per-selection server fetch (§ duplicate-fetch fix).
+  const classes = useMemo(
+    () =>
+      programId
+        ? (catalogue?.classes ?? []).filter((c) => c.programId === programId)
+        : (catalogue?.classes ?? []),
+    [catalogue, programId],
+  );
 
   // Typing re-queries the server, so debounce rather than firing per keystroke.
   /**
@@ -168,22 +175,6 @@ function StudentsPageInner() {
     }
   }
 
-  useEffect(() => {
-    listBatches()
-      .then(setBatches)
-      .catch(() => undefined);
-    listPrograms()
-      .then(setPrograms)
-      .catch(() => undefined);
-  }, []);
-
-  // Classes narrow to the chosen program, mirroring the org hierarchy.
-  useEffect(() => {
-    listClasses(programId || undefined)
-      .then(setClasses)
-      .catch(() => undefined);
-  }, [programId]);
-
   // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
     if (!hydrated) return;
@@ -193,7 +184,8 @@ function StudentsPageInner() {
     }
     let active = true;
     listStudents({
-      limit: 200,
+      limit: PAGE,
+      offset,
       batchId: batchId || undefined,
       classId: classId || undefined,
       programId: programId || undefined,
@@ -234,8 +226,31 @@ function StudentsPageInner() {
     activeTab,
     search,
     sort,
+    offset,
     refreshNonce,
   ]);
+
+  /**
+   * A changed filter invalidates whatever page the operator was on — showing
+   * page 3 of a now-different, possibly-shorter result set would just look
+   * like the filter silently found nothing. Reset during render (React's
+   * documented "adjust state when a prop changes" pattern) rather than in an
+   * effect, which would cost an extra render + a flash of the wrong page
+   * before the reset lands.
+   */
+  const filterKey = JSON.stringify([
+    batchId,
+    classId,
+    programId,
+    activeTab,
+    search,
+    sort,
+  ]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
+    setOffset(0);
+  }
 
   async function handleDeactivate(row: StudentListItem) {
     if (
@@ -433,26 +448,29 @@ function StudentsPageInner() {
           icon={UsersIcon}
           label="Total Students"
           value={fmt(total)}
-          delta="Live"
+          hint="Live"
+          tone="good"
         />
         <StatCard
           icon={UserCheckIcon}
           label="Active Students"
           value={fmt(counts.active)}
-          delta="Live"
+          hint="Live"
+          tone="good"
         />
         <StatCard
           icon={UserXIcon}
           label="Deactivated Students"
           value={fmt(counts.disabled)}
-          delta="Live"
-          down
+          hint="Live"
+          tone="warn"
         />
         <StatCard
           icon={UserPlusIcon}
           label="Pending Credentials"
           value={fmt(counts.pending)}
-          delta="Live"
+          hint="Live"
+          tone="good"
         />
       </div>
 
@@ -709,7 +727,9 @@ function StudentsPageInner() {
                   <td className="px-4 py-4 text-admin-muted">
                     {fmtDate(r.createdAt)}
                   </td>
-                  <td className="px-4 py-4 text-admin-muted">—</td>
+                  <td className="px-4 py-4 text-admin-muted">
+                    {r.addedBy ?? "—"}
+                  </td>
                   <td className="px-4 py-4">
                     <StatusPill status={STATUS_LABEL[r.status]} />
                   </td>
@@ -778,6 +798,14 @@ function StudentsPageInner() {
         </table>
       </div>
 
+      <PaginationBar
+        offset={offset}
+        pageSize={PAGE}
+        total={total}
+        onOffsetChange={setOffset}
+        itemLabel="students"
+      />
+
       <StudentHistoryModal
         studentId={historyFor?.id ?? null}
         studentName={historyFor?.name}
@@ -799,11 +827,12 @@ function StudentsPageInner() {
       <ImportStudentsModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onImported={(s) =>
+        onImported={(s) => {
           setNotice(
             `Imported ${s.imported.length} of ${s.total} students into ${s.batch}.`,
-          )
-        }
+          );
+          refresh();
+        }}
       />
       <EditStudentDrawer
         key={editFor?.id ?? "none"}
@@ -826,41 +855,6 @@ function StudentsPageInner() {
         }}
       />
     </AdminShell>
-  );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  delta,
-  down,
-}: {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  value: string;
-  delta: string;
-  down?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-admin-line/60 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-start justify-between">
-        <span className="flex size-11 items-center justify-center rounded-full bg-admin-surface text-admin-muted">
-          <Icon className="size-5" />
-        </span>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-            down ? "bg-danger-soft text-danger" : "bg-admin-mint/50 text-admin"
-          }`}
-        >
-          {delta}
-        </span>
-      </div>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-        {label}
-      </p>
-      <p className="mt-1 text-3xl font-bold text-admin-ink">{value}</p>
-    </div>
   );
 }
 

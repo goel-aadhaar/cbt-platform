@@ -20,6 +20,7 @@ import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { QueryResultsDto } from './dto/query-results.dto';
 import { SetManualScoreDto } from './dto/set-manual-score.dto';
 import { SetManualScoresDto } from './dto/set-manual-scores.dto';
 import {
@@ -27,6 +28,9 @@ import {
   isCorrect,
   percentilesByScore,
 } from './scoring';
+
+/** See QueryResultsDto for why this default is generous rather than tight. */
+const DEFAULT_RESULTS_PAGE_SIZE = 500;
 
 export interface SectionScore {
   sectionId: string;
@@ -857,32 +861,41 @@ export class ResultsService {
     return { held: res.count, ...(batchId ? { batchId } : {}) };
   }
 
-  async listForExam(examId: string) {
+  async listForExam(examId: string, query: QueryResultsDto = {}) {
     const { batchIds } = await this.requireExam(examId);
-    return this.prisma.result.findMany({
-      where: {
-        examId,
-        instituteId: this.instituteId(),
-        ...(batchIds && { batchId: { in: batchIds } }),
-      },
-      orderBy: { overallRank: 'asc' },
-      select: {
-        id: true,
-        totalScore: true,
-        maxScore: true,
-        correctCount: true,
-        incorrectCount: true,
-        unattemptedCount: true,
-        overallRank: true,
-        batchRank: true,
-        percentile: true,
-        published: true,
-        student: {
-          select: { rollNumber: true, user: { select: { name: true } } },
+    const where: Prisma.ResultWhereInput = {
+      examId,
+      instituteId: this.instituteId(),
+      ...(batchIds && { batchId: { in: batchIds } }),
+    };
+    const limit = query.limit ?? DEFAULT_RESULTS_PAGE_SIZE;
+    const offset = query.offset ?? 0;
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.result.findMany({
+        where,
+        orderBy: { overallRank: 'asc' },
+        select: {
+          id: true,
+          totalScore: true,
+          maxScore: true,
+          correctCount: true,
+          incorrectCount: true,
+          unattemptedCount: true,
+          overallRank: true,
+          batchRank: true,
+          percentile: true,
+          published: true,
+          student: {
+            select: { rollNumber: true, user: { select: { name: true } } },
+          },
+          attempt: { select: { flagged: true, violationCount: true } },
         },
-        attempt: { select: { flagged: true, violationCount: true } },
-      },
-    });
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.result.count({ where }),
+    ]);
+    return { items, total, limit, offset };
   }
 
   /**

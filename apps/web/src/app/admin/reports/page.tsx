@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { CreateReportDrawer } from "@/components/admin/create-report-drawer";
 import { PlusIcon } from "@/components/admin/icons";
+import { PaginationBar } from "@/components/pagination-bar";
 import { BarList, Panel, StatCard } from "@/components/staff/charts";
 import {
   fetchExamAnalytics,
@@ -28,17 +29,29 @@ export default function ReportsPage() {
   const [exams, setExams] = useState<ExamListItem[] | null>(null);
   const [examId, setExamId] = useState<string>("");
   const [results, setResults] = useState<ExamResultRow[] | null>(null);
+  const [resultsTotal, setResultsTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 100;
   const [analytics, setAnalytics] = useState<ExamAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  /** A changed exam invalidates whatever page of its result sheet was
+   *  loaded — reset during render (React's documented "adjust state when a
+   *  prop changes" pattern) rather than in an effect. */
+  const [prevExamId, setPrevExamId] = useState(examId);
+  if (examId !== prevExamId) {
+    setPrevExamId(examId);
+    setOffset(0);
+  }
+
   useEffect(() => {
     let cancelled = false;
     listExams()
-      .then((all) => {
+      .then((res) => {
         if (cancelled) return;
         // Only exams that have actually run can have results worth reading.
-        const sat = all.filter((e) =>
+        const sat = res.items.filter((e) =>
           ["LIVE", "COMPLETED", "PUBLISHED"].includes(examDisplayStatus(e)),
         );
         setExams(sat);
@@ -62,11 +75,12 @@ export default function ReportsPage() {
       setResults(null);
       setAnalytics(null);
       const [r, a] = await Promise.allSettled([
-        listExamResults(examId),
+        listExamResults(examId, { limit: PAGE, offset }),
         fetchExamAnalytics(examId),
       ]);
       if (cancelled) return;
-      setResults(r.status === "fulfilled" ? r.value : []);
+      setResults(r.status === "fulfilled" ? r.value.items : []);
+      setResultsTotal(r.status === "fulfilled" ? r.value.total : 0);
       if (a.status === "fulfilled") setAnalytics(a.value);
       // A result set that has not been evaluated yet is a normal state, not an
       // error — the panels below say so rather than showing a red banner.
@@ -81,19 +95,19 @@ export default function ReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, [examId]);
+  }, [examId, offset]);
 
-  const ranked = (results ?? [])
-    .slice()
-    .sort((a, b) => b.totalScore - a.totalScore);
+  const ranked = useMemo(
+    () => (results ?? []).slice().sort((a, b) => b.totalScore - a.totalScore),
+    [results],
+  );
 
   return (
     <AdminShell title="Reports">
       <div className="mx-auto flex max-w-[1180px] flex-col gap-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold text-admin-ink">Reports</h2>
-            <p className="mt-1 text-sm text-admin-muted">
+            <p className="text-sm text-admin-muted">
               Institute-wide results and score analysis, exam by exam.
             </p>
           </div>
@@ -144,7 +158,7 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
               <StatCard
                 label="Candidates"
-                value={loading ? undefined : (results?.length ?? 0)}
+                value={loading ? undefined : resultsTotal}
               />
               <StatCard
                 label="Average score"
@@ -166,9 +180,11 @@ export default function ReportsPage() {
                 value={
                   loading
                     ? undefined
-                    : ranked.length
-                      ? ranked[0].totalScore
-                      : "—"
+                    : analytics
+                      ? analytics.score.highest
+                      : ranked.length
+                        ? ranked[0].totalScore
+                        : "—"
                 }
               />
               <StatCard
@@ -176,9 +192,11 @@ export default function ReportsPage() {
                 value={
                   loading
                     ? undefined
-                    : ranked.length
-                      ? ranked[ranked.length - 1].totalScore
-                      : "—"
+                    : analytics
+                      ? analytics.score.lowest
+                      : ranked.length
+                        ? ranked[ranked.length - 1].totalScore
+                        : "—"
                 }
               />
             </div>
@@ -275,6 +293,16 @@ export default function ReportsPage() {
                     </tbody>
                   </table>
                 </div>
+              )}
+              {!loading && ranked.length > 0 && (
+                <PaginationBar
+                  offset={offset}
+                  pageSize={PAGE}
+                  total={resultsTotal}
+                  onOffsetChange={setOffset}
+                  itemLabel="candidates"
+                  className="mt-4"
+                />
               )}
             </Panel>
 

@@ -1,6 +1,5 @@
 "use client";
 
-import type { ComponentType, SVGProps } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { useSearchParams } from "next/navigation";
@@ -16,6 +15,7 @@ import {
   type StaffRow,
 } from "@/lib/admin";
 import { ApiError } from "@/lib/api";
+import { StatCard } from "@/components/staff/charts";
 
 import { AddStaffDrawer, StaffDetailsDrawer } from "./staff-drawers";
 import { RowActionsMenu } from "./row-actions-menu";
@@ -253,13 +253,13 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
           icon={ClipboardIcon}
           label="Questions Authored"
           value={loading ? "—" : String(counts.assignments)}
-          tone
+          iconTone="brand"
         />
         <StatCard
           icon={CalendarIcon}
           label="Pending Invitations"
           value={loading ? "—" : String(counts.pending)}
-          tone
+          iconTone="brand"
         />
         <StatCard
           icon={UserXIcon}
@@ -540,39 +540,6 @@ export function StaffRosterView({ role }: { role: "TEACHER" | "ADMIN" }) {
         onClose={() => setDetailsStaff(null)}
         onChanged={() => setRefreshTick((n) => n + 1)}
       />
-    </div>
-  );
-}
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  badge,
-  tone,
-}: {
-  icon: ComponentType<SVGProps<SVGSVGElement>>;
-  label: string;
-  value: string;
-  badge?: string;
-  tone?: boolean;
-}) {
-  return (
-    <div className="rounded-2xl border border-admin-line/60 bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-      <div className="flex items-start justify-between">
-        <span
-          className={`flex size-11 items-center justify-center rounded-full ${tone ? "bg-admin/10 text-admin" : "bg-admin-surface text-admin-muted"}`}
-        >
-          <Icon className="size-5" />
-        </span>
-        {badge && (
-          <span className="rounded-full bg-admin-mint/50 px-2.5 py-1 text-xs font-semibold text-admin">
-            {badge}
-          </span>
-        )}
-      </div>
-      <p className="mt-4 text-sm text-admin-muted">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-admin-ink">{value}</p>
     </div>
   );
 }

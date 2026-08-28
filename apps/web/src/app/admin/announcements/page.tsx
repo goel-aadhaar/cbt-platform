@@ -6,6 +6,7 @@ import { ActionButton } from "@/components/action-button";
 import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PlusIcon } from "@/components/admin/icons";
+import { PaginationBar } from "@/components/pagination-bar";
 import {
   CATEGORY_LOOK,
   createAnnouncement,
@@ -33,6 +34,9 @@ const CATEGORIES: AnnouncementCategory[] = [
 /** Staff authoring for the student notice board. */
 export default function AdminAnnouncementsPage() {
   const [items, setItems] = useState<StaffAnnouncement[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const PAGE = 50;
   // The notice currently open for editing; null means the composer is
   // creating a new one.
   const [editing, setEditing] = useState<StaffAnnouncement | null>(null);
@@ -42,21 +46,25 @@ export default function AdminAnnouncementsPage() {
 
   const reload = useCallback(async () => {
     try {
-      setItems(await listAnnouncements());
+      const res = await listAnnouncements({ limit: PAGE, offset });
+      setItems(res.items);
+      setTotal(res.total);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not load announcements");
       setItems([]);
     }
-  }, []);
+  }, [offset]);
 
   // Initial load uses the promise callbacks directly — calling `reload` from
   // the effect body reads as a synchronous setState to React 19's lint rule.
   useEffect(() => {
     let cancelled = false;
-    listAnnouncements()
-      .then((data) => {
-        if (!cancelled) setItems(data);
+    listAnnouncements({ limit: PAGE, offset })
+      .then((res) => {
+        if (cancelled) return;
+        setItems(res.items);
+        setTotal(res.total);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -75,7 +83,7 @@ export default function AdminAnnouncementsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [offset]);
 
   /**
    * Keyed so one announcement's action cannot release another's lock. The
@@ -251,6 +259,15 @@ export default function AdminAnnouncementsPage() {
               </li>
             ))}
           </ul>
+        )}
+        {items !== null && items.length > 0 && (
+          <PaginationBar
+            offset={offset}
+            pageSize={PAGE}
+            total={total}
+            onOffsetChange={setOffset}
+            itemLabel="announcements"
+          />
         )}
       </div>
     </AdminShell>
