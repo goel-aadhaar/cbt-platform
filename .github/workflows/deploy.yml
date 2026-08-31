@@ -1,0 +1,97 @@
+name: Deploy
+
+# Deploys are gated on CI rather than triggered directly by the push, so a
+# commit that fails lint/typecheck/tests never reaches the server. CI already
+# runs on every push to main; this waits for that run to finish and only acts
+# on a successful one.
+#
+# `workflow_run` deliberately does NOT fire for pull requests from forks, and
+# GitHub does not expose repository secrets to fork-triggered workflows at
+# all. On a public repo that matters: the deploy key below is unreachable to
+# anyone who cannot already push to main.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Lets a failed deploy be retried, or a rollback be pushed out, without
+  # having to make an empty commit.
+  workflow_dispatch:
+
+# The checkout is only here for the workflow's own scripts — the server pulls
+# the source itself — so read access is all this ever needs.
+permissions:
+  contents: read
+
+# One deploy at a time. `cancel-in-progress: false` on purpose: a deploy that
+# is midway through `prisma migrate deploy` must be allowed to finish rather
+# than be killed with the schema half-applied.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    # Skip when CI failed/was cancelled. workflow_dispatch has no upstream run,
+    # so it passes straight through.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    # Attach to a GitHub Environment so required reviewers, wait timers or
+    # branch restrictions can be added later without touching this file.
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+
+    steps:
+      - name: Open an SSH connection
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pinned host key rather than StrictHostKeyChecking=no: without it
+          # the runner would accept ANY host answering on that address, which
+          # is the whole value of verifying it in the first place.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run the deploy script on the server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          # The live checkout on the server. Note this is NOT the '~/cbt-platform'
+          # that DEPLOYMENT.md's walkthrough creates — the running instance was
+          # set up under /var/www. Override with a DEPLOY_PATH variable if that
+          # ever moves.
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/var/www/codonmind' }}
+        run: |
+          # `bash -lc` runs a LOGIN shell. Without it a non-interactive ssh
+          # session skips the profile that puts node/pnpm/pm2 on PATH — the
+          # usual way a deploy that works by hand fails from CI with
+          # "pnpm: command not found".
+          ssh -i ~/.ssh/id_deploy -o IdentitiesOnly=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            bash -lc "'set -euo pipefail; cd $DEPLOY_PATH && ./scripts/deploy.sh'"
+
+      - name: Verify the API is answering
+        # Runs even though the previous step is what fails loudly — this
+        # catches the case where pm2 reloaded happily onto a process that
+        # then died on boot, which `pm2 status` alone would not reveal.
+        if: vars.HEALTH_URL != ''
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS --max-time 10 "${{ vars.HEALTH_URL }}" > /dev/null; then
+              echo "Health check passed."
+              exit 0
+            fi
+            echo "Attempt $i failed; retrying in 6s..."
+            sleep 6
+          done
+          echo "API did not answer ${{ vars.HEALTH_URL }} after the reload." >&2
+          exit 1
