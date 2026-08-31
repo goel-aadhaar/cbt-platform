@@ -35,7 +35,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button, input, textarea { font: inherit; }
+/* No button/input font reset here. Tailwind preflight already applies one
+   (@layer base), and this file is NOT scoped to the landing page the way the
+   import in page.tsx implies: Next hoists route CSS into the shared bundle,
+   so every rule in this file also reaches /admin and /student.
+
+   That matters because nothing here is inside an @layer, and unlayered CSS
+   outranks layered CSS no matter how specific the layered rule is. A
+   `button { font: inherit }` here therefore beat Tailwind's own text-sm and
+   font-semibold utilities, stripping the size and weight off EVERY <button>
+   in the app. The admin sidebar's collapsible group headers are buttons, so
+   they rendered at 16px/400 beside <a> rows at 14px/600 — visibly a
+   different typeface. */
 a { color: inherit; text-decoration: none; }
 
 .shell {

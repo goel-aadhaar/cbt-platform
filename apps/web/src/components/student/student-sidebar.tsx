@@ -60,15 +60,13 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 
 /**
  * Shared by the flat rows (`<a>`) and the group headers (`<button>`) so the
- * two cannot drift apart. `[font-family:inherit]` matters: `font-family` is
- * set on `body`, and a <button> takes the browser's own control font rather
- * than inheriting it unless something overrides that. Preflight normally
- * does, but only if it wins the cascade — which it does not reliably do on a
- * client-side navigation, leaving group headers in the UA font until the next
- * full reload. Same fix as admin-sidebar.tsx.
+ * two cannot drift apart — see admin-sidebar.tsx, which had the same pair of
+ * hand-maintained copies. The group headers rendering in a different size and
+ * weight was an unlayered `button { font: inherit }` in home.css beating
+ * Tailwind's utilities, not anything in this file.
  */
 const NAV_ROW_CLASS =
-  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors [font-family:inherit]";
+  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors";
 
 /**
  * An earlier product decision deliberately kept Exams and Practice Library

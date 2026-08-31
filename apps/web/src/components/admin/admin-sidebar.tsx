@@ -63,18 +63,16 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 /**
  * Shared by the flat rows (`<a>`) and the group headers (`<button>`), which
  * must be visually identical — they were maintained as two copies of the same
- * class string and drifted.
+ * class string, free to drift apart.
  *
- * `[font-family:inherit]` is not redundant: `font-family` is set on `body`
- * (globals.css) and a <button> does not inherit it the way an <a> does — it
- * takes the browser's own control font unless something says otherwise.
- * Preflight normally says so, but that depends on it winning the cascade,
- * which it does not reliably do on a client-side navigation, so the two group
- * headers would render in the UA font until the next full reload. Stating it
- * here does not rely on stylesheet ordering.
+ * The group headers really did render in a different face for a while, and
+ * the cause was NOT here: home.css declared an unlayered
+ * `button { font: inherit }`, and unlayered CSS outranks anything in an
+ * @layer, so it stripped text-sm and font-semibold off every button in the
+ * app. Fixed there. Worth knowing before "fixing" it again from this end.
  */
 const NAV_ROW_CLASS =
-  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors [font-family:inherit]";
+  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors";
 
 const NAV: NavEntry[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: GridIcon },

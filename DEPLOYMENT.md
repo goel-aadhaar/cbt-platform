@@ -12,7 +12,7 @@ instead of "Configure" below:
 - Ready-to-copy env files: `deploy/.env.api.production` and
   `deploy/.env.web.production` (gitignored — never committed, copy them to
   the instance directly, e.g. `scp deploy/.env.api.production
-ec2-user@<ip>:~/cbt-platform/apps/api/.env`). Replace `EC2_PUBLIC_IP` with
+ubuntu@<ip>:/var/www/codonmind/apps/api/.env`). Replace `EC2_PUBLIC_IP` with
   the instance's real address in both first.
 - Use `deploy/nginx.no-domain.conf.example` instead of
   `deploy/nginx.conf.example` — single origin, path-based (`/api/*` →
@@ -52,8 +52,13 @@ sudo mkswap /swapfile
 sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
-git clone https://github.com/goel-aadhaar/cbt-platform.git
-cd cbt-platform
+# The live instance runs from /var/www/codonmind. Owned by the deploying
+# user (ubuntu) rather than root, so deploys — and the GitHub Actions runner
+# that now performs them — never need sudo.
+sudo mkdir -p /var/www
+sudo chown : /var/www
+git clone https://github.com/goel-aadhaar/cbt-platform.git /var/www/codonmind
+cd /var/www/codonmind
 ```
 
 ## Configure
@@ -151,13 +156,46 @@ Then open `https://app.yourdomain.com` and sign in as the superadmin.
 
 ## Subsequent deploys
 
+Deploys are automatic. Pushing to `main` runs CI, and a green CI triggers
+`.github/workflows/deploy.yml`, which runs the same script below on the
+instance itself. Nothing needs to be done by hand.
+
+That workflow runs on a **self-hosted runner** installed on this box, because
+GitHub's hosted runners have no route to it — port 22 is closed to all but
+known addresses, and allowlisting Actions is not viable (7,000+ CIDR ranges
+against a 60-rule security-group limit). The runner connects outbound
+instead, so no port has to be opened.
+
+The runner is a systemd service (`actions.runner.*`) running as `ubuntu`, so
+it has exactly the rights a manual deploy would. If deploys stop happening,
+check it first:
+
 ```bash
+sudo systemctl status 'actions.runner.*'
+```
+
+> [!WARNING]
+> This repository is public, and the runner sits on the production host. A
+> fork's pull request could otherwise propose a workflow that targets the
+> runner and execute a stranger's code here. Two things prevent that and both
+> must stay true: fork PR workflows require maintainer approval (Settings >
+> Actions > General), and CI stays on `ubuntu-latest` so only the deploy job
+> — which never runs for a pull request — goes near this machine.
+
+To deploy by hand anyway (a rollback, or when CI is unavailable):
+
+```bash
+cd /var/www/codonmind
 ./scripts/deploy.sh
 ```
 
-Pulls latest, reinstalls, rebuilds both apps, applies any new migrations, and
-reloads both pm2 processes (zero-downtime for the API; `next start` briefly
-drops connections during its own reload, same as any `next start` restart).
+The workflow can also be re-run from the Actions tab without pushing a
+commit — it accepts a manual `workflow_dispatch` trigger for exactly that.
+
+Either route pulls latest, reinstalls, rebuilds both apps, applies any new
+migrations, and reloads both pm2 processes (zero-downtime for the API;
+`next start` briefly drops connections during its own reload, same as any
+`next start` restart).
 
 ### Never deploy the frontend ahead of the API
 
