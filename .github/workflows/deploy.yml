@@ -69,7 +69,9 @@ jobs:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/var/www/codonmind' }}
         run: |
           cd "$DEPLOY_PATH"
-          ./scripts/deploy.sh
+          # Invoked via `bash` rather than `./scripts/deploy.sh` so the deploy
+          # does not depend on the execute bit surviving a checkout.
+          bash ./scripts/deploy.sh
 
       - name: Verify the API is answering
         # Catches pm2 reloading onto a process that then dies on boot, which
