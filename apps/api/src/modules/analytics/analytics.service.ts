@@ -304,6 +304,7 @@ export class AnalyticsService {
           select: {
             id: true,
             title: true,
+            kind: true,
             startAt: true,
             durationMinutes: true,
           },

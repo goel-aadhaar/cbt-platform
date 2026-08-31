@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { API_LOG_FILE, V1 } from './paths';
 
 export const SUPERADMIN = {
-  email: 'superadmin@drsk.local',
+  email: 'superadmin@codonmind.in',
   password: 'ChangeMe123!',
 };
 /** Password every user created by the suite sets when accepting their invite. */
@@ -339,27 +339,143 @@ export async function getRollNumber(studentToken: string): Promise<string> {
   return res.body.student.rollNumber;
 }
 
+/**
+ * Questions reference Subject/Chapter by id (§2.4 taxonomy), not by name — get-or-create
+ * both, scoped per institute/subject so repeated calls within one tenant (tests that
+ * tag several questions under the same subject) reuse the same row instead of hitting
+ * the catalogue's duplicate-name 409.
+ */
+const subjectIdByInstitute = new Map<string, string>();
+const chapterIdBySubject = new Map<string, string>();
+
+export async function ensureSubjectId(
+  tenant: TenantFixture,
+  name: string,
+): Promise<string> {
+  const key = `${tenant.instituteId}:${name}`;
+  const cached = subjectIdByInstitute.get(key);
+  if (cached) return cached;
+
+  const created = await api<{ id: string }>('/subjects', {
+    method: 'POST',
+    token: tenant.adminToken,
+    body: { name },
+  });
+  if (created.status === 201) {
+    subjectIdByInstitute.set(key, created.body.id);
+    return created.body.id;
+  }
+
+  const list = await api<{ id: string; name: string }[]>('/subjects', {
+    token: tenant.adminToken,
+  });
+  const found = list.body.find((s) => s.name === name);
+  if (!found) throw new Error(`Could not create or find subject '${name}'`);
+  subjectIdByInstitute.set(key, found.id);
+  return found.id;
+}
+
+export async function ensureChapterId(
+  tenant: TenantFixture,
+  subjectId: string,
+  name: string,
+): Promise<string> {
+  const key = `${subjectId}:${name}`;
+  const cached = chapterIdBySubject.get(key);
+  if (cached) return cached;
+
+  const created = await api<{ id: string }>('/chapters', {
+    method: 'POST',
+    token: tenant.adminToken,
+    body: { subjectId, name },
+  });
+  if (created.status === 201) {
+    chapterIdBySubject.set(key, created.body.id);
+    return created.body.id;
+  }
+
+  const list = await api<{ id: string; name: string }[]>(
+    `/chapters?subjectId=${subjectId}`,
+    { token: tenant.adminToken },
+  );
+  const found = list.body.find((c) => c.name === name);
+  if (!found) throw new Error(`Could not create or find chapter '${name}'`);
+  chapterIdBySubject.set(key, found.id);
+  return found.id;
+}
+
+export interface AttemptState {
+  id: string;
+  status: string;
+  remainingSeconds: number;
+  responses: { questionId: string; answer: unknown; status: string }[];
+}
+
+/**
+ * Requests entry and begins the attempt — the full sequence every candidate
+ * goes through before a response can be saved. A fresh Attempt defaults to
+ * PENDING_APPROVAL (attempt.prisma), and saveResponse()/submit() both require
+ * IN_PROGRESS, which only begin() sets (it's also what creates the attempt's
+ * Response rows — nothing exists to answer before it runs). A Mock Test
+ * candidate needs an admin's approve() in between; an Assessment auto-
+ * approves on entry (§ Assessments) and skips straight to begin() — this
+ * reads the entry's own status back rather than assuming which, so it works
+ * for both kinds unmodified.
+ */
+export async function beginAttempt(
+  tenant: TenantFixture,
+  studentToken: string,
+  examId: string,
+): Promise<AttemptState> {
+  const entry = await api<{ id: string; status: string }>('/attempts', {
+    method: 'POST',
+    token: studentToken,
+    body: { examId },
+  });
+  if (entry.body.status === 'PENDING_APPROVAL') {
+    await api(`/attempts/${entry.body.id}/approve`, {
+      method: 'POST',
+      token: tenant.adminToken,
+    });
+  }
+  const begun = await api<AttemptState>(`/attempts/${entry.body.id}/begin`, {
+    method: 'POST',
+    token: studentToken,
+  });
+  return begun.body;
+}
+
 /** Authors a question as the teacher and approves it as the admin. */
 export async function createApprovedQuestion(
   tenant: TenantFixture,
   overrides: Record<string, unknown> = {},
 ): Promise<string> {
+  const {
+    subject = 'Physics',
+    chapter = 'Mechanics',
+    ...rest
+  } = overrides as { subject?: string; chapter?: string } & Record<
+    string,
+    unknown
+  >;
+  const subjectId = await ensureSubjectId(tenant, subject);
+  const chapterId = await ensureChapterId(tenant, subjectId, chapter);
+
   const created = await api<{ id: string }>('/questions', {
     method: 'POST',
     token: tenant.teacherToken,
     body: {
-      subject: 'Physics',
-      chapter: 'Mechanics',
+      subjectId,
+      chapterId,
       difficulty: 'EASY',
       type: 'MCQ',
-      examType: 'NEET',
       statement: 'What is the unit of force?',
       options: [
         { key: 'A', text: 'Newton' },
         { key: 'B', text: 'Joule' },
       ],
       answerKey: 'A',
-      ...overrides,
+      ...rest,
     },
   });
   expectStatus(created, 201);
@@ -459,7 +575,8 @@ export async function createPublishedExam(
     method: 'POST',
     token: tenant.adminToken,
   });
-  expectStatus(published, 201);
+  // exams.controller.ts's publish() is @HttpCode(HttpStatus.OK).
+  expectStatus(published, 200);
 
   return { examId, sectionId };
 }

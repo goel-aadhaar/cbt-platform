@@ -9,6 +9,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { ExamKind } from '../exams/exam.types';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import {
   AttemptStatus,
@@ -120,8 +121,12 @@ export class AttemptsService {
    * assigned to the student's batch, and not yet submitted. Backs the student
    * portal's "Start a live exam" CTA so the wizard doesn't need a hard-coded
    * examId (the seed wipes + re-ids the demo tenant on every reseed).
+   *
+   * `kind` defaults to MOCK_TEST so every pre-existing caller (the "Live
+   * Exam" flow) keeps seeing exactly what it saw before Assessments existed;
+   * the student's "My Assessments" list passes ASSESSMENT explicitly.
    */
-  async availableForStudent() {
+  async availableForStudent(kind: ExamKind = ExamKind.MOCK_TEST) {
     const student = await this.currentStudent();
     const now = new Date();
 
@@ -129,6 +134,7 @@ export class AttemptsService {
       where: {
         instituteId: student.instituteId,
         status: 'PUBLISHED',
+        kind,
         startAt: { lte: now },
         endAt: { gt: now },
         batches: { some: { batchId: student.batchId } },
@@ -157,6 +163,7 @@ export class AttemptsService {
       where: {
         instituteId: student.instituteId,
         status: 'PUBLISHED',
+        kind,
         startAt: { gt: now },
         batches: { some: { batchId: student.batchId } },
       },
@@ -209,6 +216,7 @@ export class AttemptsService {
           status: 'PUBLISHED',
         },
         select: {
+          kind: true,
           startAt: true,
           endAt: true,
           // Only this student's assignment — presence means they may sit it.
@@ -235,6 +243,16 @@ export class AttemptsService {
       throw new ForbiddenException('You are not assigned to this exam');
     }
 
+    /**
+     * Assessment has no entry-approval gate at all (§ Assessments — "no
+     * admin involvement"): a student's request is auto-approved the instant
+     * it's made, landing straight on APPROVED so the very next call is
+     * `begin()`, same as a Mock Test candidate who has just been let in by
+     * an admin. The waiting-room UI still works unmodified — it just never
+     * observes a PENDING_APPROVAL state to wait on for this kind.
+     */
+    const isAssessment = exam.kind === ExamKind.ASSESSMENT;
+
     if (existing) {
       if (existing.status === AttemptStatus.ABANDONED) {
         throw new ConflictException(
@@ -244,12 +262,21 @@ export class AttemptsService {
       if (existing.status === AttemptStatus.DENIED) {
         return this.prisma.attempt.update({
           where: { id: existing.id },
-          data: {
-            status: AttemptStatus.PENDING_APPROVAL,
-            deniedAt: null,
-            deniedById: null,
-            denialReason: null,
-          },
+          data: isAssessment
+            ? {
+                status: AttemptStatus.APPROVED,
+                approvedAt: now,
+                approvedById: null,
+                deniedAt: null,
+                deniedById: null,
+                denialReason: null,
+              }
+            : {
+                status: AttemptStatus.PENDING_APPROVAL,
+                deniedAt: null,
+                deniedById: null,
+                denialReason: null,
+              },
           select: { id: true, status: true, denialReason: true },
         });
       }
@@ -264,6 +291,10 @@ export class AttemptsService {
           instituteId: student.instituteId,
           examId,
           studentId: student.id,
+          ...(isAssessment && {
+            status: AttemptStatus.APPROVED,
+            approvedAt: now,
+          }),
         },
         select: { id: true, status: true, denialReason: true },
       });
@@ -425,6 +456,7 @@ export class AttemptsService {
     const exam = await this.prisma.exam.findUniqueOrThrow({
       where: { id: attempt.examId },
       select: {
+        kind: true,
         durationMinutes: true,
         endAt: true,
         questions: { select: { questionId: true } },
@@ -436,13 +468,34 @@ export class AttemptsService {
       throw new BadRequestException('The exam has ended');
     }
     /**
-     * `exam.endAt` only gates ENTRY (checked just above) — the window during
-     * which a student may start. Once in, the clock is the full duration the
-     * teacher set at creation, regardless of how much of the entry window is
-     * left. A student who enters 5 minutes before the window closes still
-     * gets the whole exam, not just those 5 minutes.
+     * The one deliberate timer difference between the two exam kinds
+     * (§ Assessments' "critical timer requirement" — the same rule NTA-style
+     * proctored windows use):
+     *
+     *  MOCK_TEST  — `exam.endAt` only gates ENTRY (checked just above); once
+     *               in, the clock is the FULL duration regardless of how
+     *               much of the entry window is left. A student who enters
+     *               5 minutes before the window closes still gets the whole
+     *               exam. (Regression-tested — see
+     *               attempts.entry-approval.spec.ts.)
+     *
+     *  ASSESSMENT — the available time is `MIN(duration, windowEnd - now)`.
+     *               A student starting with only 30 minutes left in the
+     *               window gets 30 minutes, not the full configured
+     *               duration, and the exam still cannot outlive its own
+     *               window regardless of when someone starts it.
+     *
+     * Both branches compute purely from the SERVER's own clock and the
+     * exam's own `endAt` — nothing here ever reads a client-supplied value,
+     * so there is no field a manipulated request could use to buy extra time.
      */
-    const expiresAt = new Date(now.getTime() + exam.durationMinutes * 60_000);
+    const fullDuration = new Date(
+      now.getTime() + exam.durationMinutes * 60_000,
+    );
+    const expiresAt =
+      exam.kind === ExamKind.ASSESSMENT
+        ? new Date(Math.min(fullDuration.getTime(), exam.endAt.getTime()))
+        : fullDuration;
 
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.attempt.updateMany({

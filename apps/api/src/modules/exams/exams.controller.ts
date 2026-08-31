@@ -177,8 +177,16 @@ export class ExamsController {
 
   // --- Admin-only: finalize + publish ---
 
+  /**
+   * Admin-only for a Mock Test (the batch/schedule step an approver owns),
+   * but also teacher-callable for an Assessment — there is no admin step on
+   * that workflow at all. exams.service.ts's assignBatch() enforces both
+   * halves of that split: a teacher touching a Mock Test row is rejected
+   * there, and a teacher touching an Assessment is limited to batches they
+   * are personally authorized for (§ Assessments).
+   */
   @Post(':id/batches')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   assignBatch(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AssignBatchDto,
@@ -204,6 +212,22 @@ export class ExamsController {
     @Body() dto: ScheduleExamDto,
   ) {
     return this.exams.schedule(id, dto);
+  }
+
+  /**
+   * Assessment's whole "approve → schedule → publish" (§ Assessments), in
+   * one teacher-callable action: schedule AND publish their own draft
+   * assessment directly. No admin role reaches this — there is nothing for
+   * an admin to do on an assessment's path to going live.
+   */
+  @Post(':id/schedule-assessment')
+  @Roles(Role.TEACHER)
+  @HttpCode(HttpStatus.OK)
+  scheduleAssessment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ScheduleExamDto,
+  ) {
+    return this.exams.scheduleAssessment(id, dto);
   }
 
   @Post(':id/publish')

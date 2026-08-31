@@ -31,6 +31,27 @@ enum ResultPolicy {
   BATCH_WISE
 }
 
+/// Which of the two exam workflows a row belongs to (§ Assessments). Both kinds
+/// share the exact same Exam/Attempt/Result engine — sections, questions,
+/// marking, the CBT runner, evaluation, ranking, leaderboard are all identical
+/// code paths. Only the authoring/lifecycle rules genuinely differ:
+///
+///  MOCK_TEST  — teacher authors, a named admin reviews and approves, an admin
+///               schedules/publishes/pauses/force-ends it. Entry requires
+///               admin approval. Default, so every pre-existing row is
+///               unaffected by this column's addition.
+///  ASSESSMENT — teacher authors AND schedules/publishes directly (no review,
+///               no approval, no admin involvement, no live monitoring).
+///               Entry is auto-approved. `resultPolicy` is forced to
+///               IMMEDIATE at creation, and the exam auto-closes at `endAt`
+///               (see AssessmentClosureService), which evaluates, ranks and
+///               publishes results/leaderboard with nobody needing to click
+///               anything.
+enum ExamKind {
+  MOCK_TEST
+  ASSESSMENT
+}
+
 /// Post-exam grace-marks / remediation handling for a question (§2.5, §2.9).
 /// NORMAL = score against the answer key; BONUS = award full marks to everyone;
 /// DROPPED = exclude from scoring and from max marks; MANUAL = exclude from
@@ -118,6 +139,10 @@ model Exam {
   fullscreenRequired Boolean     @default(true) @map("fullscreen_required")
   maxViolations      Int         @default(0) @map("max_violations")
   status            ExamStatus   @default(DRAFT)
+  /// MOCK_TEST (default) or ASSESSMENT — see ExamKind. Never changes after
+  /// creation; the two workflows are distinguished at authoring time, not
+  /// converted between.
+  kind              ExamKind     @default(MOCK_TEST)
   resultPolicy      ResultPolicy @default(ON_PUBLISH) @map("result_policy")
   startAt           DateTime?    @map("start_at")
   endAt             DateTime?    @map("end_at")
@@ -142,6 +167,14 @@ model Exam {
   forceEndedById   String?   @map("force_ended_by_id") @db.Uuid
   pauseReason      String?   @map("pause_reason")
 
+  /// Set the moment AssessmentClosureService's sweep finishes closing this
+  /// ASSESSMENT and triggering evaluation — the idempotency guard that stops
+  /// an overlapping tick from processing the same row twice, and the audit
+  /// signal that this was closed by the scheduler rather than an admin
+  /// (which is what `forceEndedAt` means, and does not apply here since no
+  /// admin acted). Always null for MOCK_TEST rows.
+  autoClosedAt     DateTime? @map("auto_closed_at")
+
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
@@ -165,6 +198,9 @@ model Exam {
   @@index([instituteId])
   @@index([instituteId, status])
   @@index([instituteId, categoryId])
+  /// Backs AssessmentClosureService's sweep: find PUBLISHED assessments whose
+  /// window has ended and that haven't been auto-closed yet.
+  @@index([kind, status, endAt])
   @@map("exams")
 }
 

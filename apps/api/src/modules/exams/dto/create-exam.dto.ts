@@ -9,9 +9,18 @@ import {
   MinLength,
 } from 'class-validator';
 
-import { ResultPolicy } from '../exam.types';
+import { ExamKind, ResultPolicy } from '../exam.types';
 
 export class CreateExamDto {
+  /**
+   * MOCK_TEST (default) or ASSESSMENT (§ Assessments) — picks which workflow
+   * this exam follows for the rest of its life. Omitted by every existing
+   * caller, so every existing exam-creation path is unaffected.
+   */
+  @IsOptional()
+  @IsEnum(ExamKind)
+  kind?: ExamKind;
+
   @IsString()
   @MinLength(2)
   title: string;

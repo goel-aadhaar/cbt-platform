@@ -1,6 +1,7 @@
 import { Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
@@ -60,7 +61,18 @@ import { StudentsModule } from './modules/students/students.module';
       expandVariables: true,
       load: [appConfig, databaseConfig, authConfig],
       validate: validateEnv,
-      envFilePath: ['.env'],
+      /**
+       * `dotenv-expand` (pulled in by `expandVariables`) writes every parsed
+       * key straight into `process.env`, unconditionally — it doesn't check
+       * whether the caller already set that variable. That makes the real
+       * .env file the only source of truth no matter what a spawning process
+       * passes in `env`, which the real-DB test suite relies on being able to
+       * override (it forces the console mail adapter so OTP codes land in the
+       * log it reads, instead of a live Resend/SES account). ENV_FILE_PATH
+       * lets that suite point this at a sanitized copy instead of patching
+       * process.env after the fact.
+       */
+      envFilePath: [process.env.ENV_FILE_PATH ?? '.env'],
     }),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
@@ -81,6 +93,12 @@ import { StudentsModule } from './modules/students/students.module';
         };
       },
     }),
+    // Registered exactly once, here, at the root — every @Cron() elsewhere
+    // in the app (currently just AssessmentClosureService) works off this
+    // one registration. The first scheduled/background job this codebase
+    // has: every other "expiry" concept (OTP, session, an attempt's own
+    // clock) is checked lazily on the next request instead.
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     AuditModule,

@@ -55,8 +55,12 @@ function ExamInstructionsInner() {
   const router = useRouter();
   const params = useSearchParams();
   const examId = params.get("examId");
+  // Which list to search for this exam (§ Assessments) — an assessment's id
+  // only exists in the ASSESSMENT-scoped list, never the default Mock Test
+  // one, so this has to travel with the link that brought the student here.
+  const kind = params.get("kind") === "ASSESSMENT" ? "ASSESSMENT" : undefined;
   const [agreed, setAgreed] = useState(false);
-  const { items } = useAvailableExams();
+  const { items } = useAvailableExams(kind);
   const exam = items.find((e) => e.id === examId);
 
   const [phase, setPhase] = useState<Phase>("idle");

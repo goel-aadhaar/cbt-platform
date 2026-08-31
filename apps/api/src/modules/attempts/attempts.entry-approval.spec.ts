@@ -37,6 +37,9 @@ describe('AttemptsService — exam entry approval', () => {
     /** No existing attempt row at all — the fresh-request path. */
     noAttempt?: boolean;
     examWindow?: { startAt: Date; endAt: Date };
+    /** MOCK_TEST (default) or ASSESSMENT — see the capped-timer tests below. */
+    examKind?: 'MOCK_TEST' | 'ASSESSMENT';
+    durationMinutes?: number;
     role?: 'STUDENT' | 'ADMIN';
   }) {
     const now = Date.now();
@@ -44,9 +47,10 @@ describe('AttemptsService — exam entry approval', () => {
       id: EXAM_ID,
       instituteId: INSTITUTE,
       status: 'PUBLISHED',
+      kind: opts.examKind ?? 'MOCK_TEST',
       startAt: opts.examWindow?.startAt ?? new Date(now - 60_000),
       endAt: opts.examWindow?.endAt ?? new Date(now + 60 * 60_000),
-      durationMinutes: 60,
+      durationMinutes: opts.durationMinutes ?? 60,
       batches: [{ id: 'eb-1' }],
       questions: [{ questionId: 'q-1' }, { questionId: 'q-2' }],
     };
@@ -274,6 +278,38 @@ describe('AttemptsService — exam entry approval', () => {
         ForbiddenException,
       );
     });
+
+    it('ASSESSMENT: auto-approves a fresh request — no PENDING_APPROVAL, no admin gate', async () => {
+      const { service, getAttemptRow } = build({
+        noAttempt: true,
+        examKind: 'ASSESSMENT',
+      });
+      const out = await service.requestEntry(EXAM_ID);
+      expect(out.status).toBe(AttemptStatus.APPROVED);
+      expect(getAttemptRow()?.approvedAt).toBeInstanceOf(Date);
+      // Never touched by an admin — this is a system auto-approval, not a
+      // real decision, so it must not misrepresent one in the audit trail.
+      expect(getAttemptRow()?.approvedById).toBeUndefined();
+    });
+
+    it('ASSESSMENT: re-requesting after a DENIED row still lands on APPROVED, not PENDING_APPROVAL', async () => {
+      // DENIED should never actually occur for an assessment (no admin deny
+      // endpoint is reachable for this kind) — this only proves the
+      // no-admin-gate guarantee holds even in that defensive edge case.
+      const { service } = build({
+        examKind: 'ASSESSMENT',
+        attempt: { status: AttemptStatus.DENIED, denialReason: 'stale' },
+      });
+      const out = await service.requestEntry(EXAM_ID);
+      expect(out.status).toBe(AttemptStatus.APPROVED);
+    });
+
+    it('MOCK_TEST: a fresh request still lands on PENDING_APPROVAL (unchanged)', async () => {
+      const { service, getAttemptRow } = build({ noAttempt: true });
+      const out = await service.requestEntry(EXAM_ID);
+      expect(out.status).toBe(AttemptStatus.PENDING_APPROVAL);
+      expect(getAttemptRow()?.approvedAt).toBeUndefined();
+    });
   });
 
   describe('getEntry()', () => {
@@ -357,6 +393,109 @@ describe('AttemptsService — exam entry approval', () => {
       });
       await expect(service.begin(ATTEMPT_ID)).rejects.toThrow(
         BadRequestException,
+      );
+    });
+  });
+
+  /**
+   * ASSESSMENT's one deliberate timer difference from MOCK_TEST (§ Assessments
+   * — "critical timer requirement"): available time is
+   * MIN(duration, windowEnd - startTime), computed purely from the server's
+   * own clock and the exam's own endAt. Mirrors the brief's own worked
+   * example table (3h duration, a window closing at a fixed clock time) as
+   * relative minutes-remaining-in-window, since faking the system clock is
+   * not this codebase's convention for this kind of test (see
+   * teacher-scope/system-metrics specs) — MIN(duration, remaining) is the
+   * exact same relationship regardless of what the wall-clock reads.
+   */
+  describe('begin() — ASSESSMENT capped timer (§ Assessments)', () => {
+    const THREE_HOURS = 180;
+    const TOLERANCE_MS = 5_000; // wall-clock drift between setup and assertion
+
+    it.each([
+      // [minutes remaining in the window, expected available minutes]
+      [9 * 60, THREE_HOURS], // "starts at 12 PM" — window barely touched
+      [5 * 60, THREE_HOURS], // "starts at 4 PM" — still plenty of window left
+      [2 * 60, 2 * 60], // "starts at 7 PM" — window is the binding constraint
+      [60, 60], // "starts at 8 PM"
+      [30, 30], // "starts at 8:30 PM"
+      [1, 1], // "starts at 8:59 PM"
+    ])(
+      'window has %i min left, duration 180 min -> available %i min',
+      async (minutesLeft, expectedMinutes) => {
+        const { service, getAttemptRow } = build({
+          examKind: 'ASSESSMENT',
+          durationMinutes: THREE_HOURS,
+          attempt: { status: AttemptStatus.APPROVED },
+          examWindow: {
+            startAt: new Date(Date.now() - 60_000),
+            endAt: new Date(Date.now() + minutesLeft * 60_000),
+          },
+        });
+        const before = Date.now();
+        const state = await service.begin(ATTEMPT_ID);
+        const expiresAt = getAttemptRow()?.expiresAt as Date;
+        const grantedMs = expiresAt.getTime() - before;
+        const expectedMs = expectedMinutes * 60_000;
+        expect(Math.abs(grantedMs - expectedMs)).toBeLessThan(TOLERANCE_MS);
+        expect(
+          Math.abs(state.remainingSeconds - expectedMinutes * 60),
+        ).toBeLessThan(TOLERANCE_MS / 1000);
+      },
+    );
+
+    it('duration longer than the remaining window -> timer is reduced to the remaining window (never exceeds endAt)', async () => {
+      const { service, getAttemptRow } = build({
+        examKind: 'ASSESSMENT',
+        durationMinutes: THREE_HOURS,
+        attempt: { status: AttemptStatus.APPROVED },
+        examWindow: {
+          startAt: new Date(Date.now() - 60_000),
+          endAt: new Date(Date.now() + 10 * 60_000), // only 10 min left
+        },
+      });
+      await service.begin(ATTEMPT_ID);
+      const expiresAt = getAttemptRow()?.expiresAt as Date;
+      // Must land at the window boundary, never past it.
+      expect(expiresAt.getTime()).toBeLessThanOrEqual(
+        Date.now() + 10 * 60_000 + TOLERANCE_MS,
+      );
+    });
+
+    it('duration shorter than the remaining window -> student receives the full duration', async () => {
+      const { service, getAttemptRow } = build({
+        examKind: 'ASSESSMENT',
+        durationMinutes: 30,
+        attempt: { status: AttemptStatus.APPROVED },
+        examWindow: {
+          startAt: new Date(Date.now() - 60_000),
+          endAt: new Date(Date.now() + 8 * 60 * 60_000), // 8h left in the window
+        },
+      });
+      const before = Date.now();
+      await service.begin(ATTEMPT_ID);
+      const expiresAt = getAttemptRow()?.expiresAt as Date;
+      expect(Math.abs(expiresAt.getTime() - before - 30 * 60_000)).toBeLessThan(
+        TOLERANCE_MS,
+      );
+    });
+
+    it('MOCK_TEST is unaffected by this cap — same exam shape still grants the full duration (regression)', async () => {
+      const { service, getAttemptRow } = build({
+        examKind: 'MOCK_TEST',
+        durationMinutes: THREE_HOURS,
+        attempt: { status: AttemptStatus.APPROVED },
+        examWindow: {
+          startAt: new Date(Date.now() - 60_000),
+          endAt: new Date(Date.now() + 60_000), // window closes in 1 minute
+        },
+      });
+      const before = Date.now();
+      await service.begin(ATTEMPT_ID);
+      const expiresAt = getAttemptRow()?.expiresAt as Date;
+      // Uncapped: gets the full 3 hours despite the window closing in 1 minute.
+      expect(expiresAt.getTime() - before).toBeGreaterThan(
+        THREE_HOURS * 60_000 - TOLERANCE_MS,
       );
     });
   });

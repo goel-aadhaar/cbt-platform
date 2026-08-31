@@ -35,8 +35,12 @@ enum ResponseStatus {
 }
 
 /// A student's attempt at an exam (§2.2). One per student per exam. The server
-/// owns the clock: `expiresAt` is computed at start (min of start+duration and
-/// the exam window) so the timer is refresh/reconnection-safe and auto-submits.
+/// owns the clock: `expiresAt` is computed at begin() from the server's own
+/// time, so the timer is refresh/reconnection-safe and auto-submits. How it is
+/// computed depends on the exam's kind — a MOCK_TEST gets its full configured
+/// duration (its window gates entry only), while an ASSESSMENT gets
+/// MIN(duration, window remaining) because it closes itself at its window end
+/// with no invigilator to extend it. See attempts.service.ts's begin().
 model Attempt {
   id          String        @id @default(uuid()) @db.Uuid
   instituteId String        @map("institute_id") @db.Uuid

@@ -3,6 +3,8 @@ import {
   api,
   countOtpCodes,
   createApprovedQuestion,
+  ensureChapterId,
+  ensureSubjectId,
   getRollNumber,
   loginStaff,
   PASSWORD,
@@ -268,15 +270,16 @@ describe('Auth, RBAC and tenant isolation', () => {
     });
 
     it('a teacher cannot approve their own question', async () => {
+      const subjectId = await ensureSubjectId(tenantA, 'Physics');
+      const chapterId = await ensureChapterId(tenantA, subjectId, 'Optics');
       const created = await api<{ id: string }>('/questions', {
         method: 'POST',
         token: tenantA.teacherToken,
         body: {
-          subject: 'Physics',
-          chapter: 'Optics',
+          subjectId,
+          chapterId,
           difficulty: 'EASY',
           type: 'MCQ',
-          examType: 'NEET',
           statement: 'Self approval?',
           options: [
             { key: 'A', text: '1' },

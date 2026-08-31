@@ -1,8 +1,12 @@
 import {
   addStudent,
   api,
+  beginAttempt,
   createApprovedQuestion,
   createPublishedExam,
+  ensureChapterId,
+  ensureSubjectId,
+  expectStatus,
   getRollNumber,
   setupTenant,
   TenantFixture,
@@ -31,6 +35,35 @@ describe('Exam lifecycle and results engine', () => {
    */
   const rollToLabel: Record<string, string> = {};
 
+  interface ResultRow {
+    totalScore: number;
+    maxScore: number;
+    correctCount: number;
+    incorrectCount: number;
+    unattemptedCount: number;
+    overallRank: number;
+    batchRank: number;
+    percentile: number;
+    student: { rollNumber: string };
+  }
+
+  /**
+   * `/exams/:id/results` answers with a PAGINATED envelope
+   * (`{items, total, limit, offset}`), the same shape the question bank uses
+   * — a result sheet is per-candidate, so it is bounded by the batch size and
+   * paged for the same reason. Unwraps it and re-keys the rows by their local
+   * TOP/MID/LOW label, so every assertion below stays a hand-checkable lookup.
+   */
+  async function resultsByLabel(): Promise<Record<string, ResultRow>> {
+    const res = await api<{ items: ResultRow[] }>(`/exams/${examId}/results`, {
+      token: tenant.adminToken,
+    });
+    expectStatus(res, 200);
+    return Object.fromEntries(
+      res.body.items.map((r) => [rollToLabel[r.student.rollNumber], r]),
+    );
+  }
+
   // Heavy fixture: an institute, staff, two questions, a published exam and
   // three candidates who each sit it — ~50 round-trips to the database.
   beforeAll(async () => {
@@ -56,12 +89,8 @@ describe('Exam lifecycle and results engine', () => {
 
       rollToLabel[await getRollNumber(token)] = roll;
 
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, token, examId);
+      const attemptId = begun.id;
       attempts[roll] = attemptId;
 
       if (a1) {
@@ -143,15 +172,16 @@ describe('Exam lifecycle and results engine', () => {
     });
 
     it('rejects a question that is not APPROVED (§2.4)', async () => {
+      const subjectId = await ensureSubjectId(tenant, 'Physics');
+      const chapterId = await ensureChapterId(tenant, subjectId, 'Heat');
       const draft = await api<{ id: string }>('/questions', {
         method: 'POST',
         token: tenant.teacherToken,
         body: {
-          subject: 'Physics',
-          chapter: 'Heat',
+          subjectId,
+          chapterId,
           difficulty: 'EASY',
           type: 'MCQ',
-          examType: 'NEET',
           statement: 'Still a draft?',
           options: [
             { key: 'A', text: '1' },
@@ -195,12 +225,8 @@ describe('Exam lifecycle and results engine', () => {
      */
     it('marking for review does not wipe an already-saved answer', async () => {
       const token = await addStudent(tenant, 'Partial Saver', 'PART1');
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, token, examId);
+      const attemptId = begun.id;
 
       const saved = await api<{ status: string; answer: unknown }>(
         `/attempts/${attemptId}/responses/${q1}`,
@@ -291,22 +317,7 @@ describe('Exam lifecycle and results engine', () => {
       expect(evaluated.body.evaluated).toBe(3);
       expect(evaluated.body.maxScore).toBe(8);
 
-      const results = await api<
-        {
-          totalScore: number;
-          correctCount: number;
-          incorrectCount: number;
-          unattemptedCount: number;
-          overallRank: number;
-          batchRank: number;
-          percentile: number;
-          student: { rollNumber: string };
-        }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
 
       // +4 / -1 marking, hand-checked.
       expect(byRoll.TOP.totalScore).toBe(8);
@@ -319,16 +330,7 @@ describe('Exam lifecycle and results engine', () => {
     });
 
     it('ranks candidates overall and within their batch', async () => {
-      const results = await api<
-        {
-          overallRank: number;
-          batchRank: number;
-          student: { rollNumber: string };
-        }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
 
       expect(byRoll.TOP.overallRank).toBe(1);
       expect(byRoll.MID.overallRank).toBe(2);
@@ -339,12 +341,7 @@ describe('Exam lifecycle and results engine', () => {
     });
 
     it('computes NTA-style percentiles', async () => {
-      const results = await api<
-        { percentile: number; student: { rollNumber: string } }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
 
       // (candidates scoring <= me) / total * 100
       expect(byRoll.TOP.percentile).toBeCloseTo(100, 1);
@@ -397,12 +394,7 @@ describe('Exam lifecycle and results engine', () => {
         token: tenant.adminToken,
       });
 
-      const results = await api<
-        { totalScore: number; student: { rollNumber: string } }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
 
       // Everyone now gets q2's +4: 8, 3-(-1)+4 => 4+4=8, and 0+4=4.
       expect(byRoll.TOP.totalScore).toBe(8);
@@ -423,12 +415,7 @@ describe('Exam lifecycle and results engine', () => {
 
       expect(evaluated.body.maxScore).toBe(4);
 
-      const results = await api<
-        { totalScore: number; student: { rollNumber: string } }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
       expect(byRoll.TOP.totalScore).toBe(4);
       expect(byRoll.MID.totalScore).toBe(4);
       expect(byRoll.LOW.totalScore).toBe(0);
@@ -450,16 +437,7 @@ describe('Exam lifecycle and results engine', () => {
         token: tenant.adminToken,
       });
 
-      const results = await api<
-        {
-          totalScore: number;
-          maxScore: number;
-          student: { rollNumber: string };
-        }[]
-      >(`/exams/${examId}/results`, { token: tenant.adminToken });
-      const byRoll = Object.fromEntries(
-        results.body.map((r) => [rollToLabel[r.student.rollNumber], r]),
-      );
+      const byRoll = await resultsByLabel();
 
       // Max marks still count the question; only the award is manual.
       expect(byRoll.MID.maxScore).toBe(8);

@@ -172,12 +172,19 @@ export interface AvailableExam {
  * GET /attempts/available — exams the current student can sit right now.
  * Backs the student portal's "Start" CTAs (no /exams endpoint is exposed to
  * STUDENT tokens, so the portal gets its own discoverable list).
+ *
+ * `kind` defaults to MOCK_TEST on the server when omitted (§ Assessments) —
+ * the existing "Live Exam" flow never passes it and must keep seeing exactly
+ * what it saw before; "My Assessments" passes ASSESSMENT explicitly.
  */
-export async function fetchAvailableExams(): Promise<AvailableExam[]> {
+export async function fetchAvailableExams(
+  kind?: "MOCK_TEST" | "ASSESSMENT",
+): Promise<AvailableExam[]> {
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const qs = kind ? `?kind=${kind}` : "";
   const res = await apiFetch<{ items: AvailableExam[] }>(
-    "/attempts/available",
+    `/attempts/available${qs}`,
     { token },
   );
   return res.items;
@@ -193,16 +200,19 @@ export interface UpcomingExam {
 }
 
 /** Both halves of GET /attempts/available: sittable now, and scheduled next. */
-export async function fetchExamSchedule(): Promise<{
+export async function fetchExamSchedule(
+  kind?: "MOCK_TEST" | "ASSESSMENT",
+): Promise<{
   items: AvailableExam[];
   upcoming: UpcomingExam[];
 }> {
   const token = getToken();
   if (!token) throw new ApiError(401, { message: "Not authenticated" });
+  const qs = kind ? `?kind=${kind}` : "";
   const res = await apiFetch<{
     items: AvailableExam[];
     upcoming?: UpcomingExam[];
-  }>("/attempts/available", { token });
+  }>(`/attempts/available${qs}`, { token });
   return { items: res.items ?? [], upcoming: res.upcoming ?? [] };
 }
 
@@ -528,6 +538,9 @@ export interface MyAttempt {
   exam: {
     id: string;
     title: string;
+    /** MOCK_TEST or ASSESSMENT (§ Assessments) — lets "My Assessments"
+     *  filter this same shared history to just its own kind. */
+    kind: "MOCK_TEST" | "ASSESSMENT";
     startAt: string | null;
     durationMinutes: number;
   };

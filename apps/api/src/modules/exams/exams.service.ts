@@ -29,7 +29,7 @@ import {
 import { UpdateExamDto } from './dto/update-exam.dto';
 import { QueryExamsDto } from './dto/query-exams.dto';
 import { UpdateLiveExamDto } from './dto/update-live-exam.dto';
-import { ExamStatus } from './exam.types';
+import { ExamKind, ExamStatus } from './exam.types';
 
 /** See QueryExamsDto for why this default is generous rather than tight. */
 const DEFAULT_PAGE_SIZE = 500;
@@ -44,6 +44,7 @@ const examSelect = {
   fullscreenRequired: true,
   maxViolations: true,
   status: true,
+  kind: true,
   resultPolicy: true,
   programId: true,
   categoryId: true,
@@ -64,6 +65,9 @@ const examSelect = {
   forceEndedAt: true,
   forceEndedById: true,
   pauseReason: true,
+  // Set once the automatic-closure sweep has processed an ASSESSMENT — lets
+  // the UI say "closed automatically at X" rather than nothing.
+  autoClosedAt: true,
   forceEndedBy: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
   reviewer: { select: { id: true, name: true } },
@@ -130,6 +134,22 @@ export class ExamsService {
     private readonly attempts: AttemptsService,
   ) {}
 
+  /**
+   * The approval workflow and the admin live-controls (pause/resume/
+   * force-end/live-edit) are MOCK_TEST-only by design (§ Assessments): an
+   * assessment is scheduled directly by its teacher and has no admin
+   * involvement at any point in its life, including while it's live. Every
+   * entry point into that machinery checks this first so an ASSESSMENT row
+   * can never end up half inside the wrong workflow.
+   */
+  private assertNotAssessment(kind: ExamKind, action: string): void {
+    if (kind === ExamKind.ASSESSMENT) {
+      throw new BadRequestException(
+        `Assessments don't use this — they are ${action} directly by their teacher, with no admin step.`,
+      );
+    }
+  }
+
   private ctx() {
     const ctx = this.tenant.get();
     if (!ctx?.instituteId) {
@@ -177,9 +197,11 @@ export class ExamsService {
         );
       }
     }
+    const kind = dto.kind ?? ExamKind.MOCK_TEST;
     return this.prisma.exam.create({
       data: {
         instituteId,
+        kind,
         title: dto.title,
         durationMinutes: dto.durationMinutes,
         passingMarks: dto.passingMarks,
@@ -189,7 +211,14 @@ export class ExamsService {
         maxViolations: dto.maxViolations ?? 0,
         programId: dto.programId,
         categoryId: dto.categoryId,
-        resultPolicy: dto.resultPolicy ?? 'ON_PUBLISH',
+        // ASSESSMENT has no admin publish step to hold results behind — the
+        // whole point is automatic publication the moment the window closes
+        // and evaluation runs, so IMMEDIATE is the only policy that makes
+        // sense and is not left to the caller.
+        resultPolicy:
+          kind === ExamKind.ASSESSMENT
+            ? 'IMMEDIATE'
+            : (dto.resultPolicy ?? 'ON_PUBLISH'),
         createdById: userId,
       },
       select: examSelect,
@@ -203,7 +232,15 @@ export class ExamsService {
    * catalogue to compute correctly, not a truncated slice of it.
    */
   async findAll(query: QueryExamsDto = {}) {
-    const where = await this.visibilityWhere();
+    // Every caller that predates Assessments (admin/exams, teacher/exams,
+    // monitoring, results, report dropdowns, ...) never sends `kind` and
+    // must keep seeing exactly what it saw before this feature existed —
+    // defaulting to MOCK_TEST here, not "both kinds", is what keeps
+    // Assessments from silently appearing in a dozen unrelated screens.
+    const where: Prisma.ExamWhereInput = {
+      ...(await this.visibilityWhere()),
+      kind: query.kind ?? ExamKind.MOCK_TEST,
+    };
     const limit = query.limit ?? DEFAULT_PAGE_SIZE;
     const offset = query.offset ?? 0;
     const select = {
@@ -522,11 +559,42 @@ export class ExamsService {
 
   async assignBatch(examId: string, dto: AssignBatchDto) {
     const exam = await this.getOwned(examId);
+    /**
+     * The route is teacher-callable only for the workflow that has no admin
+     * step at all. A Mock Test's batch/schedule is still the approver's job
+     * (assigning one is effectively skipping the review this exam is meant
+     * to go through) — reject here rather than in the controller, since
+     * @Roles() has no way to condition on the row being reached.
+     */
+    if (
+      exam.kind !== ExamKind.ASSESSMENT &&
+      this.tenant.get()?.role === Role.TEACHER
+    ) {
+      throw new ForbiddenException(
+        'Only an admin assigns batches for a Mock Test — submit it for review instead.',
+      );
+    }
     const batch = await this.prisma.batch.findFirst({
       where: { id: dto.batchId, instituteId: exam.instituteId },
     });
     if (!batch)
       throw new BadRequestException('Batch not found in your institute');
+    /**
+     * Assessment-specific (§ Assessments): "the teacher creating the
+     * Assessment must only be able to select batches they are authorized to
+     * access." Mock Test has no such restriction today — an admin reviews
+     * every Mock Test before it ever reaches a batch, which is the check
+     * this substitutes for on the workflow that has no review step at all.
+     * `myBatchIds()` returns null for a non-TEACHER session (admin path,
+     * unrestricted), so this only ever bites a teacher assigning an
+     * assessment.
+     */
+    if (exam.kind === ExamKind.ASSESSMENT) {
+      const allowed = await this.teacherScope.myBatchIds();
+      if (allowed && !allowed.includes(dto.batchId)) {
+        throw new ForbiddenException('You are not authorized for this batch');
+      }
+    }
     const duplicate = await this.prisma.examBatch.findFirst({
       where: { examId, batchId: dto.batchId },
     });
@@ -534,6 +602,67 @@ export class ExamsService {
     return this.prisma.examBatch.create({
       data: { examId, batchId: dto.batchId, instituteId: exam.instituteId },
       select: { id: true, batch: { select: { id: true, name: true } } },
+    });
+  }
+
+  /**
+   * Assessment's entire "approve → schedule → publish" is this one call
+   * (§ Assessments): a teacher schedules AND publishes their own DRAFT
+   * assessment directly, with no review/approval step and no admin
+   * involvement at all. Reuses `publish()`'s exact validation shape
+   * (sections/questions/batches present) rather than duplicating it, and the
+   * same conditioned-`updateMany` idiom the rest of this file uses to close
+   * a double-submit race (two clicks racing to publish the same draft).
+   */
+  async scheduleAssessment(examId: string, dto: ScheduleExamDto) {
+    const exam = await this.getOwned(examId);
+    if (exam.kind !== ExamKind.ASSESSMENT) {
+      throw new BadRequestException(
+        'Only assessments are scheduled this way — a mock test goes through submit/approve/publish.',
+      );
+    }
+    if (exam.status !== ExamStatus.DRAFT) {
+      throw new BadRequestException(
+        `Only a draft assessment can be scheduled. This one is ${exam.status.toLowerCase()}.`,
+      );
+    }
+
+    const startAt = new Date(dto.startAt);
+    const endAt = new Date(dto.endAt);
+    if (endAt <= startAt) {
+      throw new BadRequestException('endAt must be after startAt');
+    }
+    if (endAt <= new Date()) {
+      throw new BadRequestException('endAt must be in the future');
+    }
+
+    const counts = await this.prisma.exam.findUniqueOrThrow({
+      where: { id: examId },
+      select: {
+        _count: { select: { sections: true, questions: true, batches: true } },
+      },
+    });
+    if (counts._count.sections === 0 || counts._count.questions === 0) {
+      throw new BadRequestException(
+        'Add sections and questions before scheduling',
+      );
+    }
+    if (counts._count.batches === 0) {
+      throw new BadRequestException(
+        'Assign at least one batch before scheduling',
+      );
+    }
+
+    const { count } = await this.prisma.exam.updateMany({
+      where: { id: examId, status: ExamStatus.DRAFT },
+      data: { status: ExamStatus.PUBLISHED, startAt, endAt },
+    });
+    if (count === 0) {
+      throw new ConflictException('This assessment is no longer a draft');
+    }
+    return this.prisma.exam.findUniqueOrThrow({
+      where: { id: examId },
+      select: examSelect,
     });
   }
 
@@ -577,12 +706,14 @@ export class ExamsService {
       select: {
         id: true,
         status: true,
+        kind: true,
         startAt: true,
         endAt: true,
         _count: { select: { sections: true, questions: true, batches: true } },
       },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+    this.assertNotAssessment(exam.kind, 'published');
     // An exam must clear review before it can go live. Only TEACHER can create
     // an exam (§ create() above) — an admin publishing straight from DRAFT
     // would let them skip submitForReview()/approve() entirely, which is
@@ -635,6 +766,7 @@ export class ExamsService {
         select: {
           id: true,
           status: true,
+          kind: true,
           _count: { select: { sections: true, questions: true } },
         },
       }),
@@ -645,6 +777,7 @@ export class ExamsService {
     ]);
 
     if (!exam) throw new NotFoundException('Exam not found');
+    this.assertNotAssessment(exam.kind, 'submitted for review');
     if (!AUTHOR_EDITABLE.includes(exam.status)) {
       throw new BadRequestException(
         `Only a draft or sent-back exam can be submitted for approval. ` +
@@ -682,6 +815,7 @@ export class ExamsService {
   async approve(examId: string) {
     const { userId, instituteId } = this.ctx();
     const exam = await this.getOwned(examId);
+    this.assertNotAssessment(exam.kind, 'approved');
     if (exam.status !== ExamStatus.REVIEW) {
       throw new BadRequestException('Only exams under review can be approved');
     }
@@ -760,6 +894,7 @@ export class ExamsService {
   async reject(examId: string, reason?: string) {
     const { userId } = this.ctx();
     const exam = await this.getOwned(examId);
+    this.assertNotAssessment(exam.kind, 'rejected');
     if (exam.status !== ExamStatus.REVIEW) {
       throw new BadRequestException('Only exams under review can be rejected');
     }
@@ -793,11 +928,13 @@ export class ExamsService {
       select: {
         id: true,
         status: true,
+        kind: true,
         durationMinutes: true,
         _count: { select: { sections: true, questions: true, batches: true } },
       },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+    this.assertNotAssessment(exam.kind, 'started');
     if (exam.status !== ExamStatus.APPROVED) {
       throw new BadRequestException(
         'Only approved exams can be started. Get it approved first.',
@@ -903,6 +1040,7 @@ export class ExamsService {
    *  linger after their `expiresAt` had already lapsed — a self-test mode. */
   private async getOwnedLive(examId: string) {
     const exam = await this.getOwned(examId);
+    this.assertNotAssessment(exam.kind, 'controlled live');
     if (
       exam.status !== ExamStatus.PUBLISHED &&
       exam.status !== ExamStatus.PAUSED

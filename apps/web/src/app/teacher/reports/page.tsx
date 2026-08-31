@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { PaginationBar } from "@/components/pagination-bar";
 import { BarList, Panel, StatCard } from "@/components/staff/charts";
@@ -20,8 +21,22 @@ import { examDisplayStatus, listExams, type ExamListItem } from "@/lib/exams";
  * question went wrong, but evaluating, awarding bonus marks and publishing stay
  * with an administrator. The API enforces that too — this UI simply does not
  * offer what would be refused.
+ *
+ * `useSearchParams()` (a deep link from the Assessments list's "View
+ * Results") forces a client bail-out, which Next requires to sit behind a
+ * Suspense boundary or the production prerender of this route fails.
  */
 export default function TeacherReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ReportsScreen />
+    </Suspense>
+  );
+}
+
+function ReportsScreen() {
+  const params = useSearchParams();
+  const deepLinkExamId = params.get("examId");
   const [exams, setExams] = useState<ExamListItem[] | null>(null);
   const [examId, setExamId] = useState<string>("");
   const [results, setResults] = useState<ExamResultRow[] | null>(null);
@@ -43,15 +58,25 @@ export default function TeacherReportsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    listExams()
-      .then((res) => {
+    // Mock Tests and Assessments (§ Assessments) are both real exam records
+    // a teacher may want a result sheet for — merged into one dropdown here
+    // rather than giving assessments a second, near-identical reports page.
+    Promise.all([
+      listExams({ kind: "MOCK_TEST" }),
+      listExams({ kind: "ASSESSMENT" }),
+    ])
+      .then(([mockTests, assessments]) => {
         if (cancelled) return;
         // Only exams that have actually run can have results worth reading.
-        const sat = res.items.filter((e) =>
+        const sat = [...mockTests.items, ...assessments.items].filter((e) =>
           ["LIVE", "COMPLETED", "PUBLISHED"].includes(examDisplayStatus(e)),
         );
         setExams(sat);
-        if (sat.length > 0) setExamId(sat[0].id);
+        const preselect =
+          deepLinkExamId && sat.some((e) => e.id === deepLinkExamId)
+            ? deepLinkExamId
+            : (sat[0]?.id ?? "");
+        if (preselect) setExamId(preselect);
       })
       .catch((e: unknown) => {
         if (cancelled) return;
@@ -61,7 +86,7 @@ export default function TeacherReportsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [deepLinkExamId]);
 
   useEffect(() => {
     if (!examId) return;
@@ -111,7 +136,7 @@ export default function TeacherReportsPage() {
           >
             {(exams ?? []).map((e) => (
               <option key={e.id} value={e.id}>
-                {e.title}
+                {e.kind === "ASSESSMENT" ? `[Assessment] ${e.title}` : e.title}
               </option>
             ))}
             {exams?.length === 0 && <option>No exams have run yet</option>}

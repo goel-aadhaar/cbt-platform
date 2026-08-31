@@ -3,6 +3,7 @@
 import {
   ActivityIcon,
   BarChartIcon,
+  CheckCircleIcon,
   ClipboardIcon,
   DatabaseIcon,
   FileTextIcon,
@@ -25,6 +26,11 @@ const NAV: StaffNavItem[] = [
   { label: "Dashboard", href: "/teacher/dashboard", icon: GridIcon },
   { label: "Question Bank", href: "/teacher/questions", icon: DatabaseIcon },
   { label: "My Exams", href: "/teacher/exams", icon: ClipboardIcon },
+  {
+    label: "Assessments",
+    href: "/teacher/assessments",
+    icon: CheckCircleIcon,
+  },
   { label: "Student Reports", href: "/teacher/reports", icon: BarChartIcon },
   { label: "Students", href: "/teacher/students", icon: UsersIcon },
   { label: "Resources", href: "/teacher/resources", icon: FileTextIcon },

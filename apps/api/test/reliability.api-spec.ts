@@ -1,6 +1,7 @@
 import {
   addStudent,
   api,
+  beginAttempt,
   createApprovedQuestion,
   createPublishedExam,
   getRollNumber,
@@ -33,24 +34,21 @@ describe('Reliability', () => {
 
   describe('auto-save (§2.2)', () => {
     it('starting an attempt returns a blank palette entry for every question', async () => {
-      // Guards the hot-path optimisation: start() builds the attempt, its blank
-      // responses and the returned state in ONE nested write, so the response
-      // rows must come back from that same call.
+      // Guards the hot-path optimisation: begin() builds the blank responses
+      // and the returned state in ONE nested write, so the response rows
+      // must come back from that same call.
       const student = await addStudent(tenant, 'Blank Palette', 'REL8');
       const { examId } = await createPublishedExam(tenant, {
         title: 'Palette Exam',
         questionIds: [questionA, questionB],
       });
 
-      const start = await api<{
-        responses: { questionId: string; status: string }[];
-      }>('/attempts', { method: 'POST', token: student, body: { examId } });
+      const begun = await beginAttempt(tenant, student, examId);
 
-      expect(start.status).toBe(201);
-      expect(start.body.responses).toHaveLength(2);
-      expect(
-        start.body.responses.every((r) => r.status === 'NOT_VISITED'),
-      ).toBe(true);
+      expect(begun.responses).toHaveLength(2);
+      expect(begun.responses.every((r) => r.status === 'NOT_VISITED')).toBe(
+        true,
+      );
     });
 
     it('a saved answer is durable and reflected in the palette state', async () => {
@@ -60,12 +58,8 @@ describe('Reliability', () => {
         questionIds: [questionA, questionB],
       });
 
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token: student,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, student, examId);
+      const attemptId = begun.id;
 
       const saved = await api<{ status: string }>(
         `/attempts/${attemptId}/responses/${questionA}`,
@@ -90,12 +84,8 @@ describe('Reliability', () => {
         title: 'Clear Exam',
         questionIds: [questionA],
       });
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token: student,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, student, examId);
+      const attemptId = begun.id;
 
       await api(`/attempts/${attemptId}/responses/${questionA}`, {
         method: 'PUT',
@@ -127,12 +117,9 @@ describe('Reliability', () => {
         questionIds: [questionA, questionB],
       });
 
-      const start = await api<{ id: string; remainingSeconds: number }>(
-        '/attempts',
-        { method: 'POST', token: student, body: { examId } },
-      );
-      const attemptId = start.body.id;
-      const remainingAtStart = start.body.remainingSeconds;
+      const begun = await beginAttempt(tenant, student, examId);
+      const attemptId = begun.id;
+      const remainingAtStart = begun.remainingSeconds;
 
       await api(`/attempts/${attemptId}/responses/${questionA}`, {
         method: 'PUT',
@@ -190,12 +177,8 @@ describe('Reliability', () => {
         questionIds: [questionA],
       });
 
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token: studentFirst,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, studentFirst, examId);
+      const attemptId = begun.id;
       await api(`/attempts/${attemptId}/responses/${questionA}`, {
         method: 'PUT',
         token: studentFirst,
@@ -232,10 +215,22 @@ describe('Reliability', () => {
   });
 
   describe('server-controlled timer (§2.2)', () => {
-    it('the deadline is capped by the exam window, not the client', async () => {
+    /**
+     * A Mock Test's window gates ENTRY only; the clock itself is the exam's
+     * full configured duration, taken from the SERVER's own time at begin().
+     * A candidate admitted with two minutes of window left still sits the
+     * whole paper — deliberately, so a late admission (or a slow approval)
+     * never quietly costs them marks.
+     *
+     * This is the one behaviour an Assessment does NOT share: there the
+     * available time is MIN(duration, window remaining), because an
+     * assessment closes itself at its window end with no invigilator to
+     * extend it. See attempts.service.ts's begin() and the capped-timer
+     * cases in assessments.api-spec.ts.
+     */
+    it('runs the full configured duration, measured by the server clock', async () => {
       const student = await addStudent(tenant, 'Timer Cap', 'REL6');
-      // 60-minute exam, but the window closes in ~2 minutes: the server must
-      // take the earlier of the two.
+      // A 60-minute paper whose entry window shuts in ~2 minutes.
       const { examId } = await createPublishedExam(tenant, {
         title: 'Window Capped Exam',
         durationMinutes: 60,
@@ -243,40 +238,35 @@ describe('Reliability', () => {
         endAt: new Date(Date.now() + 120_000).toISOString(),
       });
 
-      const start = await api<{ remainingSeconds: number }>('/attempts', {
-        method: 'POST',
-        token: student,
-        body: { examId },
-      });
+      const begun = await beginAttempt(tenant, student, examId);
 
-      expect(start.body.remainingSeconds).toBeGreaterThan(0);
-      expect(start.body.remainingSeconds).toBeLessThanOrEqual(120);
+      // The full hour, not the two minutes of window that were left. Bounded
+      // below only by the round-trips this call itself took.
+      expect(begun.remainingSeconds).toBeGreaterThan(59 * 60);
+      expect(begun.remainingSeconds).toBeLessThanOrEqual(60 * 60);
     });
 
     it('auto-submits once time is up and refuses further answers', async () => {
       const student = await addStudent(tenant, 'Timer Expiry', 'REL7');
-      // A short window so the attempt expires quickly, but wide enough that the
-      // setup round-trips (create, sections, questions, batch, submit-for-
-      // review, approve, schedule, publish — 8 sequential API calls) cannot
-      // eat it before the candidate starts.
+      // The DURATION is what has to be short here, not the window: a Mock
+      // Test's clock is the full duration from begin() regardless of how
+      // much window is left (see the test above), so shrinking the window
+      // would not expire anything. One minute is the schema's floor
+      // (CreateExamDto's @Min(1)). The window stays wide so the candidate
+      // can still be admitted through it.
       const { examId } = await createPublishedExam(tenant, {
         title: 'Expiring Exam',
-        durationMinutes: 60,
+        durationMinutes: 1,
         questionIds: [questionA],
-        endAt: new Date(Date.now() + 45_000).toISOString(),
       });
 
-      const start = await api<{ id: string; remainingSeconds: number }>(
-        '/attempts',
-        { method: 'POST', token: student, body: { examId } },
-      );
-      expect(start.status).toBe(201);
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, student, examId);
+      const attemptId = begun.id;
 
       // Trust the SERVER's clock, not the test's: wait out its own deadline.
-      const remaining = start.body.remainingSeconds;
+      const remaining = begun.remainingSeconds;
       expect(remaining).toBeGreaterThan(0);
-      expect(remaining).toBeLessThanOrEqual(45);
+      expect(remaining).toBeLessThanOrEqual(60);
 
       await api(`/attempts/${attemptId}/responses/${questionA}`, {
         method: 'PUT',
@@ -308,7 +298,9 @@ describe('Reliability', () => {
       expect(
         state.body.responses.find((r) => r.questionId === questionA)?.answer,
       ).toBe('A');
-    });
+      // Sits out a real 60-second exam clock on top of ~11 setup round-trips,
+      // which does not fit the file-wide 120s default.
+    }, 180_000);
 
     it('a violation reported after submission does not clobber the submitted status', async () => {
       // Regression: reportViolation() used to write status/submittedAt
@@ -324,12 +316,8 @@ describe('Reliability', () => {
         maxViolations: 1,
       });
 
-      const start = await api<{ id: string }>('/attempts', {
-        method: 'POST',
-        token: student,
-        body: { examId },
-      });
-      const attemptId = start.body.id;
+      const begun = await beginAttempt(tenant, student, examId);
+      const attemptId = begun.id;
 
       const submitted = await api<{ status: string; submittedAt: string }>(
         `/attempts/${attemptId}/submit`,

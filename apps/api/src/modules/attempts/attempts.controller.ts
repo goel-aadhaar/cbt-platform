@@ -8,12 +8,14 @@ import {
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AttemptsService } from './attempts.service';
+import { ListAvailableDto } from './dto/attempt.dto';
 import {
   RecordSectionTimeDto,
   ReportViolationDto,
@@ -44,8 +46,8 @@ export class AttemptsController {
    * portal's "Start" CTAs without leaking /exams (TEACHER/ADMIN-only).
    */
   @Get('available')
-  available() {
-    return this.attempts.availableForStudent();
+  available(@Query() query: ListAvailableDto) {
+    return this.attempts.availableForStudent(query.kind);
   }
 
   /** Poll target for the entry-approval waiting screen. */

@@ -1,4 +1,15 @@
 -- Per-attempt pause-window accumulator. NULL (not 0) on attempts that
 -- never experienced a pause, so a future "did you pause this?" query
 -- answers truthfully without rounding zeros.
-ALTER TABLE "attempts" ADD COLUMN "paused_for_seconds" INT;
+--
+-- IF NOT EXISTS: this migration duplicated 20260825090000_exam_pause_end,
+-- which already adds this exact column three minutes earlier in the same
+-- history — a genuine authoring mistake, discovered when a from-scratch
+-- replay (a new environment's `migrate deploy`, or `migrate dev`'s shadow
+-- database) hit "column already exists" and refused to proceed. Already-
+-- affected environments were recovered with `prisma migrate resolve
+-- --applied` rather than editing this file, since editing an
+-- already-applied migration's SQL does not retroactively fix a database
+-- that already ran it — but every FUTURE fresh environment replays this
+-- file from scratch, so it has to be a genuine no-op now.
+ALTER TABLE "attempts" ADD COLUMN IF NOT EXISTS "paused_for_seconds" INT;

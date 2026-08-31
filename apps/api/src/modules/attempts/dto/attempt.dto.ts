@@ -10,11 +10,19 @@ import {
   Min,
 } from 'class-validator';
 
+import { ExamKind } from '../../exams/exam.types';
 import { ProctoringEventType } from '../attempt.types';
 
 export class StartAttemptDto {
   @IsUUID()
   examId: string;
+}
+
+/** GET /attempts/available — defaults to MOCK_TEST in the service when omitted. */
+export class ListAvailableDto {
+  @IsOptional()
+  @IsEnum(ExamKind)
+  kind?: ExamKind;
 }
 
 export class DenyAttemptDto {

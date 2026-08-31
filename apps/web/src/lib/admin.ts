@@ -639,6 +639,9 @@ export function scheduleExam(
  * ------------------------------------------------------------------ */
 
 export interface CreateExamInput {
+  /** MOCK_TEST (default) or ASSESSMENT (§ Assessments) — omit for the
+   *  existing teacher-authors/admin-approves workflow. */
+  kind?: "MOCK_TEST" | "ASSESSMENT";
   title: string;
   durationMinutes: number;
   /** Minimum total marks to pass, shown on results. Omit for no pass/fail line. */
@@ -660,6 +663,23 @@ export function createExam(
   body: CreateExamInput,
 ): Promise<{ id: string; title: string; status: string }> {
   return apiFetch(`/exams`, { method: "POST", body, ...auth() });
+}
+
+/**
+ * POST /exams/:id/schedule-assessment — TEACHER-only (§ Assessments).
+ * Schedules AND publishes a draft assessment in one call: no review, no
+ * approval, no admin step. The Mock Test equivalent is
+ * `scheduleExam` (admin PATCH) followed by a separate `publishExam` call.
+ */
+export function scheduleAssessment(
+  examId: string,
+  body: { startAt: string; endAt: string },
+): Promise<{ id: string; status: string; startAt: string; endAt: string }> {
+  return apiFetch(`/exams/${examId}/schedule-assessment`, {
+    method: "POST",
+    body,
+    ...auth(),
+  });
 }
 
 /** POST /exams/:id/sections */

@@ -1,1 +1,5 @@
-export { ExamStatus, ResultPolicy } from '../../generated/prisma/enums';
+export {
+  ExamStatus,
+  ResultPolicy,
+  ExamKind,
+} from '../../generated/prisma/enums';

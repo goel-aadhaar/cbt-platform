@@ -12,6 +12,15 @@ export type ExamStatus =
   | "PAUSED"
   | "ARCHIVED";
 
+/**
+ * MOCK_TEST (default) or ASSESSMENT (§ Assessments) — the two exam workflows
+ * that share this exact same Exam/Attempt/Result engine. See
+ * `apps/api/prisma/schema/exam.prisma`'s `ExamKind` doc for the full
+ * rationale: same CBT experience, same evaluation/ranking/leaderboard,
+ * different authoring/approval/lifecycle rules.
+ */
+export type ExamKind = "MOCK_TEST" | "ASSESSMENT";
+
 /** Derived, display-level status used across the exam screens. */
 export type ExamDisplayStatus =
   | "DRAFT"
@@ -35,6 +44,7 @@ export interface ExamListItem {
   title: string;
   durationMinutes: number;
   status: ExamStatus;
+  kind: ExamKind;
   resultPolicy: string;
   programId: string | null;
   startAt: string | null;
@@ -49,6 +59,8 @@ export interface ExamListItem {
   pauseReason: string | null;
   forceEndedAt: string | null;
   forceEndedBy: UserRef | null;
+  /** Set once the automatic-closure sweep has processed an ASSESSMENT. */
+  autoClosedAt: string | null;
   createdBy: UserRef | null;
   reviewer: UserRef | null;
   approvedBy: UserRef | null;
@@ -63,13 +75,23 @@ export interface ExamListItem {
  * compute a derived view (which exams are live, populate a dropdown) and
  * need the WHOLE catalogue, not a page of it. Pass `limit`/`offset`
  * explicitly only where a screen is genuinely browsing a growing table.
+ *
+ * `kind` defaults to MOCK_TEST on the SERVER when omitted (§ Assessments) —
+ * every call site that predates Assessments doesn't pass it and must keep
+ * seeing exactly what it saw before. Pass `kind: "ASSESSMENT"` explicitly
+ * for the Assessment screens.
  */
 export function listExams(
-  params: { limit?: number; offset?: number } = {},
+  params: {
+    limit?: number;
+    offset?: number;
+    kind?: ExamKind;
+  } = {},
 ): Promise<Paginated<ExamListItem>> {
   const q = new URLSearchParams();
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
+  if (params.kind) q.set("kind", params.kind);
   const qs = q.toString();
   return apiFetch<Paginated<ExamListItem>>(`/exams${qs ? `?${qs}` : ""}`, {
     token: getToken() ?? undefined,

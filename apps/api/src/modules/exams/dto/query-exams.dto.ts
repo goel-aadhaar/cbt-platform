@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+
+import { ExamKind } from '../exam.types';
 
 /**
  * Paging for GET /exams (§ pagination). Unlike the question bank (specified
@@ -11,6 +13,16 @@ import { IsInt, IsOptional, Max, Min } from 'class-validator';
  * growing table (admin/exams, teacher/exams) pass a real page size.
  */
 export class QueryExamsDto {
+  /**
+   * Defaults to MOCK_TEST in the service (see ExamsService.findAll) when
+   * omitted — every pre-existing caller of GET /exams doesn't send this and
+   * must keep seeing exactly what it saw before Assessments existed. Pass
+   * ASSESSMENT explicitly to list assessments instead.
+   */
+  @IsOptional()
+  @IsEnum(ExamKind)
+  kind?: ExamKind;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

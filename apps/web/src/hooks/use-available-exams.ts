@@ -13,8 +13,11 @@ import { fetchAvailableExams, type AvailableExam } from "@/lib/student";
  * `loading` is `true` until the first fetch settles; on refresh we keep the
  * last items visible until the next resolve (no flicker, no setState in
  * effect body).
+ *
+ * `kind` defaults to MOCK_TEST (§ Assessments) — the existing Mock Test
+ * callers don't pass it; "My Assessments" passes ASSESSMENT.
  */
-export function useAvailableExams(): {
+export function useAvailableExams(kind?: "MOCK_TEST" | "ASSESSMENT"): {
   items: AvailableExam[];
   loading: boolean;
   error: string | null;
@@ -27,7 +30,7 @@ export function useAvailableExams(): {
 
   useEffect(() => {
     let cancelled = false;
-    fetchAvailableExams()
+    fetchAvailableExams(kind)
       .then((data) => {
         if (cancelled) return;
         setItems(data);
@@ -52,7 +55,7 @@ export function useAvailableExams(): {
     return () => {
       cancelled = true;
     };
-  }, [tick]);
+  }, [tick, kind]);
 
   return {
     items,

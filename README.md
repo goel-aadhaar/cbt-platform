@@ -78,12 +78,12 @@ mailed one-time code, which is what actually redeems for a session (see
 exempt — an exam hall cannot depend on inbox access, and a student session
 has no administrative reach.
 
-| Role              | Sign-in route      | Credentials                                                   |
-| ----------------- | ------------------ | ------------------------------------------------------------- |
-| **Student**       | `/login` → Student | Institute `demo` · Candidate `2400183920` · `Student@123`     |
-| **Teacher**       | `/login` → Staff   | `anil@demo.local` · `Teacher@123` · then a mailed code        |
-| **Administrator** | `/login` → Staff   | `admin@demo.local` · `Admin@123` · then a mailed code         |
-| **Super Admin**   | `/platform/login`  | `superadmin@drsk.local` · `ChangeMe123!` · then a mailed code |
+| Role              | Sign-in route      | Credentials                                                     |
+| ----------------- | ------------------ | --------------------------------------------------------------- |
+| **Student**       | `/login` → Student | Institute `demo` · Candidate `2400183920` · `Student@123`       |
+| **Teacher**       | `/login` → Staff   | `anil@demo.local` · `Teacher@123` · then a mailed code          |
+| **Administrator** | `/login` → Staff   | `admin@demo.local` · `Admin@123` · then a mailed code           |
+| **Super Admin**   | `/platform/login`  | `superadmin@codonmind.in` · `ChangeMe123!` · then a mailed code |
 
 Additional seeded accounts:
 

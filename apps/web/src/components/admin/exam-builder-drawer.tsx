@@ -30,10 +30,12 @@ import {
   type ExamDetail,
   assignBatch,
   createExam,
+  getMyBatches,
   listAdmins,
   listBatches,
   listPrograms,
   publishExam,
+  scheduleAssessment,
   scheduleExam,
   submitExamForReview,
   type BatchRow,
@@ -156,6 +158,7 @@ export function ExamBuilderDrawer({
   onClose,
   onCreated,
   editing,
+  mode = "exam",
 }: {
   open: boolean;
   onClose: () => void;
@@ -169,7 +172,17 @@ export function ExamBuilderDrawer({
    * `key`, so the state below seeds once per target rather than resyncing.
    */
   editing?: ExamDetail | null;
+  /**
+   * "assessment" (§ Assessments) reuses this exact wizard for the OTHER exam
+   * workflow — same sections/questions/marking-scheme steps (already shared
+   * between the admin and teacher Mock Test paths below), but the teacher
+   * schedules AND publishes directly at the end instead of picking a
+   * reviewer. Always implies a TEACHER caller — there is no admin path for
+   * assessments. Default "exam" preserves every existing call site exactly.
+   */
+  mode?: "exam" | "assessment";
 }) {
+  const isAssessment = mode === "assessment";
   const [step, setStep] = useState(0);
   /**
    * The furthest step reached, so the stepper can jump back to anything already
@@ -276,6 +289,13 @@ export function ExamBuilderDrawer({
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [batches, setBatches] = useState<BatchRow[]>([]);
+  /** A teacher's own authorized batches (§ Assessments) — the assessment
+   *  batch-picker's source; separate from `batches` (the admin's full
+   *  institute roster) since the server enforces the same restriction on
+   *  `assignBatch` regardless of what this list shows. */
+  const [myBatches, setMyBatches] = useState<{ id: string; name: string }[]>(
+    [],
+  );
   const [approved, setApproved] = useState<QuestionListItem[]>([]);
   /** Server's true count for the current query — how "Load more" knows
    *  whether the bank has more than what's loaded (§ question bank pagination:
@@ -314,12 +334,20 @@ export function ExamBuilderDrawer({
       listPrograms(),
       isTeacher ? Promise.resolve([] as BatchRow[]) : listBatches(),
       listQuestions({ status: "APPROVED", limit: 200 }),
-      isTeacher ? listAdmins() : Promise.resolve([] as StaffRow[]),
+      // No reviewer step for an assessment — nothing to pick an admin for.
+      isTeacher && !isAssessment
+        ? listAdmins()
+        : Promise.resolve([] as StaffRow[]),
       // Only categories still on offer — a retired one would be refused.
       listExamCategories(true),
       listInstructionTemplates(true),
       listSubjects(),
-    ]).then(([p, b, q, a, c, t, subj]) => {
+      // Assessment's own batch-picker source — a teacher's own authorized
+      // batches, not the admin's full-institute list above.
+      isAssessment
+        ? getMyBatches()
+        : Promise.resolve([] as { id: string; name: string }[]),
+    ]).then(([p, b, q, a, c, t, subj, mb]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPrograms(p.value);
       if (b.status === "fulfilled") setBatches(b.value);
@@ -327,6 +355,7 @@ export function ExamBuilderDrawer({
       if (c.status === "fulfilled") setCategories(c.value.items);
       if (t.status === "fulfilled") setTemplates(t.value.items);
       if (subj.status === "fulfilled") setSubjects(subj.value);
+      if (mb.status === "fulfilled") setMyBatches(mb.value);
       if (q.status === "fulfilled") {
         setApproved(q.value.items);
         setApprovedTotal(q.value.total);
@@ -349,7 +378,7 @@ export function ExamBuilderDrawer({
     return () => {
       cancelled = true;
     };
-  }, [open, isTeacher]);
+  }, [open, isTeacher, isAssessment]);
 
   /**
    * A section *is* a subject (see the "Section" select above) — so the
@@ -535,9 +564,9 @@ export function ExamBuilderDrawer({
     if (step === 0) {
       if (title.trim().length < 2) return "Give the paper a working title.";
       if (!(durationMinutes > 0)) return "Set a duration in minutes.";
-      // A category is what names the paper on approval, so a paper without one
-      // would reach candidates under its working title.
-      if (categoryId === "") return "Choose an exam category.";
+      // A category is what names the paper on approval — meaningless for an
+      // assessment, which is never renamed by that system.
+      if (!isAssessment && categoryId === "") return "Choose an exam category.";
       return null;
     }
     if (step === 1) {
@@ -549,8 +578,9 @@ export function ExamBuilderDrawer({
     if (step === 2)
       return totalQuestions > 0 ? null : "Add at least one question.";
     if (step === 3) {
-      if (isTeacher)
+      if (isTeacher && !isAssessment) {
         return reviewerId !== "" ? null : "Choose who should approve this.";
+      }
       if (batchIds.length === 0) return "Pick at least one batch.";
       if (!startAt || !endAt) return "Set the exam window.";
       return null;
@@ -567,7 +597,11 @@ export function ExamBuilderDrawer({
   const canSubmitForApproval =
     editing?.status === "DRAFT" || editing?.status === "REJECTED";
 
-  const STEPS = isTeacher ? TEACHER_STEPS : ADMIN_STEPS;
+  const STEPS = isAssessment
+    ? ADMIN_STEPS // "Basic Info" / "Sections" / "Questions" / "Schedule" / "Review"
+    : isTeacher
+      ? TEACHER_STEPS
+      : ADMIN_STEPS;
 
   function reset() {
     setStep(0);
@@ -670,15 +704,27 @@ export function ExamBuilderDrawer({
       await addQuestionToSection(examId, sectionId, questionId);
     }
 
-    if (!isTeacher) {
+    if (isAssessment || !isTeacher) {
       for (const b of plan.batches.remove) await unassignBatch(examId, b);
       for (const b of plan.batches.add) await assignBatch(examId, b);
       if (startAt && endAt) {
         setProgress("Scheduling…");
-        await scheduleExam(examId, {
-          startAt: new Date(startAt).toISOString(),
-          endAt: new Date(endAt).toISOString(),
-        });
+        // getDraft() (backend) only lets saveEdit() reach a still-DRAFT
+        // exam, so scheduleAssessment's DRAFT-only guard can never fire
+        // here — this either schedules-and-publishes a draft assessment for
+        // the first time, or re-schedules one that was drafted, published,
+        // then unpublished back to DRAFT.
+        if (isAssessment) {
+          await scheduleAssessment(examId, {
+            startAt: new Date(startAt).toISOString(),
+            endAt: new Date(endAt).toISOString(),
+          });
+        } else {
+          await scheduleExam(examId, {
+            startAt: new Date(startAt).toISOString(),
+            endAt: new Date(endAt).toISOString(),
+          });
+        }
       }
     }
   }
@@ -716,6 +762,7 @@ export function ExamBuilderDrawer({
 
       setProgress("Creating exam…");
       const exam = await createExam({
+        ...(isAssessment ? { kind: "ASSESSMENT" as const } : {}),
         title: title.trim(),
         durationMinutes,
         maxViolations,
@@ -748,11 +795,22 @@ export function ExamBuilderDrawer({
         }
       }
 
-      if (isTeacher) {
+      if (isTeacher && !isAssessment) {
         // Teacher path: hand the finished paper to the chosen admin. Batches,
         // scheduling and going live are the admin's job after approval.
         setProgress("Submitting for approval…");
         await submitExamForReview(exam.id, reviewerId);
+      } else if (isAssessment) {
+        // Assessment: no review, no approval, no admin step — the teacher
+        // assigns batches and schedules-and-publishes in one call.
+        setProgress("Assigning batches…");
+        for (const b of batchIds) await assignBatch(exam.id, b);
+
+        setProgress("Scheduling…");
+        await scheduleAssessment(exam.id, {
+          startAt: new Date(startAt).toISOString(),
+          endAt: new Date(endAt).toISOString(),
+        });
       } else {
         setProgress("Assigning batches…");
         for (const b of batchIds) await assignBatch(exam.id, b);
@@ -807,10 +865,20 @@ export function ExamBuilderDrawer({
         <header className="flex items-start justify-between border-b border-admin-line/60 px-8 py-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
-              {editing ? "Exams / Edit" : "Exams / New"}
+              {isAssessment
+                ? editing
+                  ? "Assessments / Edit"
+                  : "Assessments / New"
+                : editing
+                  ? "Exams / Edit"
+                  : "Exams / New"}
             </p>
             <h2 className="mt-1 text-xl font-bold text-admin-ink">
-              {editing ? `Edit ${editing.title}` : "Create New Exam"}
+              {editing
+                ? `Edit ${editing.title}`
+                : isAssessment
+                  ? "Create New Assessment"
+                  : "Create New Exam"}
             </h2>
           </div>
           <button
@@ -885,39 +953,44 @@ export function ExamBuilderDrawer({
           {/* ---------- Step 1: Basic info ---------- */}
           {step === 0 && (
             <div className="flex flex-col gap-5">
-              <Field label="Exam Category" required>
-                <select
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">— select a category —</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.examCount} so far)
-                    </option>
-                  ))}
-                </select>
-                {categories.length === 0 ? (
-                  <p className="mt-1 text-xs text-admin-muted">
-                    No categories yet — an administrator creates these before
-                    papers can be authored.
-                  </p>
-                ) : (
-                  selectedCategory && (
-                    // The name candidates will see, so the author knows the
-                    // working title below is not what gets published.
+              {!isAssessment && (
+                <Field label="Exam Category" required>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className={inputCls}
+                  >
+                    <option value="">— select a category —</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.examCount} so far)
+                      </option>
+                    ))}
+                  </select>
+                  {categories.length === 0 ? (
                     <p className="mt-1 text-xs text-admin-muted">
-                      On approval this paper becomes{" "}
-                      <span className="font-bold text-admin">
-                        {selectedCategory.nextName}
-                      </span>
-                      .
+                      No categories yet — an administrator creates these before
+                      papers can be authored.
                     </p>
-                  )
-                )}
-              </Field>
-              <Field label="Working title" required>
+                  ) : (
+                    selectedCategory && (
+                      // The name candidates will see, so the author knows the
+                      // working title below is not what gets published.
+                      <p className="mt-1 text-xs text-admin-muted">
+                        On approval this paper becomes{" "}
+                        <span className="font-bold text-admin">
+                          {selectedCategory.nextName}
+                        </span>
+                        .
+                      </p>
+                    )
+                  )}
+                </Field>
+              )}
+              <Field
+                label={isAssessment ? "Assessment name" : "Working title"}
+                required
+              >
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -925,7 +998,9 @@ export function ExamBuilderDrawer({
                   className={inputCls}
                 />
                 <p className="mt-1 text-xs text-admin-muted">
-                  For your own reference while the paper is in review.
+                  {isAssessment
+                    ? "This is exactly what students will see — assessments aren't renamed on publish."
+                    : "For your own reference while the paper is in review."}
                 </p>
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1286,8 +1361,8 @@ export function ExamBuilderDrawer({
             </div>
           )}
 
-          {/* ---------- Step 4a (teacher): pick a reviewer ---------- */}
-          {step === 3 && isTeacher && (
+          {/* ---------- Step 4a (teacher, Mock Test): pick a reviewer ---------- */}
+          {step === 3 && isTeacher && !isAssessment && (
             <div className="flex flex-col gap-5">
               <div className="rounded-xl border border-admin-line/60 bg-admin-bg p-4 text-sm text-admin-muted">
                 As a teacher you author the paper and hand it to an admin. After
@@ -1316,34 +1391,63 @@ export function ExamBuilderDrawer({
             </div>
           )}
 
-          {/* ---------- Step 4b (admin): Schedule + batches ---------- */}
-          {step === 3 && !isTeacher && (
+          {/* ---------- Step 4b (admin, or assessment): Schedule + batches ----------
+              Assessment reuses this exact block: same batch-checklist and
+              window pickers, just sourced from the teacher's own batches
+              (myBatches) instead of the institute's full roster, and with no
+              "publish immediately" toggle — scheduleAssessment() always
+              publishes in the same call, there is no separate DRAFT-but-
+              scheduled state for this kind. */}
+          {step === 3 && (isAssessment || !isTeacher) && (
             <div className="flex flex-col gap-5">
               <Field label="Assign batches" required>
                 <div className="flex flex-col gap-2 rounded-xl border border-admin-line/60 p-3">
-                  {batches.map((b) => (
-                    <label
-                      key={b.id}
-                      className="flex items-center gap-3 text-sm"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={batchIds.includes(b.id)}
-                        onChange={() =>
-                          setBatchIds((prev) =>
-                            prev.includes(b.id)
-                              ? prev.filter((x) => x !== b.id)
-                              : [...prev, b.id],
-                          )
-                        }
-                        className="size-4 accent-admin"
-                      />
-                      {batchPath(b)}
-                    </label>
-                  ))}
-                  {batches.length === 0 && (
+                  {isAssessment
+                    ? myBatches.map((b) => (
+                        <label
+                          key={b.id}
+                          className="flex items-center gap-3 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={batchIds.includes(b.id)}
+                            onChange={() =>
+                              setBatchIds((prev) =>
+                                prev.includes(b.id)
+                                  ? prev.filter((x) => x !== b.id)
+                                  : [...prev, b.id],
+                              )
+                            }
+                            className="size-4 accent-admin"
+                          />
+                          {b.name}
+                        </label>
+                      ))
+                    : batches.map((b) => (
+                        <label
+                          key={b.id}
+                          className="flex items-center gap-3 text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={batchIds.includes(b.id)}
+                            onChange={() =>
+                              setBatchIds((prev) =>
+                                prev.includes(b.id)
+                                  ? prev.filter((x) => x !== b.id)
+                                  : [...prev, b.id],
+                              )
+                            }
+                            className="size-4 accent-admin"
+                          />
+                          {batchPath(b)}
+                        </label>
+                      ))}
+                  {(isAssessment ? myBatches : batches).length === 0 && (
                     <p className="text-sm text-admin-muted">
-                      No batches found.
+                      {isAssessment
+                        ? "You aren't assigned to any batches yet — ask an admin to assign you one before scheduling an assessment."
+                        : "No batches found."}
                     </p>
                   )}
                 </div>
@@ -1366,11 +1470,18 @@ export function ExamBuilderDrawer({
                   />
                 </Field>
               </div>
-              <Check
-                checked={publishNow}
-                onChange={setPublishNow}
-                label="Publish immediately (students can see it once the window opens)"
-              />
+              {isAssessment ? (
+                <p className="text-xs text-admin-muted">
+                  Students in the batches above will be able to enter once the
+                  window opens — no admin review or approval step.
+                </p>
+              ) : (
+                <Check
+                  checked={publishNow}
+                  onChange={setPublishNow}
+                  label="Publish immediately (students can see it once the window opens)"
+                />
+              )}
             </div>
           )}
 
@@ -1393,7 +1504,7 @@ export function ExamBuilderDrawer({
                   .join(", ")}
               />
               <Row k="Total questions" v={String(totalQuestions)} />
-              {isTeacher ? (
+              {isTeacher && !isAssessment ? (
                 <Row
                   k="Send for approval to"
                   v={admins.find((a) => a.id === reviewerId)?.name ?? "—"}
@@ -1402,14 +1513,14 @@ export function ExamBuilderDrawer({
                 <Row
                   k="Batches"
                   v={
-                    batches
+                    (isAssessment ? myBatches : batches)
                       .filter((b) => batchIds.includes(b.id))
                       .map((b) => b.name)
                       .join(", ") || "—"
                   }
                 />
               )}
-              {!isTeacher && (
+              {(isAssessment || !isTeacher) && (
                 <>
                   <Row
                     k="Window"
@@ -1419,10 +1530,12 @@ export function ExamBuilderDrawer({
                         : "—"
                     }
                   />
-                  <Row
-                    k="Publish now"
-                    v={publishNow ? "Yes" : "No (stays DRAFT)"}
-                  />
+                  {!isAssessment && (
+                    <Row
+                      k="Publish now"
+                      v={publishNow ? "Yes" : "No (stays DRAFT)"}
+                    />
+                  )}
                 </>
               )}
 
@@ -1474,24 +1587,27 @@ export function ExamBuilderDrawer({
             </span>
           ) : (
             <span className="flex items-center gap-3">
-              {editing && isTeacher && canSubmitForApproval && (
-                <button
-                  onClick={() => void submit(true)}
-                  disabled={
-                    submitting ||
-                    preflight.errors.length > 0 ||
-                    reviewerId === ""
-                  }
-                  title={
-                    reviewerId === ""
-                      ? "Choose a reviewer on the Approval step first"
-                      : "Save the changes and send this paper to the reviewer"
-                  }
-                  className="rounded-lg border border-admin bg-white px-5 py-2.5 text-sm font-semibold text-admin hover:bg-admin/5 disabled:opacity-50"
-                >
-                  {submitting ? "Working…" : "Save & send for approval"}
-                </button>
-              )}
+              {editing &&
+                isTeacher &&
+                !isAssessment &&
+                canSubmitForApproval && (
+                  <button
+                    onClick={() => void submit(true)}
+                    disabled={
+                      submitting ||
+                      preflight.errors.length > 0 ||
+                      reviewerId === ""
+                    }
+                    title={
+                      reviewerId === ""
+                        ? "Choose a reviewer on the Approval step first"
+                        : "Save the changes and send this paper to the reviewer"
+                    }
+                    className="rounded-lg border border-admin bg-white px-5 py-2.5 text-sm font-semibold text-admin hover:bg-admin/5 disabled:opacity-50"
+                  >
+                    {submitting ? "Working…" : "Save & send for approval"}
+                  </button>
+                )}
               <button
                 onClick={() => void submit(false)}
                 disabled={submitting || preflight.errors.length > 0}
@@ -1510,9 +1626,11 @@ export function ExamBuilderDrawer({
                       // from the list, so a stray save cannot bounce an
                       // unfinished exam back to the reviewer.
                       "Save changes"
-                    : isTeacher
-                      ? "Create & Submit for Approval"
-                      : "Create Exam"}
+                    : isAssessment
+                      ? "Schedule & Publish Assessment"
+                      : isTeacher
+                        ? "Create & Submit for Approval"
+                        : "Create Exam"}
               </button>
             </span>
           )}
