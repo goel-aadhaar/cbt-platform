@@ -105,6 +105,9 @@ export function InstructionTemplatesModal({
         );
         select(updated);
       }
+      // Saving is the end of the task, so the modal gets out of the way —
+      // it used to just sit there, leaving people unsure it had worked.
+      onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the template.");
     } finally {

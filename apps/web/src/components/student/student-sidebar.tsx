@@ -59,6 +59,18 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 }
 
 /**
+ * Shared by the flat rows (`<a>`) and the group headers (`<button>`) so the
+ * two cannot drift apart. `[font-family:inherit]` matters: `font-family` is
+ * set on `body`, and a <button> takes the browser's own control font rather
+ * than inheriting it unless something overrides that. Preflight normally
+ * does, but only if it wins the cascade — which it does not reliably do on a
+ * client-side navigation, leaving group headers in the UA font until the next
+ * full reload. Same fix as admin-sidebar.tsx.
+ */
+const NAV_ROW_CLASS =
+  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors [font-family:inherit]";
+
+/**
  * An earlier product decision deliberately kept Exams and Practice Library
  * as separate top-level destinations rather than nesting Practice under
  * Exams (the original Figma). "Self Assessment" reverses that specifically
@@ -182,7 +194,7 @@ export function StudentSidebar() {
                   type="button"
                   onClick={() => toggleGroup(entry.label)}
                   aria-expanded={expanded}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  className={`${NAV_ROW_CLASS} w-full ${
                     childActive
                       ? "text-white"
                       : "text-white/80 hover:bg-white/10 hover:text-white"
@@ -264,7 +276,7 @@ function StudentNavRow({
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors ${
+      className={`${NAV_ROW_CLASS} ${
         active
           ? "bg-white text-admin shadow-sm"
           : "text-white/80 hover:bg-white/10 hover:text-white"

@@ -60,6 +60,22 @@ function isGroup(entry: NavEntry): entry is NavGroup {
   return "children" in entry;
 }
 
+/**
+ * Shared by the flat rows (`<a>`) and the group headers (`<button>`), which
+ * must be visually identical — they were maintained as two copies of the same
+ * class string and drifted.
+ *
+ * `[font-family:inherit]` is not redundant: `font-family` is set on `body`
+ * (globals.css) and a <button> does not inherit it the way an <a> does — it
+ * takes the browser's own control font unless something says otherwise.
+ * Preflight normally says so, but that depends on it winning the cascade,
+ * which it does not reliably do on a client-side navigation, so the two group
+ * headers would render in the UA font until the next full reload. Stating it
+ * here does not rely on stylesheet ordering.
+ */
+const NAV_ROW_CLASS =
+  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors [font-family:inherit]";
+
 const NAV: NavEntry[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: GridIcon },
   {
@@ -194,7 +210,7 @@ export function AdminSidebar() {
                   type="button"
                   onClick={() => toggleGroup(entry.label)}
                   aria-expanded={expanded}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  className={`${NAV_ROW_CLASS} w-full ${
                     childActive
                       ? "text-admin"
                       : "text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
@@ -261,7 +277,7 @@ function NavRow({ item, pathname }: { item: NavLink; pathname: string }) {
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors ${
+      className={`${NAV_ROW_CLASS} ${
         active
           ? "bg-admin/10 text-admin"
           : "text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
