@@ -54,12 +54,19 @@ jobs:
       name: production
       url: ${{ vars.PRODUCTION_URL }}
 
-    # A LOGIN shell. The runner service does not necessarily inherit the
-    # profile that puts node/pnpm/pm2 on PATH, which is the usual way a deploy
-    # that works by hand fails from CI with "pnpm: command not found".
+    # NOT a login shell, deliberately. A login shell runs ~/.bash_logout on
+    # exit, and Ubuntu ships one that calls clear_console — which fails
+    # without a TTY and REPLACES the exit status. That silently turned a
+    # passing health check into a failed step, and would just as happily have
+    # reported a broken deploy as a success.
+    #
+    # PATH is fine without it: the runner service captured the ubuntu user's
+    # PATH at install time, and pnpm/pm2 are global npm installs on the
+    # default PATH. If that ever stops being true, fix it by setting PATH
+    # explicitly here rather than by reaching for -l again.
     defaults:
       run:
-        shell: bash -leo pipefail {0}
+        shell: bash -eo pipefail {0}
 
     steps:
       # No checkout: deploy.sh does its own `git pull` in the live working
@@ -75,7 +82,9 @@ jobs:
 
       - name: Verify the API is answering
         # Catches pm2 reloading onto a process that then dies on boot, which
-        # `pm2 status` alone reports as healthy.
+        # `pm2 status` alone reports as healthy. Retries because nginx answers
+        # 502 for the second or two the API spends starting — the first run
+        # here failed on exactly that, while the site was in fact fine.
         if: vars.HEALTH_URL != ''
         run: |
           for i in $(seq 1 10); do
