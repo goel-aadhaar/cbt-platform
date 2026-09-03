@@ -18,7 +18,12 @@ import {
   type AnnouncementCategory,
   type StaffAnnouncement,
 } from "@/lib/announcements";
-import { listBatches, type BatchRow } from "@/lib/admin";
+import {
+  listBatches,
+  listStaff,
+  type BatchRow,
+  type StaffRow,
+} from "@/lib/admin";
 
 import { useBatchPaths } from "@/components/admin/academic-cascade";
 import { AttachmentPicker } from "@/components/admin/attachment-picker";
@@ -196,9 +201,7 @@ export default function AdminAnnouncementsPage() {
                     {a.publishedAt ? "Published" : "Draft"}
                   </span>
                   <span className="text-xs text-admin-muted">
-                    {a.audience === "BATCH"
-                      ? `Batch: ${a.batch?.name ?? "unknown"}`
-                      : "All students"}
+                    {audienceSummary(a)}
                   </span>
                 </div>
 
@@ -301,8 +304,35 @@ function Composer({
   const [category, setCategory] = useState<AnnouncementCategory>(
     editing?.category ?? "GENERAL",
   );
-  const [batchId, setBatchId] = useState(editing?.batchId ?? "");
+  const [toStudents, setToStudents] = useState(editing?.toStudents ?? true);
+  const [toTeachers, setToTeachers] = useState(editing?.toTeachers ?? false);
+  const [batchIds, setBatchIds] = useState<string[]>(
+    editing?.batches?.map((b) => b.batch.id) ?? [],
+  );
+  const [teacherIds, setTeacherIds] = useState<string[]>(
+    editing?.teachers?.map((t) => t.teacher.id) ?? [],
+  );
+  const [teachers, setTeachers] = useState<StaffRow[]>([]);
   const { path: batchPath } = useBatchPaths(true);
+
+  // Only needed once Teachers is ticked, but fetched on open so the list is
+  // already there when it is — a picker that appears empty and fills in a
+  // moment later reads as broken.
+  useEffect(() => {
+    let cancelled = false;
+    listStaff({ role: "TEACHER" })
+      .then((rows) => {
+        if (!cancelled) setTeachers(rows.items ?? []);
+      })
+      .catch(() => {
+        // Non-fatal: the notice can still go to everyone, and save() reports
+        // anything the server refuses.
+        if (!cancelled) setTeachers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [pinned, setPinned] = useState(editing?.pinned ?? false);
   // <input type="datetime-local"> wants `YYYY-MM-DDTHH:mm`, not an ISO string.
   const [expiresAt, setExpiresAt] = useState(
@@ -319,6 +349,10 @@ function Composer({
       onError("A title of at least 3 characters and a body are required.");
       return;
     }
+    if (!toStudents && !toTeachers) {
+      onError("Choose at least one audience: students, teachers, or both.");
+      return;
+    }
     setSaving(true);
     try {
       const shared = {
@@ -329,11 +363,13 @@ function Composer({
         // Always sent, including empty: on an edit this is how attachments are
         // removed, and the API distinguishes "omitted" from "cleared".
         attachmentKeys,
-        // An empty audience select means institute-wide, which is an explicit
-        // clear on an edit rather than "leave the old batch alone".
-        ...(batchId
-          ? { audience: "BATCH" as const, batchId }
-          : { audience: "ALL_STUDENTS" as const, batchId: null }),
+        toStudents,
+        toTeachers,
+        // Always sent, including empty, for the same reason as
+        // attachmentKeys: on an edit this is how a notice is widened back
+        // to everyone, which the API cannot infer from an omitted field.
+        batchIds: toStudents ? batchIds : [],
+        teacherIds: toTeachers ? teacherIds : [],
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
       };
       if (editing) {
@@ -341,7 +377,6 @@ function Composer({
       } else {
         await createAnnouncement({
           ...shared,
-          batchId: shared.batchId ?? undefined,
           expiresAt: shared.expiresAt ?? undefined,
           publish,
         });
@@ -401,23 +436,46 @@ function Composer({
           </select>
         </label>
 
-        <label>
+        <div>
           <span className="text-xs font-bold uppercase text-admin-muted">
             Audience
           </span>
-          <select
-            value={batchId}
-            onChange={(e) => setBatchId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-admin-line px-3 py-2 text-sm outline-none focus:border-admin"
-          >
-            <option value="">All students</option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {batchPath(b)}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="mt-2 flex flex-wrap gap-4">
+            <AudienceToggle
+              label="Students"
+              checked={toStudents}
+              onChange={setToStudents}
+            />
+            <AudienceToggle
+              label="Teachers"
+              checked={toTeachers}
+              onChange={setToTeachers}
+            />
+          </div>
+
+          {toStudents && (
+            <TargetPicker
+              label="Batches"
+              emptyMeans="Every student in the institute"
+              options={batches.map((b) => ({
+                id: b.id,
+                name: batchPath(b),
+              }))}
+              selected={batchIds}
+              onChange={setBatchIds}
+            />
+          )}
+
+          {toTeachers && (
+            <TargetPicker
+              label="Teachers"
+              emptyMeans="Every teacher in the institute"
+              options={teachers.map((t) => ({ id: t.id, name: t.name }))}
+              selected={teacherIds}
+              onChange={setTeacherIds}
+            />
+          )}
+        </div>
 
         <label>
           <span className="text-xs font-bold uppercase text-admin-muted">
@@ -476,5 +534,122 @@ function Composer({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Who a notice went to, in one line for the roster.
+ *
+ * No narrowing rows means everyone in that audience, so the absence of ids
+ * has to read as "All students" rather than as nothing — the roster is where
+ * that distinction is easiest to get wrong at a glance.
+ */
+function audienceSummary(a: StaffAnnouncement): string {
+  const parts: string[] = [];
+  if (a.toStudents) {
+    const n = a.batches?.length ?? 0;
+    parts.push(n === 0 ? "All students" : `${n} batch${n > 1 ? "es" : ""}`);
+  }
+  if (a.toTeachers) {
+    const n = a.teachers?.length ?? 0;
+    parts.push(n === 0 ? "All teachers" : `${n} teacher${n > 1 ? "s" : ""}`);
+  }
+  return parts.join(" · ") || "No audience";
+}
+
+function AudienceToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 text-sm font-semibold text-admin-ink">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="size-4 accent-admin"
+      />
+      {label}
+    </label>
+  );
+}
+
+/**
+ * Narrow a notice to particular batches or teachers.
+ *
+ * Checkboxes rather than a <select multiple>: multi-select requires knowing to
+ * hold ctrl, silently loses the whole selection on a stray click, and gives no
+ * room to say what "none selected" means — which here is "everyone", the exact
+ * case that most needs stating.
+ */
+function TargetPicker({
+  label,
+  emptyMeans,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  emptyMeans: string;
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (id: string) =>
+    onChange(
+      selected.includes(id)
+        ? selected.filter((x) => x !== id)
+        : [...selected, id],
+    );
+
+  return (
+    <div className="mt-3 rounded-lg border border-admin-line p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold uppercase text-admin-muted">
+          {label}
+        </span>
+        {selected.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="text-xs font-semibold text-admin hover:underline"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {options.length === 0 ? (
+        <p className="mt-2 text-xs text-admin-muted">None available.</p>
+      ) : (
+        <div className="mt-2 max-h-40 space-y-1 overflow-auto pr-1">
+          {options.map((o) => (
+            <label
+              key={o.id}
+              className="flex items-center gap-2 text-sm text-admin-ink"
+            >
+              <input
+                type="checkbox"
+                checked={selected.includes(o.id)}
+                onChange={() => toggle(o.id)}
+                className="size-4 accent-admin"
+              />
+              <span className="truncate">{o.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <p className="mt-2 text-xs text-admin-muted">
+        {selected.length === 0
+          ? emptyMeans
+          : `Only the ${selected.length} selected.`}
+      </p>
+    </div>
   );
 }

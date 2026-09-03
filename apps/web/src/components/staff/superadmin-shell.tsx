@@ -42,6 +42,9 @@ export function SuperadminShell({
       title={title}
       nav={NAV}
       profileHref="/superadmin/profile"
+      // No help page for this console yet; same support address the admin
+      // topbar uses, rather than a button that goes nowhere.
+      helpHref="mailto:hello@codonmind.in?subject=Codonmind%20Nexus%20platform%20support"
       workspace="Platform owner"
     >
       {children}

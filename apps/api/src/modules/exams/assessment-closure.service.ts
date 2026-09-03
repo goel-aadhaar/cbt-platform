@@ -41,15 +41,41 @@ export class AssessmentClosureService {
     // tick but whose evaluate() call then failed is still picked up here on
     // the next tick — it is PUBLISHED-turned-ARCHIVED with evaluation still
     // outstanding, not "already fully closed".
-    const due = await this.prisma.exam.findMany({
-      where: {
-        kind: ExamKind.ASSESSMENT,
-        endAt: { lte: new Date() },
-        autoClosedAt: null,
-        status: { in: [ExamStatus.PUBLISHED, ExamStatus.ARCHIVED] },
-      },
-      select: { id: true, instituteId: true, createdById: true, status: true },
-    });
+    //
+    // Wrapped for the same reason as the per-exam catch below, but with a
+    // sharper consequence: @nestjs/schedule does not await this method, so a
+    // rejection escaping it is an UNHANDLED rejection, and Node terminates
+    // the process. A managed Postgres that drops idle connections therefore
+    // turned a routine reconnect — on a sweep that had nothing to do — into
+    // an API outage, roughly every thirty seconds of bad luck.
+    let due: {
+      id: string;
+      instituteId: string;
+      createdById: string;
+      status: ExamStatus;
+    }[];
+    try {
+      due = await this.prisma.exam.findMany({
+        where: {
+          kind: ExamKind.ASSESSMENT,
+          endAt: { lte: new Date() },
+          autoClosedAt: null,
+          status: { in: [ExamStatus.PUBLISHED, ExamStatus.ARCHIVED] },
+        },
+        select: {
+          id: true,
+          instituteId: true,
+          createdById: true,
+          status: true,
+        },
+      });
+    } catch (err) {
+      this.logger.error(
+        'Assessment closure sweep could not read due exams — will retry next sweep',
+        err instanceof Error ? err.stack : err,
+      );
+      return;
+    }
 
     for (const exam of due) {
       try {

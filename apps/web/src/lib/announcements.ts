@@ -13,7 +13,16 @@ import type { Paginated } from "./students";
 export type AnnouncementCategory =
   "GENERAL" | "EXAM" | "RESULT" | "SCHEDULE" | "MAINTENANCE";
 
-export type AnnouncementAudience = "ALL_STUDENTS" | "BATCH";
+/**
+ * Who a notice reaches. Narrowing is the ABSENCE of ids: `toStudents` with an
+ * empty `batches` means every student, not none. Mirrors the server (§2.9).
+ */
+export interface AnnouncementTargets {
+  toStudents: boolean;
+  toTeachers: boolean;
+  batches: { id: string; name: string }[];
+  teachers: { id: string; name: string }[];
+}
 
 /** What a student receives — no draft metadata, no author email. */
 export interface StudentAnnouncement {
@@ -34,9 +43,11 @@ export interface StaffAnnouncement extends Omit<
   "publishedAt"
 > {
   publishedAt: string | null;
-  audience: AnnouncementAudience;
-  batchId: string | null;
-  batch: { id: string; name: string } | null;
+  toStudents: boolean;
+  toTeachers: boolean;
+  /** Server returns join rows; the UI flattens them. */
+  batches: { batch: { id: string; name: string } }[];
+  teachers: { teacher: { id: string; name: string } }[];
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -97,8 +108,12 @@ export interface CreateAnnouncementInput {
   title: string;
   body: string;
   category?: AnnouncementCategory;
-  audience?: AnnouncementAudience;
-  batchId?: string;
+  /** Defaults to students-only when neither is given. */
+  toStudents?: boolean;
+  toTeachers?: boolean;
+  /** Empty or omitted = everyone in that audience. */
+  batchIds?: string[];
+  teacherIds?: string[];
   pinned?: boolean;
   /** Publish straight away; omit to save as a draft. */
   publish?: boolean;
@@ -123,15 +138,18 @@ export function createAnnouncement(
  * notice with a typo could only be deleted and retyped.
  *
  * Every field is optional and absent means "leave alone", matching the server's
- * partial-update contract. `batchId: null` and `expiresAt: null` are explicit
- * clears, which is why they are nullable rather than merely optional.
+ * partial-update contract. `expiresAt: null` is an explicit clear, which is
+ * why it is nullable rather than merely optional.
  */
 export interface UpdateAnnouncementInput {
   title?: string;
   body?: string;
   category?: AnnouncementCategory;
-  audience?: AnnouncementAudience;
-  batchId?: string | null;
+  toStudents?: boolean;
+  toTeachers?: boolean;
+  /** Omit to leave targeting alone; [] widens back to everyone. */
+  batchIds?: string[];
+  teacherIds?: string[];
   pinned?: boolean;
   expiresAt?: string | null;
   /** Omit to leave attachments alone; `[]` clears them. */

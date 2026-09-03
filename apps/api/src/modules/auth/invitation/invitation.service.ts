@@ -304,6 +304,9 @@ export class InvitationService {
         name: user.name,
         role,
         institute: user.institute?.name,
+        // Student-only: it is one of the three things their sign-in form
+        // asks for, and the only one they were never told.
+        instituteSlug: role === Role.STUDENT ? user.institute?.slug : undefined,
         rollNumber: user.student?.rollNumber,
         loginUrl,
       })

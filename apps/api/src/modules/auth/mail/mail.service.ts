@@ -23,6 +23,15 @@ export interface WelcomeEmail {
   role: string;
   /** Institute name, when applicable (absent for superadmin accounts). */
   institute?: string;
+  /**
+   * The institute's slug, which the student sign-in form asks for under the
+   * label "Institute ID".
+   *
+   * Student-only, like rollNumber: staff sign in with their email address and
+   * are never asked for it, so including it there would be noise on a screen
+   * that has no field to put it in.
+   */
+  instituteSlug?: string;
   /** Present only for a student account. */
   rollNumber?: string;
   /** Fully-built sign-in URL (role-appropriate: student vs staff). */

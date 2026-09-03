@@ -85,6 +85,12 @@ export function welcomeContent(email: WelcomeEmail): EmailContent {
     email.institute
       ? `<li><strong>Institute:</strong> ${escapeHtml(email.institute)}</li>`
       : '',
+    // Labelled exactly as the sign-in form labels the field, so there is
+    // nothing to work out: what the email calls Institute ID is what the box
+    // on the screen calls Institute ID.
+    email.instituteSlug
+      ? `<li><strong>Institute ID:</strong> ${escapeHtml(email.instituteSlug)}</li>`
+      : '',
     email.rollNumber
       ? `<li><strong>Roll number:</strong> ${escapeHtml(email.rollNumber)}</li>`
       : '',
@@ -92,6 +98,7 @@ export function welcomeContent(email: WelcomeEmail): EmailContent {
   ].join('');
   const detailsText = [
     email.institute ? `Institute: ${email.institute}\n` : '',
+    email.instituteSlug ? `Institute ID: ${email.instituteSlug}\n` : '',
     email.rollNumber ? `Roll number: ${email.rollNumber}\n` : '',
     `Email: ${email.to}\n`,
   ].join('');

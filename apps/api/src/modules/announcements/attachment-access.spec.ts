@@ -1,5 +1,3 @@
-import { AnnouncementAudience } from './dto/announcement.dto';
-
 /**
  * Who may download a notice's attachment.
  *
@@ -17,8 +15,9 @@ import { AnnouncementAudience } from './dto/announcement.dto';
 interface Notice {
   publishedAt: Date | null;
   expiresAt: Date | null;
-  audience: AnnouncementAudience;
-  batchId: string | null;
+  toStudents: boolean;
+  /** Empty means every student; otherwise only these batches. */
+  batchIds: string[];
 }
 
 /** Mirrors the `where` clause in MediaService.assertReadableByCaller. */
@@ -30,9 +29,8 @@ function studentMayDownload(
   const published = notice.publishedAt !== null && notice.publishedAt <= now;
   const live = notice.expiresAt === null || notice.expiresAt > now;
   const addressed =
-    notice.audience === AnnouncementAudience.ALL_STUDENTS ||
-    (notice.audience === AnnouncementAudience.BATCH &&
-      notice.batchId === student.batchId);
+    notice.toStudents &&
+    (notice.batchIds.length === 0 || notice.batchIds.includes(student.batchId));
   return published && live && addressed;
 }
 
@@ -45,8 +43,8 @@ describe('downloading a notice attachment', () => {
   const notice = (over: Partial<Notice> = {}): Notice => ({
     publishedAt: ago,
     expiresAt: null,
-    audience: AnnouncementAudience.ALL_STUDENTS,
-    batchId: null,
+    toStudents: true,
+    batchIds: [],
     ...over,
   });
 
@@ -58,8 +56,7 @@ describe('downloading a notice attachment', () => {
     expect(
       studentMayDownload(
         notice({
-          audience: AnnouncementAudience.BATCH,
-          batchId: 'batch-a',
+          batchIds: ['batch-a'],
         }),
         student,
         now,
@@ -73,8 +70,7 @@ describe('downloading a notice attachment', () => {
     expect(
       studentMayDownload(
         notice({
-          audience: AnnouncementAudience.BATCH,
-          batchId: 'batch-b',
+          batchIds: ['batch-b'],
         }),
         student,
         now,
@@ -115,8 +111,7 @@ describe('downloading a notice attachment', () => {
       studentMayDownload(
         notice({
           publishedAt: null,
-          audience: AnnouncementAudience.BATCH,
-          batchId: 'batch-b',
+          batchIds: ['batch-b'],
           expiresAt: ago,
         }),
         student,

@@ -4,18 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ComponentType, SVGProps } from "react";
 
-import {
-  BellIcon,
-  HelpCircleIcon,
-  LogOutIcon,
-  ShieldCheckIcon,
-} from "@/components/admin/icons";
+import { HelpCircleIcon, LogOutIcon } from "@/components/admin/icons";
+import { StaffNotificationBell } from "@/components/staff/staff-notification-bell";
 import { useAuthUser } from "@/hooks/use-auth";
 import { ActionButton } from "@/components/action-button";
 import { InstituteLogo } from "@/components/institute-logo";
 import { useAsyncAction } from "@/hooks/use-async-action";
 import { useMyInstitute } from "@/hooks/use-my-institute";
-import { logout, type Role } from "@/lib/auth";
+import { logout } from "@/lib/auth";
 import {
   NavDrawerBackdrop,
   NavDrawerClose,
@@ -44,6 +40,8 @@ export function StaffShell({
   nav,
   workspace,
   profileHref,
+  helpHref,
+  inboxHref,
   children,
 }: {
   title: string;
@@ -52,6 +50,18 @@ export function StaffShell({
   workspace: string;
   /** Where this console's profile lives. */
   profileHref: string;
+  /**
+   * Where this console's Help & Support lives. A route for a console that
+   * has a help page, or a mailto: for one that does not — it is rendered as a
+   * plain anchor so both work without a special case.
+   */
+  helpHref: string;
+  /**
+   * This console's announcements feed, if it HAS one. Omitted for admins, who
+   * author notices rather than receive them — a bell that can never light up
+   * is worse than no bell.
+   */
+  inboxHref?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -64,7 +74,12 @@ export function StaffShell({
           profileHref={profileHref}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <StaffTopbar title={title} profileHref={profileHref} />
+          <StaffTopbar
+            title={title}
+            profileHref={profileHref}
+            helpHref={helpHref}
+            inboxHref={inboxHref}
+          />
           <main className="flex-1 overflow-auto px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
             {children}
           </main>
@@ -185,9 +200,13 @@ function StaffSidebar({
 function StaffTopbar({
   title,
   profileHref,
+  helpHref,
+  inboxHref,
 }: {
   title: string;
   profileHref: string;
+  helpHref: string;
+  inboxHref?: string;
 }) {
   const user = useAuthUser();
 
@@ -199,19 +218,23 @@ function StaffTopbar({
       </h1>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-3">
-        {/* The role and help affordances are secondary to identity: they fold
-            away on a phone rather than crowding out the profile control, and
-            the role is still stated in full on the profile screen. */}
+        {/* Secondary to identity: these fold away on a phone rather than
+            crowding out the profile control.
+
+            There used to be a third control here showing the role, which did
+            nothing when clicked. It is gone rather than wired up: the sidebar
+            already carries a working role switcher for dual-role accounts, and
+            the role is stated in full on the profile screen. */}
         <div className="hidden items-center gap-1 text-admin-muted sm:flex">
-          <IconButton label={roleLabel(user?.role)}>
-            <ShieldCheckIcon className="size-5" />
-          </IconButton>
-          <IconButton label="Notifications">
-            <BellIcon className="size-5" />
-          </IconButton>
-          <IconButton label="Help">
+          {inboxHref && <StaffNotificationBell href={inboxHref} />}
+          <a
+            href={helpHref}
+            aria-label="Help & Support"
+            title="Help & Support"
+            className="flex size-10 items-center justify-center rounded-full hover:bg-white"
+          >
             <HelpCircleIcon className="size-5" />
-          </IconButton>
+          </a>
         </div>
 
         <Link
@@ -226,25 +249,6 @@ function StaffTopbar({
   );
 }
 
-function IconButton({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className="flex size-10 items-center justify-center rounded-full hover:bg-white"
-    >
-      {children}
-    </button>
-  );
-}
-
 function initials(name?: string | null): string {
   if (!name) return "—";
   return name
@@ -252,11 +256,4 @@ function initials(name?: string | null): string {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase() ?? "")
     .join("");
-}
-
-function roleLabel(role?: Role | null): string {
-  if (role === "SUPERADMIN") return "Signed in as Super Admin";
-  if (role === "TEACHER") return "Signed in as Teacher";
-  if (role === "ADMIN") return "Signed in as Administrator";
-  return "Signed in";
 }

@@ -2,21 +2,22 @@
 
 import { useEffect, useState } from "react";
 
-import { StudentShell } from "@/components/student/student-shell";
-import { MegaphoneIcon } from "@/components/student/icons";
 import { AnnouncementCard } from "@/components/announcements/announcement-card";
+import { MegaphoneIcon } from "@/components/student/icons";
+import { TeacherShell } from "@/components/staff/teacher-shell";
 import {
   fetchMyAnnouncements,
   type StudentAnnouncement,
 } from "@/lib/announcements";
 
 /**
- * Updates & Announcements.
+ * A teacher's own notices (§2.9).
  *
- * The server has already filtered this to published, unexpired notices aimed
- * at the student's own batch — the client does no visibility logic of its own.
+ * Same endpoint as the candidate feed — the server decides the audience from
+ * the session, so this page asks for "mine" and never states who it is. That
+ * is also what clears the bell: arriving here marks them seen.
  */
-export default function StudentUpdatesPage() {
+export default function TeacherUpdatesPage() {
   const [items, setItems] = useState<StudentAnnouncement[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,9 +41,9 @@ export default function StudentUpdatesPage() {
   }, []);
 
   return (
-    <StudentShell breadcrumb={["Updates & Announcements"]}>
+    <TeacherShell title="Updates & Announcements">
       <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
+        <h1 className="text-2xl font-bold tracking-[-0.4px] text-admin-ink">
           Updates &amp; Announcements
         </h1>
         <p className="mt-1 text-sm text-admin-muted">
@@ -77,7 +78,7 @@ export default function StudentUpdatesPage() {
             No announcements yet
           </p>
           <p className="mx-auto mt-1 max-w-md text-sm text-admin-muted">
-            When your institute posts an update, it will appear here.
+            When your institute posts an update for staff, it will appear here.
           </p>
         </div>
       ) : (
@@ -89,6 +90,6 @@ export default function StudentUpdatesPage() {
           ))}
         </ul>
       )}
-    </StudentShell>
+    </TeacherShell>
   );
 }

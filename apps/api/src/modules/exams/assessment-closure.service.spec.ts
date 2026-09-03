@@ -182,4 +182,37 @@ describe('AssessmentClosureService', () => {
     // cannot re-run the auto-submit step a second time.
     expect(second.prisma.attempt.updateMany).not.toHaveBeenCalled();
   });
+  /**
+   * The sweep must never reject.
+   *
+   * @nestjs/schedule does not await the cron callback, so a rejection escaping
+   * sweep() is an unhandled rejection and Node terminates the process. This is
+   * not hypothetical: a managed Postgres dropping an idle connection took the
+   * whole API down mid-run, on a sweep that had no work to do.
+   */
+  it('survives the database being unreachable rather than crashing the process', async () => {
+    const first = build({});
+    (first.prisma.exam.findMany as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('Connection terminated unexpectedly');
+    });
+
+    await expect(first.service.sweep()).resolves.toBeUndefined();
+    // Nothing was closed, and nothing was half-closed either.
+    expect(first.evaluate).not.toHaveBeenCalled();
+    expect(first.prisma.attempt.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('picks the work up again on the next tick', async () => {
+    const first = build({});
+    (first.prisma.exam.findMany as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('Connection terminated unexpectedly');
+    });
+    await first.service.sweep();
+    expect(first.getExamRow().autoClosedAt).toBeNull();
+
+    // Same row, connection restored: the sweep closes it as normal.
+    await first.service.sweep();
+    expect(first.evaluate).toHaveBeenCalledWith(EXAM_ID);
+    expect(first.getExamRow().autoClosedAt).toBeInstanceOf(Date);
+  });
 });

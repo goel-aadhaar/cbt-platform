@@ -71,7 +71,14 @@ const SIGNIFICANT_FIELDS = new Set([
   'publish',
   'confirm',
   'batchId',
-  'audience',
+  // Who a thing was shared with is the outcome-affecting part of a share:
+  // "material was edited" does not answer whether another batch gained or
+  // lost access to it. Announcements moved from a single `audience` enum to
+  // these, and resources address a set of batches the same way (§2.12).
+  'batchIds',
+  'teacherIds',
+  'toStudents',
+  'toTeachers',
   'isActive',
 ]);
 

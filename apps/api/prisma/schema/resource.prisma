@@ -1,14 +1,26 @@
-/// Study material a teacher shares with a batch (§2.12).
+/// Study material a teacher shares with their batches (§2.12).
 ///
-/// Grouped by subject so it lands in the same taxonomy the question bank uses —
-/// a student looking for "Physics notes" should find them under Physics, not in
-/// a flat list of filenames — and addressed to a batch, because that is the
-/// unit a teacher actually teaches.
+/// Filed under the SAME Subject/Chapter taxonomy the question bank uses, not a
+/// parallel one: a student looking for "Kinematics notes" should find them
+/// where Kinematics already lives, and an institute that renames a chapter
+/// should not have to rename it twice.
 ///
-/// The bytes live in the media library under `mediaKey`, exactly as question
-/// diagrams and notice attachments do. Nothing here stores a URL: moving the
-/// bucket or putting a CDN in front must never invalidate a resource that has
-/// already been shared.
+/// Two kinds of material, one model:
+///   FILE    — bytes in the media library under `mediaKey`, exactly as question
+///             diagrams and notice attachments are. Nothing here stores a URL,
+///             so moving the bucket or putting a CDN in front never invalidates
+///             material that has already been shared.
+///   YOUTUBE — the canonical eleven-character video id under `youtubeVideoId`,
+///             never a full URL and never markup. The player is built from that
+///             id by the client, so a teacher cannot inject an arbitrary embed.
+///
+/// Exactly one of the two is set, which `assertPayload()` in the service
+/// enforces; the database cannot express "one or the other" on its own.
+enum ResourceType {
+  FILE
+  YOUTUBE
+}
+
 model Resource {
   id          String @id @default(uuid()) @db.Uuid
   instituteId String @map("institute_id") @db.Uuid
@@ -17,17 +29,31 @@ model Resource {
   /// with it — a file filed under nothing is unreachable in this UI anyway.
   subjectId String @map("subject_id") @db.Uuid
 
-  /// Who it is for. Required rather than optional: "shared with everyone" is
-  /// not a thing a teacher can do here, and leaving it nullable would make the
-  /// permission question ambiguous at exactly the point it must not be.
-  batchId String @map("batch_id") @db.Uuid
+  /// Which chapter within that subject.
+  ///
+  /// Nullable ONLY for material that predates the chapter level; everything
+  /// created since requires one (see CreateResourceDto). Backfilling legacy
+  /// rows would have meant inventing chapters in the shared question-bank
+  /// taxonomy, so they surface under "Unfiled" instead of corrupting it.
+  ///
+  /// The service checks the chapter actually belongs to `subjectId` — the two
+  /// ids arrive separately from the client and a mismatched pair would file
+  /// material under a hierarchy that does not exist.
+  chapterId String? @map("chapter_id") @db.Uuid
+
+  type ResourceType @default(FILE)
 
   title       String
   description String?
 
-  /// Storage key in the media library. The Media row carries the filename,
-  /// size and MIME type, so none of it is duplicated here.
-  mediaKey String @map("media_key")
+  /// Storage key in the media library, for a FILE. The Media row carries the
+  /// filename, size and MIME type, so none of it is duplicated here.
+  mediaKey String? @map("media_key")
+
+  /// The YouTube video id, for a YOUTUBE resource — `dQw4w9WgXcQ`, never
+  /// `https://youtube.com/watch?v=...` and never an <iframe>. Normalised on
+  /// the way in so the many URL shapes converge on one stored value.
+  youtubeVideoId String? @map("youtube_video_id")
 
   createdById String   @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at")
@@ -35,10 +61,41 @@ model Resource {
 
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   subject   Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  chapter   Chapter?  @relation(fields: [chapterId], references: [id], onDelete: SetNull)
   createdBy User      @relation("ResourceAuthor", fields: [createdById], references: [id], onDelete: Cascade)
 
+  batches ResourceBatch[]
+
   @@index([instituteId, subjectId])
-  @@index([instituteId, batchId])
+  @@index([instituteId, chapterId])
+  @@index([instituteId, type])
+  @@index([instituteId, createdAt])
   @@map("resources")
+}
+
+/// One batch a resource is shared with.
+///
+/// Same shape as ExamBatch and AnnouncementBatch — parent, target, tenant —
+/// because it answers the same question. Replaced the single `batchId` column:
+/// a teacher who teaches three batches was otherwise made to upload the same
+/// PDF three times, and each copy then had to be edited and deleted separately.
+///
+/// Unlike an announcement, an EMPTY set here means nobody rather than
+/// everybody: material is addressed to the batches a teacher chose, and a
+/// resource with no batches would be a file no student can reach.
+model ResourceBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  resourceId  String   @map("resource_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  resource  Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([resourceId, batchId])
+  @@index([resourceId])
+  @@index([batchId])
+  @@map("resource_batches")
 }

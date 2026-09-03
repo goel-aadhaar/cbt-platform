@@ -38,6 +38,8 @@ model Institute {
   attempts         Attempt[]
   practiceSessions PracticeSession[]
   announcements    Announcement[]
+  announcementBatches   AnnouncementBatch[]
+  announcementTeachers  AnnouncementTeacher[]
   importRuns       ImportRun[]
   media            Media[]
   responses        Response[]
@@ -48,4 +50,5 @@ model Institute {
 
   @@map("institutes")
   resources        Resource[]
+  resourceBatches  ResourceBatch[]
 }

@@ -231,9 +231,13 @@ export class MediaService {
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
         AND: [
           {
+            toStudents: true,
+            // No batch rows means the notice went to every student; otherwise
+            // only the batches named on it. Mirrors visibleToMeWhere() in
+            // announcements.service.ts — deliberately duplicated, see above.
             OR: [
-              { audience: 'ALL_STUDENTS' },
-              { audience: 'BATCH', batchId: student.batchId },
+              { batches: { none: {} } },
+              { batches: { some: { batchId: student.batchId } } },
             ],
           },
         ],
@@ -245,15 +249,15 @@ export class MediaService {
     /**
      * Or study material shared with their batch.
      *
-     * The batch is the whole permission: a resource is addressed to exactly
-     * one, and `Resource.batchId` is non-nullable precisely so this check has
-     * no ambiguous case to handle.
+     * The batch is the whole permission. A resource now reaches a SET of
+     * batches, so this asks whether any of them is theirs — the same question
+     * as before, just no longer answerable by comparing one column.
      */
     const sharedWithTheirBatch = await this.prisma.resource.findFirst({
       where: {
         instituteId: ctx.instituteId ?? undefined,
         mediaKey: key,
-        batchId: student.batchId,
+        batches: { some: { batchId: student.batchId } },
       },
       select: { id: true },
     });

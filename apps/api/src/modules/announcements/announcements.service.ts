@@ -7,10 +7,10 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '../auth/auth.types';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import {
-  AnnouncementAudience,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
 } from './dto/announcement.dto';
@@ -32,12 +32,13 @@ const studentSelect = {
 
 const staffSelect = {
   ...studentSelect,
-  audience: true,
-  batchId: true,
+  toStudents: true,
+  toTeachers: true,
   expiresAt: true,
   createdAt: true,
   updatedAt: true,
-  batch: { select: { id: true, name: true } },
+  batches: { select: { batch: { select: { id: true, name: true } } } },
+  teachers: { select: { teacher: { select: { id: true, name: true } } } },
 } satisfies Prisma.AnnouncementSelect;
 
 @Injectable()
@@ -60,14 +61,15 @@ export class AnnouncementsService {
 
   async create(dto: CreateAnnouncementDto) {
     const { instituteId, userId } = this.ctx();
-    const audience = dto.audience ?? AnnouncementAudience.ALL_STUDENTS;
+    const toStudents = dto.toStudents ?? true;
+    const toTeachers = dto.toTeachers ?? false;
+    const batchIds = [...new Set(dto.batchIds ?? [])];
+    const teacherIds = [...new Set(dto.teacherIds ?? [])];
 
-    if (audience === AnnouncementAudience.BATCH && !dto.batchId) {
-      throw new BadRequestException(
-        'A batch must be chosen when the audience is BATCH',
-      );
-    }
-    if (dto.batchId) await this.assertBatch(dto.batchId, instituteId);
+    this.assertAudience(toStudents, toTeachers);
+    this.assertMayAddressTeachers(toTeachers, teacherIds);
+    await this.assertBatches(batchIds, instituteId);
+    await this.assertTeachers(teacherIds, instituteId);
 
     return this.prisma.announcement.create({
       data: {
@@ -76,11 +78,8 @@ export class AnnouncementsService {
         title: dto.title,
         body: dto.body,
         category: dto.category ?? 'GENERAL',
-        audience,
-        batchId:
-          audience === AnnouncementAudience.BATCH
-            ? (dto.batchId ?? null)
-            : null,
+        toStudents,
+        toTeachers,
         pinned: dto.pinned ?? false,
         publishedAt: dto.publish ? new Date() : null,
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null,
@@ -88,6 +87,20 @@ export class AnnouncementsService {
           dto.attachmentKeys,
           instituteId,
         ),
+        // Narrowing rows are only meaningful alongside their audience flag —
+        // batches on a teachers-only notice would be dead rows that quietly
+        // start applying if someone later ticks Students.
+        batches: toStudents
+          ? { create: batchIds.map((batchId) => ({ batchId, instituteId })) }
+          : undefined,
+        teachers: toTeachers
+          ? {
+              create: teacherIds.map((teacherId) => ({
+                teacherId,
+                instituteId,
+              })),
+            }
+          : undefined,
       },
       select: staffSelect,
     });
@@ -151,14 +164,17 @@ export class AnnouncementsService {
     const { instituteId } = this.ctx();
     const existing = await this.requireOwn(id, instituteId);
 
-    const audience = dto.audience ?? existing.audience;
-    const batchId = dto.batchId === undefined ? existing.batchId : dto.batchId;
-    if (audience === AnnouncementAudience.BATCH && !batchId) {
-      throw new BadRequestException(
-        'A batch must be chosen when the audience is BATCH',
-      );
-    }
-    if (batchId) await this.assertBatch(batchId, instituteId);
+    const toStudents = dto.toStudents ?? existing.toStudents;
+    const toTeachers = dto.toTeachers ?? existing.toTeachers;
+    const batchIds =
+      dto.batchIds === undefined ? undefined : [...new Set(dto.batchIds)];
+    const teacherIds =
+      dto.teacherIds === undefined ? undefined : [...new Set(dto.teacherIds)];
+
+    this.assertAudience(toStudents, toTeachers);
+    this.assertMayAddressTeachers(toTeachers, teacherIds ?? []);
+    await this.assertBatches(batchIds ?? [], instituteId);
+    await this.assertTeachers(teacherIds ?? [], instituteId);
 
     return this.prisma.announcement.update({
       where: { id },
@@ -166,11 +182,40 @@ export class AnnouncementsService {
         ...(dto.title !== undefined ? { title: dto.title } : {}),
         ...(dto.body !== undefined ? { body: dto.body } : {}),
         ...(dto.category !== undefined ? { category: dto.category } : {}),
-        ...(dto.audience !== undefined ? { audience: dto.audience } : {}),
-        ...(dto.batchId !== undefined
+        ...(dto.toStudents !== undefined ? { toStudents: dto.toStudents } : {}),
+        ...(dto.toTeachers !== undefined ? { toTeachers: dto.toTeachers } : {}),
+        // Same omitted-vs-empty rule as attachmentKeys below: omitting the
+        // list leaves the targeting alone, sending [] widens the notice back
+        // to everyone in that audience. Dropping an audience also drops its
+        // rows, so re-ticking it later cannot resurrect stale targeting.
+        ...(batchIds !== undefined || !toStudents
           ? {
-              batchId:
-                audience === AnnouncementAudience.BATCH ? dto.batchId : null,
+              batches: {
+                deleteMany: {},
+                ...(toStudents && batchIds?.length
+                  ? {
+                      create: batchIds.map((batchId) => ({
+                        batchId,
+                        instituteId,
+                      })),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        ...(teacherIds !== undefined || !toTeachers
+          ? {
+              teachers: {
+                deleteMany: {},
+                ...(toTeachers && teacherIds?.length
+                  ? {
+                      create: teacherIds.map((teacherId) => ({
+                        teacherId,
+                        instituteId,
+                      })),
+                    }
+                  : {}),
+              },
             }
           : {}),
         ...(dto.pinned !== undefined ? { pinned: dto.pinned } : {}),
@@ -223,41 +268,67 @@ export class AnnouncementsService {
     return { id, deleted: true };
   }
 
-  /* ------------------------------ student ------------------------------ */
+  /* ----------------------------- recipients ---------------------------- */
 
   /**
-   * The calling student's feed: published, unexpired, and either institute-wide
-   * or aimed at their own batch. Drafts and other batches' notices are excluded
-   * by the query, not by the client.
-   */
-  /**
-   * The notices one student is entitled to see, right now.
+   * The notices the CALLER is entitled to see, right now — student or teacher.
    *
-   * Extracted so the list and the unread COUNT are built from the same filter.
-   * Two hand-written copies would drift the moment audience or expiry rules
-   * changed, and a badge that disagrees with the page it points at is worse
-   * than no badge.
+   * Extracted so the list, the unread COUNT and mark-seen are built from one
+   * filter. Two hand-written copies would drift the moment audience or expiry
+   * rules changed, and a badge that disagrees with the page it points at is
+   * worse than no badge. That mattered more once teachers became recipients:
+   * it is one filter with a per-role clause, not a second pipeline.
    */
-  private async visibleToStudentWhere() {
+  private async visibleToMeWhere() {
     const { instituteId, userId } = this.ctx();
+    const role = this.tenant.get()?.role;
+    const now = new Date();
+
+    // Published, in-window — true for every recipient regardless of role.
+    const common = {
+      instituteId,
+      publishedAt: { not: null, lte: now },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    };
+
+    if (role === Role.TEACHER) {
+      return {
+        userId,
+        where: {
+          ...common,
+          AND: [
+            {
+              toTeachers: true,
+              // No narrowing rows means every teacher; otherwise only the
+              // named ones. `none: {}` is the "addressed to all" case —
+              // expressed as the absence of rows, so adding a teacher to an
+              // existing notice narrows it rather than widening it.
+              OR: [
+                { teachers: { none: {} } },
+                { teachers: { some: { teacherId: userId } } },
+              ],
+            },
+          ],
+        },
+      };
+    }
+
     const student = await this.prisma.student.findUnique({
       where: { userId },
       select: { batchId: true },
     });
     if (!student) throw new ForbiddenException('Not a student account');
 
-    const now = new Date();
     return {
       userId,
       where: {
-        instituteId,
-        publishedAt: { not: null, lte: now },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        ...common,
         AND: [
           {
+            toStudents: true,
             OR: [
-              { audience: 'ALL_STUDENTS' as const },
-              { audience: 'BATCH' as const, batchId: student.batchId },
+              { batches: { none: {} } },
+              { batches: { some: { batchId: student.batchId } } },
             ],
           },
         ],
@@ -265,8 +336,8 @@ export class AnnouncementsService {
     };
   }
 
-  async listForStudent() {
-    const { where } = await this.visibleToStudentWhere();
+  async listForMe() {
+    const { where } = await this.visibleToMeWhere();
     return this.prisma.announcement.findMany({
       where,
       orderBy: [{ pinned: 'desc' }, { publishedAt: 'desc' }],
@@ -280,8 +351,8 @@ export class AnnouncementsService {
    * A student who has never opened the page has `announcementsSeenAt` NULL,
    * which correctly counts everything currently published rather than nothing.
    */
-  async unreadCountForStudent() {
-    const { userId, where } = await this.visibleToStudentWhere();
+  async unreadCountForMe() {
+    const { userId, where } = await this.visibleToMeWhere();
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { announcementsSeenAt: true },
@@ -296,8 +367,8 @@ export class AnnouncementsService {
   }
 
   /** Mark everything currently visible as seen, clearing the badge. */
-  async markSeenForStudent() {
-    const { userId } = await this.visibleToStudentWhere();
+  async markSeenForMe() {
+    const { userId } = await this.visibleToMeWhere();
     await this.prisma.user.update({
       where: { id: userId },
       data: { announcementsSeenAt: new Date() },
@@ -310,7 +381,12 @@ export class AnnouncementsService {
   private async requireOwn(id: string, instituteId: string) {
     const found = await this.prisma.announcement.findFirst({
       where: { id, instituteId },
-      select: { id: true, audience: true, batchId: true, publishedAt: true },
+      select: {
+        id: true,
+        toStudents: true,
+        toTeachers: true,
+        publishedAt: true,
+      },
     });
     if (!found) throw new NotFoundException('Announcement not found');
     return found;
@@ -326,19 +402,73 @@ export class AnnouncementsService {
    * `myBatchIds()` returns null for non-teachers, who are legitimately
    * institute-wide.
    */
-  private async assertBatch(batchId: string, instituteId: string) {
-    const batch = await this.prisma.batch.findFirst({
-      where: { id: batchId, instituteId },
+  private async assertBatches(batchIds: string[], instituteId: string) {
+    if (batchIds.length === 0) return;
+    const found = await this.prisma.batch.findMany({
+      where: { id: { in: batchIds }, instituteId },
       select: { id: true },
     });
-    if (!batch) {
-      throw new BadRequestException('That batch is not in your institute');
+    if (found.length !== batchIds.length) {
+      throw new BadRequestException(
+        'One or more of those batches is not in your institute',
+      );
     }
 
     const mine = await this.teacherScope.myBatchIds();
-    if (mine !== null && !mine.includes(batchId)) {
+    if (mine !== null) {
+      const outside = batchIds.filter((id) => !mine.includes(id));
+      if (outside.length > 0) {
+        throw new ForbiddenException(
+          'You can only post announcements to batches you teach',
+        );
+      }
+    }
+  }
+
+  /**
+   * A notice addressed to nobody is not a draft — it is a notice that can
+   * never be delivered, and publishing it would look like success.
+   */
+  private assertAudience(toStudents: boolean, toTeachers: boolean) {
+    if (!toStudents && !toTeachers) {
+      throw new BadRequestException(
+        'Choose at least one audience: students, teachers, or both',
+      );
+    }
+  }
+
+  /**
+   * Broadcasting to staff is an admin action (§ decided with the product
+   * owner). A teacher keeps the ability they already had — notifying their own
+   * students — but cannot address other teachers.
+   *
+   * Refused loudly rather than quietly dropped: an author who ticks Teachers
+   * and gets a silent students-only notice has been told the wrong thing about
+   * who read it.
+   */
+  private assertMayAddressTeachers(toTeachers: boolean, teacherIds: string[]) {
+    if (!toTeachers && teacherIds.length === 0) return;
+    if (this.tenant.get()?.role === Role.TEACHER) {
       throw new ForbiddenException(
-        'You can only post announcements to batches you teach',
+        'Only an administrator can send announcements to teachers',
+      );
+    }
+  }
+
+  /** Named recipients must be teachers in this institute, not any user id. */
+  private async assertTeachers(teacherIds: string[], instituteId: string) {
+    if (teacherIds.length === 0) return;
+    const found = await this.prisma.user.findMany({
+      where: {
+        id: { in: teacherIds },
+        instituteId,
+        roles: { has: Role.TEACHER },
+      },
+      select: { id: true },
+    });
+    if (found.length !== teacherIds.length) {
+      throw new BadRequestException(
+        'One or more of those teachers is not in your institute',
       );
     }
   }

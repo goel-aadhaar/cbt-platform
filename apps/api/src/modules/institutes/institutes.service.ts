@@ -99,7 +99,7 @@ export class InstitutesService {
         const codeCollision =
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002' &&
-          (err.meta?.target as string[] | undefined)?.includes('code');
+          conflictingFields(err).includes('code');
         if (!codeCollision || attempt === MAX_CODE_ATTEMPTS) throw err;
       }
     }
@@ -410,4 +410,47 @@ export class InstitutesService {
 
 function emptyStats() {
   return { students: 0, exams: 0, questions: 0, attempts: 0, staff: 0 };
+}
+
+/**
+ * Which columns a P2002 unique-constraint error is actually about.
+ *
+ * Prisma reports this in two different places depending on how the client
+ * talks to the database, and this code only ever read one of them:
+ *
+ *   - without a driver adapter: `meta.target` — `['code']`, or the raw index
+ *     name as a string on some providers;
+ *   - through a driver adapter (what this service runs on): no `target` at
+ *     all, and the columns live at
+ *     `meta.driverAdapterError.cause.constraint.fields`.
+ *
+ * Reading only `meta.target` therefore made the collision test above silently
+ * always false, so the retry loop never retried and the FIRST duplicate code
+ * surfaced as a 500. With a 4-digit code space that is roughly a 1-in-100
+ * failure per new institute at 100 tenants, rising as more are added — rare
+ * enough to look like a fluke, frequent enough to hit real signups.
+ *
+ * Both shapes are read here, plus the constraint name as a last resort, so a
+ * future client change cannot quietly disable the retry again.
+ */
+export function conflictingFields(
+  err: Prisma.PrismaClientKnownRequestError,
+): string[] {
+  const meta = (err.meta ?? {}) as {
+    target?: unknown;
+    driverAdapterError?: {
+      cause?: { constraint?: { fields?: unknown; index?: unknown } };
+    };
+  };
+
+  if (Array.isArray(meta.target)) return meta.target.map(String);
+  if (typeof meta.target === 'string') return [meta.target];
+
+  const constraint = meta.driverAdapterError?.cause?.constraint;
+  if (Array.isArray(constraint?.fields)) return constraint.fields.map(String);
+  // e.g. "institutes_code_key" — the column name is a substring of the index
+  // name by Postgres convention, which is enough to tell the two apart here.
+  if (typeof constraint?.index === 'string') return [constraint.index];
+
+  return [];
 }

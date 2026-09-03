@@ -1,15 +1,9 @@
 /// Updates & Announcements (§2.9).
 ///
-/// Staff-authored notices shown to students in their portal. Kept deliberately
-/// simple: no threading, no read receipts per student — just a tenant-scoped
-/// notice board that can optionally be aimed at one batch and pinned.
-
-enum AnnouncementAudience {
-  /// Everyone in the institute.
-  ALL_STUDENTS
-  /// Only students in `batchId`.
-  BATCH
-}
+/// Staff-authored notices, read by students AND teachers in their portals.
+/// Still deliberately simple: no threading, no per-recipient read receipts —
+/// a tenant-scoped notice board that can be aimed at either audience, narrowed
+/// to particular batches or particular teachers, and pinned.
 
 enum AnnouncementCategory {
   GENERAL
@@ -27,9 +21,22 @@ model Announcement {
   body  String
 
   category AnnouncementCategory @default(GENERAL)
-  audience AnnouncementAudience @default(ALL_STUDENTS)
-  /// Required when `audience` is BATCH; ignored otherwise.
-  batchId  String?              @map("batch_id") @db.Uuid
+
+  /// Who this notice is for. Both may be true — one notice, both audiences.
+  /// At least one must be, which the service enforces (a notice addressed to
+  /// nobody is a draft nobody asked for, not a valid state).
+  ///
+  /// Narrowing is expressed by the join rows below, NOT by another flag:
+  ///   toStudents + no `batches` rows  = every student in the institute
+  ///   toStudents + some `batches`     = only those batches
+  ///   toTeachers + no `teachers` rows = every teacher
+  ///   toTeachers + some `teachers`    = only those teachers
+  ///
+  /// "Empty means everyone" reads oddly in isolation but is what keeps the
+  /// common case (announce to all) a single boolean rather than requiring the
+  /// author to select every batch by hand.
+  toStudents Boolean @default(true) @map("to_students")
+  toTeachers Boolean @default(false) @map("to_teachers")
 
   /// Media keys for files attached to this notice (§2.12).
   ///
@@ -41,9 +48,9 @@ model Announcement {
   /// Pinned notices sort above the rest regardless of date.
   pinned Boolean @default(false)
 
-  /// Drafts are invisible to students until published.
+  /// Drafts are invisible to recipients until published.
   publishedAt DateTime? @map("published_at")
-  /// Optional auto-expiry; a past date hides it from students.
+  /// Optional auto-expiry; a past date hides it.
   expiresAt   DateTime? @map("expires_at")
 
   createdById String   @map("created_by_id") @db.Uuid
@@ -51,10 +58,51 @@ model Announcement {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
-  batch     Batch?    @relation(fields: [batchId], references: [id], onDelete: SetNull)
   createdBy User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
+  batches  AnnouncementBatch[]
+  teachers AnnouncementTeacher[]
+
   @@index([instituteId, publishedAt])
-  @@index([batchId])
   @@map("announcements")
+}
+
+/// One batch this notice is narrowed to. Same shape as ExamBatch — parent,
+/// target, tenant — so a deleted batch takes its targeting rows with it
+/// rather than leaving a notice pointing at nothing.
+model AnnouncementBatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  batchId        String   @map("batch_id") @db.Uuid
+  instituteId    String   @map("institute_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  batch        Batch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  institute    Institute    @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, batchId])
+  @@index([announcementId])
+  @@index([batchId])
+  @@map("announcement_batches")
+}
+
+/// One teacher this notice is narrowed to. `teacherId` is a User id: a
+/// teacher is an account with the TEACHER role, not a separate table the way
+/// Student is.
+model AnnouncementTeacher {
+  id             String   @id @default(uuid()) @db.Uuid
+  announcementId String   @map("announcement_id") @db.Uuid
+  teacherId      String   @map("teacher_id") @db.Uuid
+  instituteId    String   @map("institute_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  teacher      User         @relation("AnnouncementRecipient", fields: [teacherId], references: [id], onDelete: Cascade)
+  institute    Institute    @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, teacherId])
+  @@index([announcementId])
+  @@index([teacherId])
+  @@map("announcement_teachers")
 }

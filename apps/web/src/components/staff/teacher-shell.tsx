@@ -3,11 +3,13 @@
 import {
   ActivityIcon,
   BarChartIcon,
+  BellIcon,
   CheckCircleIcon,
   ClipboardIcon,
   DatabaseIcon,
   FileTextIcon,
   GridIcon,
+  HelpCircleIcon,
   UserIcon,
   UsersIcon,
 } from "@/components/admin/icons";
@@ -39,7 +41,15 @@ const NAV: StaffNavItem[] = [
     href: "/teacher/monitoring",
     icon: ActivityIcon,
   },
+  {
+    label: "Updates & Announcements",
+    href: "/teacher/updates",
+    icon: BellIcon,
+  },
   { label: "My Profile", href: "/teacher/profile", icon: UserIcon },
+  // Last, matching the candidate portal: reached deliberately, not stumbled
+  // into. Also on the topbar, which is where someone stuck mid-task looks.
+  { label: "Help & Support", href: "/teacher/help", icon: HelpCircleIcon },
 ];
 
 export function TeacherShell({
@@ -68,6 +78,8 @@ export function TeacherShell({
       title={title}
       nav={NAV}
       profileHref="/teacher/profile"
+      helpHref="/teacher/help"
+      inboxHref="/teacher/updates"
       workspace="Teacher workspace"
     >
       {children}

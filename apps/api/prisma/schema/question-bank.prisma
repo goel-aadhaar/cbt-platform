@@ -60,6 +60,7 @@ model Chapter {
   subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   topics    Topic[]
   questions Question[]
+  resources Resource[]
 
   @@unique([subjectId, name])
   @@index([instituteId])

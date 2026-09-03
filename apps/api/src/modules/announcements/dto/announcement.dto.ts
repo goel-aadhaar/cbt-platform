@@ -9,11 +9,6 @@ import {
   MinLength,
 } from 'class-validator';
 
-export enum AnnouncementAudience {
-  ALL_STUDENTS = 'ALL_STUDENTS',
-  BATCH = 'BATCH',
-}
-
 export enum AnnouncementCategory {
   GENERAL = 'GENERAL',
   EXAM = 'EXAM',
@@ -35,14 +30,33 @@ export class CreateAnnouncementDto {
   @IsEnum(AnnouncementCategory)
   category?: AnnouncementCategory;
 
+  /**
+   * Who the notice is for. Both may be true. At least one must be — the
+   * service refuses a notice addressed to nobody.
+   */
   @IsOptional()
-  @IsEnum(AnnouncementAudience)
-  audience?: AnnouncementAudience;
+  @IsBoolean()
+  toStudents?: boolean;
 
-  /** Required when `audience` is BATCH. */
   @IsOptional()
-  @IsUUID()
-  batchId?: string;
+  @IsBoolean()
+  toTeachers?: boolean;
+
+  /**
+   * Narrowing, not addressing: an EMPTY (or omitted) list with the matching
+   * audience flag set means everyone in that audience. Sending every batch id
+   * by hand and sending none are therefore the same notice, which keeps the
+   * common case one checkbox rather than a full multi-select.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  batchIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  teacherIds?: string[];
 
   @IsOptional()
   @IsBoolean()
@@ -85,13 +99,33 @@ export class UpdateAnnouncementDto {
   @IsEnum(AnnouncementCategory)
   category?: AnnouncementCategory;
 
+  /**
+   * Who the notice is for. Both may be true. At least one must be — the
+   * service refuses a notice addressed to nobody.
+   */
   @IsOptional()
-  @IsEnum(AnnouncementAudience)
-  audience?: AnnouncementAudience;
+  @IsBoolean()
+  toStudents?: boolean;
 
   @IsOptional()
-  @IsUUID()
-  batchId?: string | null;
+  @IsBoolean()
+  toTeachers?: boolean;
+
+  /**
+   * Narrowing, not addressing: an EMPTY (or omitted) list with the matching
+   * audience flag set means everyone in that audience. Sending every batch id
+   * by hand and sending none are therefore the same notice, which keeps the
+   * common case one checkbox rather than a full multi-select.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  batchIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  teacherIds?: string[];
 
   @IsOptional()
   @IsBoolean()

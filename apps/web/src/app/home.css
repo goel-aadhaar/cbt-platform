@@ -47,7 +47,14 @@ body {
    in the app. The admin sidebar's collapsible group headers are buttons, so
    they rendered at 16px/400 beside <a> rows at 14px/600 — visibly a
    different typeface. */
-a { color: inherit; text-decoration: none; }
+
+/* No `a` reset here either, for exactly the same reason. Tailwind preflight
+   already sets `a { color: inherit; text-decoration: inherit }` in @layer
+   base, so this file's unlayered copy added nothing except the bug: being
+   unlayered, its `color: inherit` outranked every text-* utility, so an <a>
+   styled as a button — the admin dashboard's "Review Exams", the student
+   dashboard's "Browse Mock Tests" — inherited the card's dark ink instead of
+   the white it asked for, and rendered near-black on a dark green pill. */
 
 .shell {
   width: min(1180px, calc(100% - 48px));

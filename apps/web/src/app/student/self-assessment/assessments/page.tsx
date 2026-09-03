@@ -108,8 +108,8 @@ export default function MyAssessmentsPage() {
           </div>
         ) : (available ?? []).length === 0 ? (
           <p className="rounded-xl border border-dashed border-admin-line/60 bg-white p-6 text-center text-sm text-admin-muted">
-            Nothing open right now. Check back once your teacher's window opens,
-            or see what's coming up below.
+            Nothing open right now. Check back once your teacher&apos;s window
+            opens, or see what&apos;s coming up below.
           </p>
         ) : (
           <ul className="flex flex-col gap-3">
@@ -207,8 +207,8 @@ export default function MyAssessmentsPage() {
             </div>
           ) : completed.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-admin-muted">
-              Nothing completed yet — assessments you've submitted will show up
-              here as soon as the window closes.
+              Nothing completed yet — assessments you&apos;ve submitted will
+              show up here as soon as the window closes.
             </p>
           ) : (
             completed.map((a) => (

@@ -67,37 +67,41 @@ export class AnnouncementsController {
 }
 
 /**
- * Reading side — the student's own feed. Separate controller so the STUDENT
- * role never touches the authoring routes.
+ * Reading side — the caller's own feed, student or teacher. Separate
+ * controller so a recipient role never touches the authoring routes.
+ *
+ * One set of routes rather than a teacher copy: the audience is decided from
+ * the session, so a caller cannot ask for someone else's feed, and the bell
+ * component is identical on both portals.
  */
 @ApiTags('announcements')
 @ApiBearerAuth()
-@Roles(Role.STUDENT)
+@Roles(Role.STUDENT, Role.TEACHER)
 @Controller({ path: 'me/announcements', version: '1' })
 export class MyAnnouncementsController {
   constructor(private readonly announcements: AnnouncementsService) {}
 
   @Get()
   list() {
-    return this.announcements.listForStudent();
+    return this.announcements.listForMe();
   }
 
   /**
-   * How many notices have arrived since this student last looked — the number
+   * How many notices have arrived since the caller last looked — the number
    * on the bell. Declared before nothing dynamic, so no route-order concern.
    */
   @Get('unread-count')
   unreadCount() {
-    return this.announcements.unreadCountForStudent();
+    return this.announcements.unreadCountForMe();
   }
 
   /**
-   * Clear the badge. Called when the student opens their announcements, which
+   * Clear the badge. Called when the recipient opens their announcements, which
    * is the moment "seen" actually becomes true.
    */
   @Post('seen')
   @HttpCode(HttpStatus.OK)
   markSeen() {
-    return this.announcements.markSeenForStudent();
+    return this.announcements.markSeenForMe();
   }
 }
