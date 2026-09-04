@@ -25,7 +25,8 @@ import {
   type StaffRow,
 } from "@/lib/admin";
 
-import { useBatchPaths } from "@/components/admin/academic-cascade";
+import { useBatchOptions } from "@/components/admin/academic-cascade";
+import { BatchPicker } from "@/components/batch-picker";
 import { AttachmentPicker } from "@/components/admin/attachment-picker";
 
 const CATEGORIES: AnnouncementCategory[] = [
@@ -313,7 +314,7 @@ function Composer({
     editing?.teachers?.map((t) => t.teacher.id) ?? [],
   );
   const [teachers, setTeachers] = useState<StaffRow[]>([]);
-  const { path: batchPath } = useBatchPaths(true);
+  const batchOptions = useBatchOptions(batches);
 
   // Only needed once Teachers is ticked, but fetched on open so the list is
   // already there when it is — a picker that appears empty and fills in a
@@ -454,16 +455,35 @@ function Composer({
           </div>
 
           {toStudents && (
-            <TargetPicker
-              label="Batches"
-              emptyMeans="Every student in the institute"
-              options={batches.map((b) => ({
-                id: b.id,
-                name: batchPath(b),
-              }))}
-              selected={batchIds}
-              onChange={setBatchIds}
-            />
+            <div className="mt-3 rounded-lg border border-admin-line p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase text-admin-muted">
+                  Batches
+                </span>
+                {batchIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setBatchIds([])}
+                    className="text-xs font-semibold text-admin hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-admin-muted">
+                {batchIds.length === 0
+                  ? "Every student in the institute"
+                  : `${batchIds.length} batch${batchIds.length === 1 ? "" : "es"}`}
+              </p>
+              <div className="mt-2">
+                <BatchPicker
+                  batches={batchOptions}
+                  selected={batchIds}
+                  onChange={setBatchIds}
+                  emptyMessage="None available."
+                />
+              </div>
+            </div>
           )}
 
           {toTeachers && (

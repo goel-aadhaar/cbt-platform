@@ -1337,7 +1337,22 @@ export function setStaffBatches(
 }
 
 /** GET /staff/me/batches — TEACHER. The caller's own assignment. */
-export function getMyBatches(): Promise<{ id: string; name: string }[]> {
+/**
+ * The calling teacher's own batches, each with the class and program above it.
+ *
+ * The path is sent by the server rather than joined here: `/programs` and
+ * `/classes` are ADMIN-only, so a teacher has no way to resolve it themselves.
+ */
+export interface MyBatch {
+  id: string;
+  name: string;
+  classId: string;
+  className: string | null;
+  programId: string | null;
+  programName: string | null;
+}
+
+export function getMyBatches(): Promise<MyBatch[]> {
   return apiFetch(`/staff/me/batches`, auth());
 }
 

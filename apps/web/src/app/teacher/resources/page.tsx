@@ -6,7 +6,12 @@ import { ActionButton } from "@/components/action-button";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { ResourceBrowser } from "@/components/resources/resource-browser";
 import { ShareResourceDrawer } from "@/components/resources/share-resource-drawer";
-import { getMyBatches, listSubjects, type Subject } from "@/lib/admin";
+import {
+  getMyBatches,
+  listSubjects,
+  type MyBatch,
+  type Subject,
+} from "@/lib/admin";
 import { removeResource, type ResourceItem } from "@/lib/resources";
 
 /**
@@ -21,7 +26,10 @@ import { removeResource, type ResourceItem } from "@/lib/resources";
  */
 export default function TeacherResourcesPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [batches, setBatches] = useState<{ id: string; name: string }[]>([]);
+  // null while the request is still out: an empty array has to mean
+  // "assigned to none", or the drawer says so before it knows.
+  const [batches, setBatches] = useState<MyBatch[] | null>(null);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<ResourceItem | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -29,13 +37,33 @@ export default function TeacherResourcesPage() {
 
   // For the share form: only the batches this teacher may publish to. The
   // server checks again — this list is convenience, not the control.
+  //
+  // The two are loaded separately so a failure can be told apart from an
+  // empty result. Bundled in one allSettled, a rejected batch request left
+  // the list empty and the drawer told the teacher they were "not assigned
+  // to any batches" — sending them to an administrator to fix a request that
+  // had simply failed.
   useEffect(() => {
     let cancelled = false;
-    Promise.allSettled([listSubjects(), getMyBatches()]).then(([s, b]) => {
-      if (cancelled) return;
-      if (s.status === "fulfilled") setSubjects(s.value);
-      if (b.status === "fulfilled") setBatches(b.value);
-    });
+
+    listSubjects()
+      .then((s) => !cancelled && setSubjects(s))
+      .catch(() => undefined);
+
+    getMyBatches()
+      .then((b) => {
+        if (cancelled) return;
+        setBatches(b);
+        setBatchError(null);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setBatches([]);
+        setBatchError(
+          e instanceof Error ? e.message : "Could not load your batches.",
+        );
+      });
+
     return () => {
       cancelled = true;
     };
@@ -127,6 +155,7 @@ export default function TeacherResourcesPage() {
         editing={editing}
         subjects={subjects}
         batches={batches}
+        batchError={batchError}
         onClose={() => setDrawerOpen(false)}
         onSaved={() => {
           setNotice(editing ? "Material updated." : "Material shared.");

@@ -14,7 +14,9 @@ import {
 
 import { XIcon } from "./icons";
 
-import { useBatchPaths } from "./academic-cascade";
+import { BatchPicker } from "@/components/batch-picker";
+
+import { useBatchOptions } from "./academic-cascade";
 
 /**
  * Assign batches + pick a window for an APPROVED exam ("Schedule Exam"), or
@@ -46,7 +48,7 @@ export function ExamScheduleModal({
   // the effect body.
   const [allBatches, setAllBatches] = useState<BatchRow[] | null>(null);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const { path: batchPath } = useBatchPaths(open);
+  const batchOptions = useBatchOptions(allBatches ?? []);
   const [initialIds, setInitialIds] = useState<string[]>([]);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -79,12 +81,6 @@ export function ExamScheduleModal({
       cancelled = true;
     };
   }, [open, examId]);
-
-  function toggle(id: string) {
-    setCheckedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
 
   const valid =
     checkedIds.length > 0 &&
@@ -152,26 +148,13 @@ export function ExamScheduleModal({
           ) : (
             <div className="flex flex-col gap-5">
               <Field label="Assign batches" required>
-                <div className="flex flex-col gap-2 rounded-xl border border-admin-line/60 p-3">
-                  {(allBatches ?? []).map((b) => (
-                    <label
-                      key={b.id}
-                      className="flex items-center gap-3 text-sm text-admin-ink"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checkedIds.includes(b.id)}
-                        onChange={() => toggle(b.id)}
-                        className="size-4 accent-admin"
-                      />
-                      {batchPath(b)}
-                    </label>
-                  ))}
-                  {(allBatches ?? []).length === 0 && (
-                    <p className="text-sm text-admin-muted">
-                      No batches found.
-                    </p>
-                  )}
+                <div className="rounded-xl border border-admin-line/60 p-3">
+                  <BatchPicker
+                    batches={batchOptions}
+                    selected={checkedIds}
+                    onChange={setCheckedIds}
+                    emptyMessage="No batches found."
+                  />
                 </div>
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

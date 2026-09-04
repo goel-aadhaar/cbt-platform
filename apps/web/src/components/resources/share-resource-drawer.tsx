@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ActionButton } from "@/components/action-button";
+import { BatchPicker, type BatchOption } from "@/components/batch-picker";
 import { XIcon } from "@/components/admin/icons";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { listChapters, type ChapterRow } from "@/lib/admin";
@@ -37,6 +38,7 @@ export function ShareResourceDrawer({
   editing,
   subjects,
   batches,
+  batchError,
   defaultSubjectId,
   defaultChapterId,
   onClose,
@@ -46,8 +48,14 @@ export function ShareResourceDrawer({
   /** Null to share something new. */
   editing: ResourceItem | null;
   subjects: Option[];
-  /** Only batches this teacher may publish to — the server checks again. */
-  batches: Option[];
+  /**
+   * Only batches this teacher may publish to — the server checks again.
+   * Null while still loading, so "none yet" is never claimed prematurely.
+   */
+  batches: BatchOption[] | null;
+  /** Set when the list could not be loaded at all, which is not the same
+   * thing as being assigned to nothing. */
+  batchError?: string | null;
   defaultSubjectId?: string;
   defaultChapterId?: string | null;
   onClose: () => void;
@@ -155,8 +163,13 @@ export function ShareResourceDrawer({
     if (title.trim().length < 2) return "Give it a title.";
     if (!subjectId) return "Choose a subject.";
     if (!chapterId) return "Choose a chapter.";
-    if (batchIds.length === 0)
-      return "Choose at least one batch to share with.";
+    if (batchIds.length === 0) {
+      // Telling someone with no batches to "choose one" asks for something
+      // the screen cannot offer — name the actual blocker instead.
+      return batches !== null && batches.length === 0
+        ? "You have no batches to share with yet. An administrator needs to assign you to one first."
+        : "Choose at least one batch to share with.";
+    }
     if (type === "FILE" && !mediaKey) return "Upload a file first.";
     if (type === "YOUTUBE" && !videoId) {
       return "Paste a YouTube video link (youtube.com/watch, youtu.be or /shorts).";
@@ -208,11 +221,6 @@ export function ShareResourceDrawer({
       setSaving(false);
     }
   }
-
-  const toggleBatch = (id: string) =>
-    setBatchIds((prev) =>
-      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id],
-    );
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -437,27 +445,28 @@ export function ShareResourceDrawer({
             <span className="text-xs font-bold uppercase text-admin-muted">
               Share with
             </span>
-            {batches.length === 0 ? (
+            {batchError ? (
+              <p role="alert" className="mt-2 text-sm text-danger">
+                Could not load your batches ({batchError}). Reload the page —
+                this is not the same as having none assigned.
+              </p>
+            ) : batches === null ? (
+              <p className="mt-2 text-sm text-admin-muted">
+                Loading your batches…
+              </p>
+            ) : batches.length === 0 ? (
               <p className="mt-2 text-sm text-admin-muted">
                 You are not assigned to any batches yet, so there is nobody to
-                share with. Ask an administrator to assign you.
+                share with. An administrator can assign you under Teachers →
+                your name → Batch(es).
               </p>
             ) : (
-              <div className="mt-2 space-y-1">
-                {batches.map((b) => (
-                  <label
-                    key={b.id}
-                    className="flex items-center gap-2 text-sm text-admin-ink"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={batchIds.includes(b.id)}
-                      onChange={() => toggleBatch(b.id)}
-                      className="size-4 accent-admin"
-                    />
-                    {b.name}
-                  </label>
-                ))}
+              <div className="mt-2">
+                <BatchPicker
+                  batches={batches}
+                  selected={batchIds}
+                  onChange={setBatchIds}
+                />
               </div>
             )}
           </div>

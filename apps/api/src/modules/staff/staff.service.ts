@@ -372,12 +372,44 @@ export class StaffService {
     return this.batchList(ctx.userId);
   }
 
+  /**
+   * A teacher's batches, each carrying the class and program it sits under.
+   *
+   * The path comes back with the row because the caller cannot look it up:
+   * `/programs` and `/classes` are ADMIN-only, so a teacher's batch picker had
+   * nothing but bare names to show — and "Alpha" is ambiguous the moment two
+   * programs each have one. Sending the path here keeps that catalogue
+   * admin-only while still letting a teacher tell their batches apart and
+   * filter by program or class.
+   */
   private async batchList(teacherId: string) {
     const rows = await this.prisma.teacherBatch.findMany({
       where: { teacherId },
-      select: { batch: { select: { id: true, name: true } } },
+      select: {
+        batch: {
+          select: {
+            id: true,
+            name: true,
+            classId: true,
+            class: {
+              select: {
+                id: true,
+                name: true,
+                program: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
     });
-    return rows.map((r) => r.batch);
+    return rows.map(({ batch }) => ({
+      id: batch.id,
+      name: batch.name,
+      classId: batch.classId,
+      className: batch.class?.name ?? null,
+      programId: batch.class?.program?.id ?? null,
+      programName: batch.class?.program?.name ?? null,
+    }));
   }
 
   private async subjectsByUser(

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { type BatchOption } from "@/components/batch-picker";
 import { useOrgCatalogue } from "@/hooks/use-org-catalogue";
 import {
   listBatches,
@@ -243,4 +244,35 @@ export function useBatchPaths(active: boolean): {
       return `${program.name} › ${cls.name} › ${batch.name}`;
     },
   };
+}
+
+/**
+ * Admin-side batches as {@link BatchOption}s, with their program and class
+ * resolved from the shared catalogue.
+ *
+ * The teacher-side equivalent needs no hook: `/staff/me/batches` returns the
+ * path on each row, because `/programs` and `/classes` are ADMIN-only and a
+ * teacher could never join them here.
+ */
+export function useBatchOptions(batches: BatchRow[]): BatchOption[] {
+  const catalogue = useOrgCatalogue();
+
+  return useMemo(() => {
+    const classById = new Map((catalogue?.classes ?? []).map((c) => [c.id, c]));
+    const programById = new Map(
+      (catalogue?.programs ?? []).map((p) => [p.id, p]),
+    );
+    return batches.map((b) => {
+      const cls = classById.get(b.classId);
+      const program = cls ? programById.get(cls.programId) : undefined;
+      return {
+        id: b.id,
+        name: b.name,
+        classId: b.classId,
+        className: cls?.name ?? null,
+        programId: program?.id ?? null,
+        programName: program?.name ?? null,
+      };
+    });
+  }, [batches, catalogue]);
 }

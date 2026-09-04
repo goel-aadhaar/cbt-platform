@@ -18,7 +18,9 @@ import {
 
 import { CheckIcon, ImageIcon, UserPlusIcon, XIcon } from "./icons";
 
-import { useBatchPaths } from "./academic-cascade";
+import { BatchPicker } from "@/components/batch-picker";
+
+import { useBatchOptions } from "./academic-cascade";
 
 /* ------------------------------ Add Staff ------------------------------ */
 
@@ -645,7 +647,8 @@ export function StaffDetailsDrawer({
  * A teacher is routinely assigned several batches across two classes, so this
  * stays a checkbox list rather than becoming a cascade — narrowing would turn
  * one pass into several. The full path on each row is what removes the
- * ambiguity instead.
+ * ambiguity, and BatchPicker adds program/class filters once an institute has
+ * enough batches for the list alone to stop being scannable.
  */
 function BatchChecklist({
   batches,
@@ -656,31 +659,20 @@ function BatchChecklist({
   selected: string[];
   onToggle: (id: string) => void;
 }) {
-  const { path } = useBatchPaths(true);
-  if (batches.length === 0) {
-    return (
-      <p className="text-xs text-admin-subtle">
-        No batches exist yet in this institute.
-      </p>
-    );
-  }
+  const options = useBatchOptions(batches);
   return (
-    <div className="flex max-h-40 flex-col gap-1 overflow-auto rounded-lg border border-admin-line bg-white p-2">
-      {batches.map((b) => (
-        <label
-          key={b.id}
-          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-admin-ink hover:bg-admin-bg"
-        >
-          <input
-            type="checkbox"
-            checked={selected.includes(b.id)}
-            onChange={() => onToggle(b.id)}
-            className="size-4 accent-admin"
-          />
-          {path(b)}
-        </label>
-      ))}
-    </div>
+    <BatchPicker
+      batches={options}
+      selected={selected}
+      // Kept as onToggle so both call sites' existing state updaters work
+      // unchanged; the picker only ever adds or removes one id at a time
+      // except for its select-all, which is diffed here.
+      onChange={(next) => {
+        for (const id of next) if (!selected.includes(id)) onToggle(id);
+        for (const id of selected) if (!next.includes(id)) onToggle(id);
+      }}
+      emptyMessage="No batches exist yet in this institute."
+    />
   );
 }
 

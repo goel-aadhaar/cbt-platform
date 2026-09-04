@@ -39,6 +39,7 @@ import {
   scheduleExam,
   submitExamForReview,
   type BatchRow,
+  type MyBatch,
   type Subject,
   type Program,
   type StaffRow,
@@ -68,7 +69,9 @@ import { QuestionFilterBar } from "./question-filters";
 import { QuestionPreviewModal } from "./question-preview-modal";
 import { useQuestionPreview } from "./use-question-preview";
 
-import { useBatchPaths } from "./academic-cascade";
+import { BatchPicker } from "@/components/batch-picker";
+
+import { useBatchOptions } from "./academic-cascade";
 
 /**
  * Tiptap (`@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`,
@@ -274,7 +277,6 @@ export function ExamBuilderDrawer({
    * section and the questions inside it can no longer disagree.
    */
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const { path: batchPath } = useBatchPaths(open);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
   const [publishNow, setPublishNow] = useState(true);
@@ -289,13 +291,14 @@ export function ExamBuilderDrawer({
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [batches, setBatches] = useState<BatchRow[]>([]);
+  // Declared after `batches`: it reads that state to resolve each batch's
+  // program and class from the shared catalogue.
+  const adminBatchOptions = useBatchOptions(batches);
   /** A teacher's own authorized batches (§ Assessments) — the assessment
    *  batch-picker's source; separate from `batches` (the admin's full
    *  institute roster) since the server enforces the same restriction on
    *  `assignBatch` regardless of what this list shows. */
-  const [myBatches, setMyBatches] = useState<{ id: string; name: string }[]>(
-    [],
-  );
+  const [myBatches, setMyBatches] = useState<MyBatch[]>([]);
   const [approved, setApproved] = useState<QuestionListItem[]>([]);
   /** Server's true count for the current query — how "Load more" knows
    *  whether the bank has more than what's loaded (§ question bank pagination:
@@ -344,9 +347,7 @@ export function ExamBuilderDrawer({
       listSubjects(),
       // Assessment's own batch-picker source — a teacher's own authorized
       // batches, not the admin's full-institute list above.
-      isAssessment
-        ? getMyBatches()
-        : Promise.resolve([] as { id: string; name: string }[]),
+      isAssessment ? getMyBatches() : Promise.resolve([] as MyBatch[]),
     ]).then(([p, b, q, a, c, t, subj, mb]) => {
       if (cancelled) return;
       if (p.status === "fulfilled") setPrograms(p.value);
@@ -1402,47 +1403,13 @@ export function ExamBuilderDrawer({
             <div className="flex flex-col gap-5">
               <Field label="Assign batches" required>
                 <div className="flex flex-col gap-2 rounded-xl border border-admin-line/60 p-3">
-                  {isAssessment
-                    ? myBatches.map((b) => (
-                        <label
-                          key={b.id}
-                          className="flex items-center gap-3 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={batchIds.includes(b.id)}
-                            onChange={() =>
-                              setBatchIds((prev) =>
-                                prev.includes(b.id)
-                                  ? prev.filter((x) => x !== b.id)
-                                  : [...prev, b.id],
-                              )
-                            }
-                            className="size-4 accent-admin"
-                          />
-                          {b.name}
-                        </label>
-                      ))
-                    : batches.map((b) => (
-                        <label
-                          key={b.id}
-                          className="flex items-center gap-3 text-sm"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={batchIds.includes(b.id)}
-                            onChange={() =>
-                              setBatchIds((prev) =>
-                                prev.includes(b.id)
-                                  ? prev.filter((x) => x !== b.id)
-                                  : [...prev, b.id],
-                              )
-                            }
-                            className="size-4 accent-admin"
-                          />
-                          {batchPath(b)}
-                        </label>
-                      ))}
+                  {(isAssessment ? myBatches : batches).length > 0 && (
+                    <BatchPicker
+                      batches={isAssessment ? myBatches : adminBatchOptions}
+                      selected={batchIds}
+                      onChange={setBatchIds}
+                    />
+                  )}
                   {(isAssessment ? myBatches : batches).length === 0 && (
                     <p className="text-sm text-admin-muted">
                       {isAssessment
