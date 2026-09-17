@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -91,7 +92,13 @@ export class BatchesService {
     await this.findOne(id);
     return this.prisma.batch.update({
       where: { id },
-      data: { name: dto.name },
+      data: {
+        ...(dto.name === undefined ? {} : { name: dto.name }),
+        // Restores an archived batch (or archives an active one) — `remove()`
+        // only ever sets this false, so without it an archived row was
+        // stranded with no way back.
+        ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
+      },
       select: batchSelect,
     });
   }
@@ -103,5 +110,43 @@ export class BatchesService {
       data: { isActive: false },
       select: batchSelect,
     });
+  }
+
+  /**
+   * Permanent delete — the counterpart to archiving, for a row created by
+   * mistake.
+   *
+   * Refused while anything still points at the batch. Student rows cascade
+   * (and take their attempts and results with them), and the assignment joins
+   * for exams, DPPs, resources, announcements and teachers cascade too, so an
+   * unguarded delete quietly destroys candidate history and silently
+   * un-assigns live papers. Archiving stays the way to retire a batch in use.
+   */
+  async destroy(id: string) {
+    await this.findOne(id);
+    const [students, exams, dpps, resources, announcements, teachers] =
+      await this.prisma.$transaction([
+        this.prisma.student.count({ where: { batchId: id } }),
+        this.prisma.examBatch.count({ where: { batchId: id } }),
+        this.prisma.dppBatch.count({ where: { batchId: id } }),
+        this.prisma.resourceBatch.count({ where: { batchId: id } }),
+        this.prisma.announcementBatch.count({ where: { batchId: id } }),
+        this.prisma.teacherBatch.count({ where: { batchId: id } }),
+      ]);
+    const blockers = [
+      students && `${students} student(s)`,
+      exams && `${exams} exam assignment(s)`,
+      dpps && `${dpps} DPP assignment(s)`,
+      resources && `${resources} shared resource(s)`,
+      announcements && `${announcements} announcement(s)`,
+      teachers && `${teachers} teacher assignment(s)`,
+    ].filter((b): b is string => typeof b === 'string');
+    if (blockers.length > 0) {
+      throw new BadRequestException(
+        `This batch is still in use by ${blockers.join(', ')}. Archive it instead, or remove those first.`,
+      );
+    }
+    await this.prisma.batch.delete({ where: { id } });
+    return { id, deleted: true };
   }
 }

@@ -97,7 +97,14 @@ function toRow(
 /** Monitor + results for the exam named in `?examId=`, else the best default. */
 function useParticipants(examIdParam: string | null) {
   const loader = useCallback(async () => {
-    const exams = (await listExams()).items;
+    // Both kinds: GET /exams answers with MOCK_TEST alone when no `kind` is
+    // sent, so a `?examId=` naming a Practice Test found nothing here and
+    // silently fell through to a different exam's roster.
+    const [cbt, practice] = await Promise.all([
+      listExams({ kind: "MOCK_TEST" }),
+      listExams({ kind: "ASSESSMENT" }),
+    ]);
+    const exams = [...cbt.items, ...practice.items];
     const pick =
       exams.find((e) => e.id === examIdParam) ??
       exams.find((e) => examDisplayStatus(e) === "LIVE") ??

@@ -123,7 +123,7 @@ function adminAction(
 ): Promise<ExamDetail> {
   return apiFetch<ExamDetail>(`/exams/${examId}/${suffix}`, {
     method: "POST",
-    body: JSON.stringify(reason !== undefined ? { reason } : {}),
+    body: reason !== undefined ? { reason } : {},
     ...auth(),
   });
 }
@@ -156,7 +156,7 @@ export function forceEndExam(
 ): Promise<{ examId: string; autoSubmitted: number }> {
   return apiFetch(`/exams/${examId}/end`, {
     method: "POST",
-    body: JSON.stringify(reason !== undefined ? { reason } : {}),
+    body: reason !== undefined ? { reason } : {},
     ...auth(),
   });
 }
@@ -174,7 +174,7 @@ export function updateLiveExam(
 ): Promise<ExamDetail> {
   return apiFetch(`/exams/${examId}/live`, {
     method: "PATCH",
-    body: JSON.stringify(dto),
+    body: dto,
     ...auth(),
   });
 }
@@ -827,6 +827,23 @@ export function archiveProgram(id: string): Promise<Program> {
   return apiFetch(`/programs/${id}`, { method: "DELETE", ...auth() });
 }
 
+/** PATCH /programs/:id — restore an archived program. */
+export function unarchiveProgram(id: string): Promise<Program> {
+  return apiFetch(`/programs/${id}`, {
+    method: "PATCH",
+    body: { isActive: true },
+    ...auth(),
+  });
+}
+
+/**
+ * DELETE /programs/:id/permanent — ADMIN. Gone for good, and refused by the
+ * server while any class or exam still references it.
+ */
+export function deleteProgram(id: string): Promise<{ id: string }> {
+  return apiFetch(`/programs/${id}/permanent`, { method: "DELETE", ...auth() });
+}
+
 /** GET /classes — ADMIN, optionally scoped to a program. Archived excluded
  * unless asked for — see {@link listPrograms}. */
 export function listClasses(
@@ -866,6 +883,23 @@ export function archiveClass(id: string): Promise<ClassRow> {
   return apiFetch(`/classes/${id}`, { method: "DELETE", ...auth() });
 }
 
+/** PATCH /classes/:id — restore an archived class. */
+export function unarchiveClass(id: string): Promise<ClassRow> {
+  return apiFetch(`/classes/${id}`, {
+    method: "PATCH",
+    body: { isActive: true },
+    ...auth(),
+  });
+}
+
+/**
+ * DELETE /classes/:id/permanent — ADMIN. Gone for good, and refused by the
+ * server while any batch still hangs off it.
+ */
+export function deleteClass(id: string): Promise<{ id: string }> {
+  return apiFetch(`/classes/${id}/permanent`, { method: "DELETE", ...auth() });
+}
+
 /** GET /batches — ADMIN, optionally scoped to a class. Archived excluded
  * unless asked for — see {@link listPrograms}. */
 export function listBatches(
@@ -900,6 +934,24 @@ export function renameBatch(id: string, name: string): Promise<BatchRow> {
 /** DELETE /batches/:id — ADMIN. Archives it; enrolled students keep the reference. */
 export function archiveBatch(id: string): Promise<BatchRow> {
   return apiFetch(`/batches/${id}`, { method: "DELETE", ...auth() });
+}
+
+/** PATCH /batches/:id — restore an archived batch. */
+export function unarchiveBatch(id: string): Promise<BatchRow> {
+  return apiFetch(`/batches/${id}`, {
+    method: "PATCH",
+    body: { isActive: true },
+    ...auth(),
+  });
+}
+
+/**
+ * DELETE /batches/:id/permanent — ADMIN. Gone for good, and refused by the
+ * server while students, exams, DPPs, resources, announcements or teacher
+ * assignments still point at it.
+ */
+export function deleteBatch(id: string): Promise<{ id: string }> {
+  return apiFetch(`/batches/${id}/permanent`, { method: "DELETE", ...auth() });
 }
 
 /**

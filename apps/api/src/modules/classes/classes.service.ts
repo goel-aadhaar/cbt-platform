@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -91,7 +92,13 @@ export class ClassesService {
     await this.findOne(id);
     return this.prisma.class.update({
       where: { id },
-      data: { name: dto.name },
+      data: {
+        ...(dto.name === undefined ? {} : { name: dto.name }),
+        // Restores an archived class (or archives an active one) — `remove()`
+        // only ever sets this false, so without it an archived row was
+        // stranded with no way back.
+        ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
+      },
       select: classSelect,
     });
   }
@@ -103,5 +110,27 @@ export class ClassesService {
       data: { isActive: false },
       select: classSelect,
     });
+  }
+
+  /**
+   * Permanent delete — the counterpart to archiving, for a row created by
+   * mistake.
+   *
+   * Refused while any batch still hangs off the class. Every relation below
+   * Class cascades (Class → Batch → Student → attempts/results), so an
+   * unguarded delete would take real candidate history with it without ever
+   * naming what it was about to destroy. Archiving stays the way to retire a
+   * class that has been used.
+   */
+  async destroy(id: string) {
+    await this.findOne(id);
+    const batches = await this.prisma.batch.count({ where: { classId: id } });
+    if (batches > 0) {
+      throw new BadRequestException(
+        `This class still has ${batches} batch(es). Delete or move them first, or archive the class instead.`,
+      );
+    }
+    await this.prisma.class.delete({ where: { id } });
+    return { id, deleted: true };
   }
 }

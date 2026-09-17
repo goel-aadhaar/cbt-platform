@@ -53,4 +53,14 @@ export class ClassesController {
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.classes.remove(id);
   }
+
+  /**
+   * Permanent delete, distinct from `DELETE /:id` — which archives, and has
+   * always archived. Kept on its own path so the destructive one has to be
+   * asked for by name.
+   */
+  @Delete(':id/permanent')
+  destroy(@Param('id', ParseUUIDPipe) id: string) {
+    return this.classes.destroy(id);
+  }
 }

@@ -15,28 +15,37 @@ import { SourceRecord } from '../csv/parse-csv';
 
 /**
  * `.xlsx` and `.docx` are both ZIP archives, so magic bytes alone cannot tell
- * them apart. A ZIP stores each entry's name uncompressed in its local header,
- * so the workbook part is findable in the raw bytes — reliable, and cheaper
- * than unzipping a file only to discover it is the wrong kind.
+ * them apart. A ZIP stores each entry's name uncompressed — in the entry's
+ * local header, and again in the central directory at the end — so the part
+ * name is findable in the raw bytes, which is cheaper than unzipping a file
+ * only to discover it is the wrong kind.
+ *
+ * The whole buffer is searched, not just the head. This used to look at the
+ * first 8 KB only, which is not where the marker necessarily lives: entries
+ * are written in whatever order the producer chose, and a workbook whose
+ * `[Content_Types].xml` or a large first sheet pushes `xl/workbook.xml` past
+ * 8 KB was declared "not xlsx" and handed to the CSV reader instead — which
+ * then tried to read ZIP bytes as UTF-8 text and failed with "that file
+ * could not be read — it looks damaged or incomplete", on a file that was
+ * perfectly valid. Uploads are capped well below the size where scanning the
+ * buffer costs anything worth saving.
  */
-export function isXlsx(buffer: Buffer): boolean {
+function zipContains(buffer: Buffer, entryName: string): boolean {
   if (buffer.length < 4) return false;
-  const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b; // "PK"
-  if (!isZip) return false;
-  const head = buffer
-    .subarray(0, Math.min(buffer.length, 8192))
-    .toString('latin1');
-  return head.includes('xl/workbook.xml') || head.includes('xl/worksheets/');
+  if (!(buffer[0] === 0x50 && buffer[1] === 0x4b)) return false; // "PK"
+  return buffer.includes(entryName, 0, 'latin1');
+}
+
+export function isXlsx(buffer: Buffer): boolean {
+  return (
+    zipContains(buffer, 'xl/workbook.xml') ||
+    zipContains(buffer, 'xl/worksheets/')
+  );
 }
 
 /** Same test for Word documents, for importers that accept several formats. */
 export function isDocx(buffer: Buffer): boolean {
-  if (buffer.length < 4) return false;
-  if (!(buffer[0] === 0x50 && buffer[1] === 0x4b)) return false;
-  const head = buffer
-    .subarray(0, Math.min(buffer.length, 8192))
-    .toString('latin1');
-  return head.includes('word/document.xml');
+  return zipContains(buffer, 'word/document.xml');
 }
 
 /**

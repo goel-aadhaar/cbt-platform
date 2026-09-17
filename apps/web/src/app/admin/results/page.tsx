@@ -27,13 +27,19 @@ import {
   publishResults,
   type ExamResultRow,
 } from "@/lib/admin";
-import { examDisplayStatus, listExams, type ExamListItem } from "@/lib/exams";
+import {
+  examDisplayStatus,
+  listExams,
+  type ExamKind,
+  type ExamListItem,
+} from "@/lib/exams";
 
 type RStatus = "PUBLISHED" | "PROCESSING" | "HELD";
 
 interface RRow {
   examId: string;
   exam: string;
+  kind: ExamKind;
   batches: number;
   date: string;
   participants: number;
@@ -49,13 +55,24 @@ const TABS = ["All", "Held", "Published", "Processing"];
  * GET /exams/:id/results for every exam whose window has closed (the only ones
  * that can have results). Status is derived: no rows yet → still processing,
  * all rows published → PUBLISHED, otherwise HELD.
+ *
+ * Both kinds are fetched explicitly. GET /exams defaults to MOCK_TEST when no
+ * `kind` is sent, so asking once returned CBT only and a Practice Test's
+ * results were unreachable from this console however many students had sat it.
  */
 function useResultRows() {
   const loader = useCallback(async () => {
-    const exams = (await listExams()).items;
+    const [cbt, practice] = await Promise.all([
+      listExams({ kind: "MOCK_TEST" }),
+      listExams({ kind: "ASSESSMENT" }),
+    ]);
+    const exams = [...cbt.items, ...practice.items];
     const finished = exams.filter((e) => {
       const s = examDisplayStatus(e);
-      return s === "COMPLETED" || s === "PUBLISHED";
+      // ARCHIVED belongs here: a Practice Test is archived automatically the
+      // moment its window closes, which is exactly when its results become
+      // interesting. Excluding it hid every finished Practice Test.
+      return s === "COMPLETED" || s === "PUBLISHED" || s === "ARCHIVED";
     });
     const withResults = await Promise.all(
       finished.map(async (e) => {
@@ -84,6 +101,7 @@ function toRow(e: ExamListItem, results: ExamResultRow[]): RRow {
   return {
     examId: e.id,
     exam: e.title,
+    kind: e.kind,
     batches: e._count.batches,
     date: e.endAt
       ? new Date(e.endAt).toLocaleDateString("en-IN", {
@@ -337,6 +355,9 @@ function ResultsScreen() {
                   >
                     <td className="px-6 py-4 font-bold text-admin-ink">
                       {r.exam}
+                      <span className="ml-2 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-admin-muted ring-1 ring-admin-line">
+                        {r.kind === "ASSESSMENT" ? "Practice Test" : "CBT"}
+                      </span>
                     </td>
                     <td className="px-6 py-4 text-admin-muted">{r.batches}</td>
                     <td className="px-6 py-4 text-admin-muted">{r.date}</td>
@@ -384,20 +405,25 @@ function ResultsScreen() {
                             Publish
                           </ActionButton>
                         ) : (
-                          <ActionButton
-                            disabled={busy !== null}
-                            loading={busy === r.examId}
-                            loadingText="Holding…"
-                            onClick={() =>
-                              run(r.examId, async () => {
-                                const res = await holdResults(r.examId);
-                                return `Held ${res.held} result(s)`;
-                              })
-                            }
-                            className="rounded-lg border border-admin-line bg-white px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-admin-ink hover:bg-admin-bg disabled:opacity-50"
-                          >
-                            Hold
-                          </ActionButton>
+                          /* No Hold for a Practice Test: its candidates were
+                             shown their score on submission, and the server
+                             refuses to take that back. */
+                          r.kind !== "ASSESSMENT" && (
+                            <ActionButton
+                              disabled={busy !== null}
+                              loading={busy === r.examId}
+                              loadingText="Holding…"
+                              onClick={() =>
+                                run(r.examId, async () => {
+                                  const res = await holdResults(r.examId);
+                                  return `Held ${res.held} result(s)`;
+                                })
+                              }
+                              className="rounded-lg border border-admin-line bg-white px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                            >
+                              Hold
+                            </ActionButton>
+                          )
                         )}
                         <button
                           onClick={() => {

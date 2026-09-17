@@ -68,8 +68,17 @@ function ReportsScreen() {
       .then(([mockTests, assessments]) => {
         if (cancelled) return;
         // Only exams that have actually run can have results worth reading.
+        //
+        // ARCHIVED has to be in this list. A Practice Test is archived by the
+        // closure sweep the moment its window ends, and the Practice Test
+        // list only offers "View results" once that has happened — so
+        // omitting it here meant the single exam a teacher was sent to read
+        // was the one exam this page filtered out, and the deep link landed
+        // silently on somebody else's paper.
         const sat = [...mockTests.items, ...assessments.items].filter((e) =>
-          ["LIVE", "COMPLETED", "PUBLISHED"].includes(examDisplayStatus(e)),
+          ["LIVE", "COMPLETED", "PUBLISHED", "ARCHIVED"].includes(
+            examDisplayStatus(e),
+          ),
         );
         setExams(sat);
         const preselect =

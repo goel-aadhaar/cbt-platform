@@ -20,6 +20,9 @@ import {
   createBatch,
   createClass,
   createProgram,
+  deleteBatch,
+  deleteClass,
+  deleteProgram,
   listBatches,
   listClasses,
   listPrograms,
@@ -27,6 +30,9 @@ import {
   renameBatch,
   renameClass,
   renameProgram,
+  unarchiveBatch,
+  unarchiveClass,
+  unarchiveProgram,
   type BatchRow,
   type ClassRow,
   type Program,
@@ -250,6 +256,64 @@ export default function OrganizationPage() {
     }
   }
 
+  async function unarchive(level: Level, id: string, name: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      if (level === "program") {
+        const p = await unarchiveProgram(id);
+        setPrograms((prev) => (prev ?? []).map((x) => (x.id === id ? p : x)));
+      } else if (level === "class") {
+        const c = await unarchiveClass(id);
+        setClasses((prev) => (prev ?? []).map((x) => (x.id === id ? c : x)));
+      } else {
+        const b = await unarchiveBatch(id);
+        setBatches((prev) => (prev ?? []).map((x) => (x.id === id ? b : x)));
+      }
+      setNotice(`${name} restored.`);
+      refreshOrgCatalogue();
+    } catch (e: unknown) {
+      setError(msg(e, `Could not restore "${name}"`));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  /**
+   * Permanent delete. The server refuses while anything still references the
+   * entry and says what is holding it, so the confirm here only has to be
+   * clear that this one does not come back.
+   */
+  async function destroy(level: Level, id: string, name: string) {
+    if (
+      !window.confirm(
+        `Delete "${name}" permanently? This cannot be undone. It is only possible while nothing is still using it — otherwise leave it archived.`,
+      )
+    ) {
+      return;
+    }
+    setBusyId(id);
+    setError(null);
+    try {
+      if (level === "program") {
+        await deleteProgram(id);
+        setPrograms((prev) => (prev ?? []).filter((x) => x.id !== id));
+      } else if (level === "class") {
+        await deleteClass(id);
+        setClasses((prev) => (prev ?? []).filter((x) => x.id !== id));
+      } else {
+        await deleteBatch(id);
+        setBatches((prev) => (prev ?? []).filter((x) => x.id !== id));
+      }
+      setNotice(`${name} deleted.`);
+      refreshOrgCatalogue();
+    } catch (e: unknown) {
+      setError(msg(e, `Could not delete "${name}"`));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <AdminShell title="Enrollments">
       {institute && (
@@ -383,6 +447,8 @@ export default function OrganizationPage() {
                     })
                   }
                   onArchive={() => void archive("program", p.id, p.name)}
+                  onUnarchive={() => void unarchive("program", p.id, p.name)}
+                  onDelete={() => void destroy("program", p.id, p.name)}
                 />
               ))}
             </ul>
@@ -432,6 +498,8 @@ export default function OrganizationPage() {
                     })
                   }
                   onArchive={() => void archive("class", c.id, c.name)}
+                  onUnarchive={() => void unarchive("class", c.id, c.name)}
+                  onDelete={() => void destroy("class", c.id, c.name)}
                 />
               ))}
             </ul>
@@ -478,6 +546,8 @@ export default function OrganizationPage() {
                     })
                   }
                   onArchive={() => void archive("batch", b.id, b.name)}
+                  onUnarchive={() => void unarchive("batch", b.id, b.name)}
+                  onDelete={() => void destroy("batch", b.id, b.name)}
                 />
               ))}
             </ul>
@@ -514,6 +584,8 @@ function Row({
   onSelect,
   onRename,
   onArchive,
+  onUnarchive,
+  onDelete,
 }: {
   item: NamedItem;
   selectable?: boolean;
@@ -522,6 +594,8 @@ function Row({
   onSelect?: () => void;
   onRename: () => void;
   onArchive: () => void;
+  onUnarchive: () => void;
+  onDelete: () => void;
 }) {
   return (
     <li
@@ -544,6 +618,9 @@ function Row({
           {item.isActive ? "Active" : "Archived"}
         </StatusPill>
       </button>
+      {/* An archived row offered "Archive" again — a no-op that re-archived
+          what was already archived, and left no way back. The two actions
+          that actually apply to an archived entry are Unarchive and Delete. */}
       <span className="flex shrink-0 gap-1">
         <button
           type="button"
@@ -553,14 +630,35 @@ function Row({
         >
           Rename
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onArchive}
-          className="rounded-md px-2 py-1 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
-        >
-          Archive
-        </button>
+        {item.isActive ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onArchive}
+            className="rounded-md px-2 py-1 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
+          >
+            Archive
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onUnarchive}
+              className="rounded-md px-2 py-1 text-xs font-bold text-admin hover:bg-admin/5 disabled:opacity-50"
+            >
+              Unarchive
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onDelete}
+              className="rounded-md px-2 py-1 text-xs font-bold text-danger hover:bg-danger/5 disabled:opacity-50"
+            >
+              Delete
+            </button>
+          </>
+        )}
       </span>
     </li>
   );

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -84,7 +85,13 @@ export class ProgramsService {
     await this.findOne(id); // enforces tenant ownership
     return this.prisma.program.update({
       where: { id },
-      data: { name: dto.name },
+      data: {
+        ...(dto.name === undefined ? {} : { name: dto.name }),
+        // Restores an archived program (or archives an active one) —
+        // `remove()` only ever sets this false, so without it an archived row
+        // was stranded with no way back.
+        ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
+      },
       select: programSelect,
     });
   }
@@ -96,5 +103,34 @@ export class ProgramsService {
       data: { isActive: false },
       select: programSelect,
     });
+  }
+
+  /**
+   * Permanent delete — the counterpart to archiving, for a row created by
+   * mistake.
+   *
+   * Refused while any class still hangs off the program, because the whole
+   * chain below it cascades (Program → Class → Batch → Student →
+   * attempts/results). Exams reference a program with SetNull, so they
+   * survive, but they would silently lose their programme label — worth
+   * telling the admin about rather than doing quietly.
+   */
+  async destroy(id: string) {
+    await this.findOne(id);
+    const [classes, exams] = await this.prisma.$transaction([
+      this.prisma.class.count({ where: { programId: id } }),
+      this.prisma.exam.count({ where: { programId: id } }),
+    ]);
+    const blockers = [
+      classes && `${classes} class(es)`,
+      exams && `${exams} exam(s)`,
+    ].filter((b): b is string => typeof b === 'string');
+    if (blockers.length > 0) {
+      throw new BadRequestException(
+        `This program is still in use by ${blockers.join(', ')}. Archive it instead, or remove those first.`,
+      );
+    }
+    await this.prisma.program.delete({ where: { id } });
+    return { id, deleted: true };
   }
 }

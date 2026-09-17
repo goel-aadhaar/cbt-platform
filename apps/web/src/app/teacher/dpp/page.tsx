@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 
 import { CreateDppModal } from "@/components/admin/create-dpp-modal";
+import { DppQuestionsDrawer } from "@/components/admin/dpp-questions-drawer";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { getMyBatches } from "@/lib/admin";
@@ -18,6 +19,7 @@ export default function TeacherDppPage() {
   const [editing, setEditing] = useState<DppItem | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<DppItem | null>(null);
   const {
     data: dpps,
     loading,
@@ -116,13 +118,21 @@ export default function TeacherDppPage() {
               <div className="mt-auto flex gap-2 pt-3">
                 <button
                   type="button"
+                  onClick={() => setViewing(d)}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
+                >
+                  View questions
+                </button>
+                <button
+                  type="button"
+                  title="Rename, re-file, and choose which batches receive this DPP"
                   onClick={() => {
                     setEditing(d);
                     setEditOpen(true);
                   }}
                   className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
                 >
-                  Edit sharing
+                  Edit &amp; assign
                 </button>
                 <button
                   type="button"
@@ -136,6 +146,8 @@ export default function TeacherDppPage() {
           ))}
         </ul>
       )}
+
+      <DppQuestionsDrawer dpp={viewing} onClose={() => setViewing(null)} />
 
       <CreateDppModal
         // A fresh key per open so the form mounts seeded from `editing`

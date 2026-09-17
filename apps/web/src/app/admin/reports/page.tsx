@@ -47,12 +47,22 @@ export default function ReportsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    listExams()
-      .then((res) => {
+    // Both kinds explicitly: GET /exams answers with MOCK_TEST alone when no
+    // `kind` is sent, which kept every Practice Test out of this dropdown.
+    Promise.all([
+      listExams({ kind: "MOCK_TEST" }),
+      listExams({ kind: "ASSESSMENT" }),
+    ])
+      .then(([cbt, practice]) => {
         if (cancelled) return;
+        const res = { items: [...cbt.items, ...practice.items] };
         // Only exams that have actually run can have results worth reading.
+        // ARCHIVED counts: a Practice Test archives itself when its window
+        // closes, which is precisely when its report is wanted.
         const sat = res.items.filter((e) =>
-          ["LIVE", "COMPLETED", "PUBLISHED"].includes(examDisplayStatus(e)),
+          ["LIVE", "COMPLETED", "PUBLISHED", "ARCHIVED"].includes(
+            examDisplayStatus(e),
+          ),
         );
         setExams(sat);
         if (sat.length > 0) setExamId(sat[0].id);

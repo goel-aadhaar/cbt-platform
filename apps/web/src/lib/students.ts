@@ -101,7 +101,7 @@ export function updateStudent(
 ): Promise<StudentListItem> {
   return apiFetch(`/students/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(dto),
+    body: dto,
     ...auth(),
   });
 }
@@ -117,7 +117,7 @@ export function reassignStudentsBatch(
 ): Promise<{ moved: number; targetBatchId: string }> {
   return apiFetch(`/students/reassign-batch`, {
     method: "POST",
-    body: JSON.stringify({ studentIds, targetBatchId }),
+    body: { studentIds, targetBatchId },
     ...auth(),
   });
 }

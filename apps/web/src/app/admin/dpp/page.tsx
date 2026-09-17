@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { useBatchOptions } from "@/components/admin/academic-cascade";
 import { CreateDppModal } from "@/components/admin/create-dpp-modal";
+import { DppQuestionsDrawer } from "@/components/admin/dpp-questions-drawer";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { listBatches } from "@/lib/admin";
 import { listDpps, removeDpp, type DppItem } from "@/lib/dpp";
@@ -20,6 +21,7 @@ export default function AdminDppPage() {
   const [editing, setEditing] = useState<DppItem | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<DppItem | null>(null);
   const {
     data: dpps,
     loading,
@@ -120,13 +122,21 @@ export default function AdminDppPage() {
               <div className="mt-auto flex gap-2 pt-3">
                 <button
                   type="button"
+                  onClick={() => setViewing(d)}
+                  className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
+                >
+                  View questions
+                </button>
+                <button
+                  type="button"
+                  title="Rename, re-file, and choose which batches receive this DPP"
                   onClick={() => {
                     setEditing(d);
                     setEditOpen(true);
                   }}
                   className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-admin-muted hover:bg-admin-bg hover:text-admin-ink"
                 >
-                  Edit sharing
+                  Edit &amp; assign
                 </button>
                 <button
                   type="button"
@@ -140,6 +150,8 @@ export default function AdminDppPage() {
           ))}
         </ul>
       )}
+
+      <DppQuestionsDrawer dpp={viewing} onClose={() => setViewing(null)} />
 
       <CreateDppModal
         // A fresh key per open so the form mounts seeded from `editing`

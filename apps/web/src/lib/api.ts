@@ -108,8 +108,18 @@ export class ApiError extends Error {
 }
 
 export interface RequestOptions extends Omit<RequestInit, "body"> {
-  /** JSON-serialisable body; sets Content-Type automatically. */
-  body?: unknown;
+  /**
+   * JSON-serialisable body; sets Content-Type automatically.
+   *
+   * Deliberately NOT `unknown`. This function stringifies what it is given,
+   * so a caller who hands it an already-stringified string produced a JSON
+   * string literal on the wire — which Express's strict body parser rejects
+   * with "Unexpected token … is not valid JSON". Five call sites had done
+   * exactly that (student edit, move-student, pause/force-end/edit-live-exam)
+   * and each was a dead button in production. Typing the object out makes
+   * that mistake a compile error instead of a runtime 400.
+   */
+  body?: object;
   /** Bearer token to attach for authenticated calls. */
   token?: string;
 }

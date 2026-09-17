@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import {
+  ExamKind,
   ExamQuestionScoring,
   QuestionType,
   ResponseStatus,
@@ -847,7 +848,16 @@ export class ResultsService {
 
   /** Hold (unpublish) results. Pass `batchId` to hold just one batch. */
   async hold(examId: string, batchId?: string) {
-    await this.requireExam(examId);
+    const exam = await this.requireExam(examId);
+    // A Practice Test promises every candidate their own score the moment
+    // they submit, with no release step in between. Holding would take back a
+    // result the student has already been shown, so the action is refused for
+    // that kind rather than left to be clicked by mistake.
+    if (exam.kind === ExamKind.ASSESSMENT) {
+      throw new BadRequestException(
+        'A Practice Test releases each result on submission, so its results cannot be held.',
+      );
+    }
     const res = await this.prisma.result.updateMany({
       where: {
         examId,
@@ -1684,9 +1694,12 @@ export class ResultsService {
    * ExamsService.visibilityWhere — kept local rather than shared to avoid a
    * cross-module dependency for one identical OR-clause).
    */
-  private async requireExam(
-    examId: string,
-  ): Promise<{ id: string; title: string; batchIds: string[] | null }> {
+  private async requireExam(examId: string): Promise<{
+    id: string;
+    title: string;
+    kind: ExamKind;
+    batchIds: string[] | null;
+  }> {
     const ctx = this.tenant.get();
     const instituteId = this.instituteId();
     const batchIds = await this.teacherScope.myBatchIds();
@@ -1701,9 +1714,9 @@ export class ResultsService {
           ],
         }),
       },
-      select: { id: true, title: true },
+      select: { id: true, title: true, kind: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
-    return { id: exam.id, title: exam.title, batchIds };
+    return { id: exam.id, title: exam.title, kind: exam.kind, batchIds };
   }
 }

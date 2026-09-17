@@ -11,6 +11,13 @@ server {
     server_name api.yourdomain.com;
 
     location / {
+        # The API accepts uploads up to 10 MB (student roster imports,
+        # question banks with diagrams, institute logos). nginx's own default
+        # is 1 MB, and it rejects anything larger with a 413 before the
+        # request ever reaches Node — so this has to match, or a valid
+        # roster fails with an error the application never sent.
+        client_max_body_size 10m;
+
         proxy_pass http://127.0.0.1:4000;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
