@@ -136,7 +136,9 @@ function ReportsScreen() {
           >
             {(exams ?? []).map((e) => (
               <option key={e.id} value={e.id}>
-                {e.kind === "ASSESSMENT" ? `[Assessment] ${e.title}` : e.title}
+                {e.kind === "ASSESSMENT"
+                  ? `[Practice Test] ${e.title}`
+                  : e.title}
               </option>
             ))}
             {exams?.length === 0 && <option>No exams have run yet</option>}

@@ -14,14 +14,17 @@ import { listExamCategories, type ExamCategory } from "@/lib/exam-categories";
 import {
   type QuestionImportSummary,
   type Difficulty,
+  type QuestionFilters,
+  type QuestionStatus,
   type QuestionType,
+  type ExportFormat,
   downloadQuestionTemplate,
+  exportQuestions,
   importQuestionsFile,
 } from "@/lib/questions";
 
 import {
   AlertTriangleIcon,
-  CheckIcon,
   CloudUploadIcon,
   DownloadIcon,
   XIcon,
@@ -382,25 +385,52 @@ export function QuestionImportModal({
   );
 }
 
-const FORMATS = [
-  { id: "csv", label: "CSV", desc: "Comma-separated, best for spreadsheets" },
-  { id: "xlsx", label: "XLSX", desc: "Native Excel workbook" },
-  { id: "pdf", label: "PDF", desc: "Print-ready question paper" },
+const FORMATS: { id: ExportFormat; label: string; desc: string }[] = [
+  { id: "PDF", label: "PDF", desc: "Print-ready question paper" },
+  { id: "DOCX", label: "DOCX", desc: "Editable Word document" },
 ];
 
-const SCOPES = ["Current filter", "Selected questions", "Entire question bank"];
-
+/**
+ * Exports the Question Bank's current selection to a real file.
+ *
+ * `selection` is either a concrete tick-list (manual selection — order is
+ * preserved in the export) or "everything the current filters match" — the
+ * two scopes the spec calls out ("Select All" vs "Select specific
+ * questions"). Whichever it is, the request and the generated file are real:
+ * this used to be a disabled button with a tooltip admitting there was no
+ * backend behind it.
+ */
 export function QuestionExportModal({
   open,
   onClose,
+  selection,
 }: {
   open: boolean;
   onClose: () => void;
+  selection:
+    | { kind: "ids"; ids: string[] }
+    | {
+        kind: "filters";
+        filters: QuestionFilters & { status?: QuestionStatus };
+        total: number;
+      };
 }) {
-  const [fmt, setFmt] = useState("csv");
-  const [scope, setScope] = useState(0);
+  const [format, setFormat] = useState<ExportFormat>("PDF");
   const [withAnswers, setWithAnswers] = useState(true);
+  const action = useAsyncAction(async () => {
+    await exportQuestions({
+      ...(selection.kind === "ids"
+        ? { ids: selection.ids }
+        : { filters: selection.filters }),
+      format,
+      includeAnswers: withAnswers,
+    });
+    onClose();
+  });
+
   if (!open) return null;
+  const count =
+    selection.kind === "ids" ? selection.ids.length : selection.total;
 
   return (
     <Shell
@@ -414,23 +444,40 @@ export function QuestionExportModal({
           >
             Cancel
           </button>
-          <button
-            disabled
-            title="Question bank export has no backend endpoint yet — exam results can already be exported from the Results page"
+          <ActionButton
+            onClick={() => void action.run()}
+            loading={action.pending}
             className="flex items-center gap-2 rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <DownloadIcon className="size-4" /> Export
-          </button>
+            <DownloadIcon className="size-4" /> Export {count} question
+            {count === 1 ? "" : "s"}
+          </ActionButton>
         </>
       }
     >
-      <p className="text-sm font-semibold text-admin-muted">Format</p>
-      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <p className="text-sm text-admin-muted">
+        {selection.kind === "ids"
+          ? `${count} question${count === 1 ? "" : "s"} selected.`
+          : `All ${count} question${count === 1 ? "" : "s"} matching the current filters.`}
+      </p>
+
+      {action.error && (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
+          {action.error}
+        </p>
+      )}
+
+      <p className="mt-5 text-sm font-semibold text-admin-muted">Format</p>
+      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {FORMATS.map((f) => (
           <button
             key={f.id}
-            onClick={() => setFmt(f.id)}
-            className={`rounded-xl border p-3 text-left ${fmt === f.id ? "border-admin bg-admin-mint/15" : "border-admin-line/60 hover:bg-admin-bg"}`}
+            type="button"
+            onClick={() => setFormat(f.id)}
+            className={`rounded-xl border p-3 text-left ${format === f.id ? "border-admin bg-admin-mint/15" : "border-admin-line/60 hover:bg-admin-bg"}`}
           >
             <p className="font-bold text-admin-ink">{f.label}</p>
             <p className="mt-0.5 text-xs text-admin-muted">{f.desc}</p>
@@ -438,37 +485,40 @@ export function QuestionExportModal({
         ))}
       </div>
 
-      <p className="mt-6 text-sm font-semibold text-admin-muted">Scope</p>
+      <p className="mt-6 text-sm font-semibold text-admin-muted">Content</p>
       <div className="mt-2 flex flex-col gap-2">
-        {SCOPES.map((s, i) => (
+        {[
+          {
+            value: true,
+            label: "Questions + Answers",
+            desc: "Correct answers and explanations included",
+          },
+          {
+            value: false,
+            label: "Questions Only",
+            desc: "No answers — safe to hand out for practice",
+          },
+        ].map((opt) => (
           <button
-            key={s}
-            onClick={() => setScope(i)}
-            className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm ${scope === i ? "border-admin bg-admin-mint/10" : "border-admin-line/60 hover:bg-admin-bg"}`}
+            key={String(opt.value)}
+            type="button"
+            onClick={() => setWithAnswers(opt.value)}
+            className={`flex items-center gap-3 rounded-lg border px-4 py-3 text-left text-sm ${withAnswers === opt.value ? "border-admin bg-admin-mint/10" : "border-admin-line/60 hover:bg-admin-bg"}`}
           >
             <span
-              className={`flex size-4 items-center justify-center rounded-full border ${scope === i ? "border-admin bg-admin" : "border-admin-line"}`}
+              className={`flex size-4 shrink-0 items-center justify-center rounded-full border ${withAnswers === opt.value ? "border-admin bg-admin" : "border-admin-line"}`}
             >
-              {scope === i && (
+              {withAnswers === opt.value && (
                 <span className="size-1.5 rounded-full bg-white" />
               )}
             </span>
-            <span className="text-admin-ink">{s}</span>
+            <span>
+              <span className="block text-admin-ink">{opt.label}</span>
+              <span className="block text-xs text-admin-muted">{opt.desc}</span>
+            </span>
           </button>
         ))}
       </div>
-
-      <label className="mt-6 flex cursor-pointer items-center gap-3">
-        <span
-          onClick={() => setWithAnswers((v) => !v)}
-          className={`flex size-5 items-center justify-center rounded border ${withAnswers ? "border-admin bg-admin text-white" : "border-admin-line"}`}
-        >
-          {withAnswers && <CheckIcon className="size-3.5" />}
-        </span>
-        <span className="text-sm text-admin-ink">
-          Include correct answers &amp; rationale
-        </span>
-      </label>
     </Shell>
   );
 }

@@ -66,7 +66,9 @@ function AssessmentsScreen() {
       setExams((await listExams({ kind: "ASSESSMENT" })).items);
       setError(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Could not load assessments");
+      setError(
+        e instanceof Error ? e.message : "Could not load Practice Tests",
+      );
       setExams([]);
     }
   }, []);
@@ -91,7 +93,9 @@ function AssessmentsScreen() {
       setBuilding(true);
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Could not open that assessment.",
+        err instanceof Error
+          ? err.message
+          : "Could not open that Practice Test.",
       );
     } finally {
       setLoadingEdit(null);
@@ -99,7 +103,7 @@ function AssessmentsScreen() {
   }
 
   return (
-    <TeacherShell title="Assessments">
+    <TeacherShell title="Practice Test">
       <div className="mb-6 flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
           {(["mine", "all"] as const).map((s) => (
@@ -114,7 +118,7 @@ function AssessmentsScreen() {
                   : "border border-admin-line bg-white text-admin-ink hover:bg-admin-bg"
               }`}
             >
-              {s === "mine" ? "Mine" : "All assessments"}
+              {s === "mine" ? "Mine" : "All Practice Tests"}
             </button>
           ))}
         </div>
@@ -124,7 +128,7 @@ function AssessmentsScreen() {
           className="ml-auto flex items-center gap-2 rounded-full bg-admin px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
         >
           <PlusIcon className="size-4" />
-          New assessment
+          New Practice Test
         </button>
       </div>
 
@@ -143,8 +147,8 @@ function AssessmentsScreen() {
       )}
 
       <Panel
-        title={exams ? `${visible.length} assessments` : "Assessments"}
-        subtitle="You create, schedule and publish these directly — no admin review, no live monitoring. Results and the leaderboard publish automatically the moment the window closes."
+        title={exams ? `${visible.length} Practice Tests` : "Practice Test"}
+        subtitle="You create, schedule and publish these directly — no admin review, no live monitoring, no tab-switch restriction. Each student's own result is visible to them the moment they submit; the leaderboard publishes once the window closes."
       >
         {exams === null ? (
           <div className="flex flex-col gap-2">
@@ -159,15 +163,15 @@ function AssessmentsScreen() {
           <div className="rounded-xl border border-dashed border-admin-line p-10 text-center">
             <p className="text-sm text-admin-muted">
               {scope === "mine"
-                ? "You have not created an assessment yet."
-                : "No assessments in this institute yet."}
+                ? "You have not created a Practice Test yet."
+                : "No Practice Tests in this institute yet."}
             </p>
             <button
               type="button"
               onClick={() => setBuilding(true)}
               className="mt-3 rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95"
             >
-              Create an assessment
+              Create a Practice Test
             </button>
           </div>
         ) : (

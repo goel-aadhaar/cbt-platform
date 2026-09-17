@@ -492,7 +492,12 @@ function ExamRunner({
   );
   const proctoring = useProctoring({
     maxViolations: attempt.exam.maxViolations,
-    enabled: true,
+    // Practice Test (ASSESSMENT) is a flexible practice environment by
+    // product design — no fullscreen enforcement, no tab-switch tracking, no
+    // warnings. The server already forces `fullscreenRequired: false` for
+    // that kind (ExamsService), so gating on it here is enough to make CBT
+    // the only exam that ever sees this UI at all.
+    enabled: attempt.exam.fullscreenRequired,
     onLimitReached: submitWithTiming,
   });
 
@@ -690,21 +695,25 @@ function ExamRunner({
         </div>
 
         <div className="flex items-center gap-4">
-          {proctoring.violations > 0 ? (
-            <span className="flex items-center gap-2 rounded-[2px] bg-alert px-3 py-1 text-xs font-semibold uppercase text-white">
-              <LockClosedIcon className="h-[12px] w-[9px]" />
-              {/* With no limit configured there is no "of N" to count towards —
-                  "1/0 Violation" reads as a countdown that will never happen. */}
-              {attempt.exam.maxViolations > 0
-                ? `Warning ${proctoring.violations}/${attempt.exam.maxViolations} Violation`
-                : `${proctoring.violations} Violation${proctoring.violations === 1 ? "" : "s"} Recorded`}
-            </span>
-          ) : (
-            <span className="flex items-center gap-2 rounded-[2px] bg-success/10 px-3 py-1 text-xs font-semibold uppercase text-success">
-              <LockClosedIcon className="h-[12px] w-[9px]" />
-              Session Secure
-            </span>
-          )}
+          {/* A "Session Secure" badge on a Practice Test would claim
+              proctoring that was deliberately never armed — there is
+              nothing here to be secure or insecure about. */}
+          {attempt.exam.fullscreenRequired &&
+            (proctoring.violations > 0 ? (
+              <span className="flex items-center gap-2 rounded-[2px] bg-alert px-3 py-1 text-xs font-semibold uppercase text-white">
+                <LockClosedIcon className="h-[12px] w-[9px]" />
+                {/* With no limit configured there is no "of N" to count towards —
+                    "1/0 Violation" reads as a countdown that will never happen. */}
+                {attempt.exam.maxViolations > 0
+                  ? `Warning ${proctoring.violations}/${attempt.exam.maxViolations} Violation`
+                  : `${proctoring.violations} Violation${proctoring.violations === 1 ? "" : "s"} Recorded`}
+              </span>
+            ) : (
+              <span className="flex items-center gap-2 rounded-[2px] bg-success/10 px-3 py-1 text-xs font-semibold uppercase text-success">
+                <LockClosedIcon className="h-[12px] w-[9px]" />
+                Session Secure
+              </span>
+            ))}
 
           <nav className="flex items-center gap-2 border-l border-line pl-4 text-muted">
             {attempt.exam.calculatorEnabled && (

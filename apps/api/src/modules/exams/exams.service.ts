@@ -207,8 +207,17 @@ export class ExamsService {
         passingMarks: dto.passingMarks,
         instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled ?? false,
-        fullscreenRequired: dto.fullscreenRequired ?? true,
-        maxViolations: dto.maxViolations ?? 0,
+        // Practice Test (ASSESSMENT) is explicitly a flexible practice
+        // environment — no tab-switch restriction, no proctoring, no
+        // CBT-style audit behaviour — so these are forced off regardless of
+        // what the caller sends, the same way resultPolicy is forced to
+        // IMMEDIATE below. A Mock Test keeps its normal caller-chosen values.
+        fullscreenRequired:
+          kind === ExamKind.ASSESSMENT
+            ? false
+            : (dto.fullscreenRequired ?? true),
+        maxViolations:
+          kind === ExamKind.ASSESSMENT ? 0 : (dto.maxViolations ?? 0),
         programId: dto.programId,
         categoryId: dto.categoryId,
         // ASSESSMENT has no admin publish step to hold results behind — the
@@ -270,7 +279,10 @@ export class ExamsService {
   }
 
   async update(id: string, dto: UpdateExamDto) {
-    await this.getDraft(id);
+    const exam = await this.getDraft(id);
+    // Same forced-off rule as create() — an edit must not be able to switch
+    // proctoring back on for a kind that is defined to never have it.
+    const isAssessment = exam.kind === ExamKind.ASSESSMENT;
     return this.prisma.exam.update({
       where: { id },
       data: {
@@ -279,9 +291,9 @@ export class ExamsService {
         passingMarks: dto.passingMarks,
         instructions: dto.instructions && sanitizeRichText(dto.instructions),
         calculatorEnabled: dto.calculatorEnabled,
-        fullscreenRequired: dto.fullscreenRequired,
-        maxViolations: dto.maxViolations,
-        resultPolicy: dto.resultPolicy,
+        fullscreenRequired: isAssessment ? false : dto.fullscreenRequired,
+        maxViolations: isAssessment ? 0 : dto.maxViolations,
+        resultPolicy: isAssessment ? 'IMMEDIATE' : dto.resultPolicy,
       },
       select: examSelect,
     });

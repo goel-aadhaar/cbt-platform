@@ -9,6 +9,7 @@ import { PaginationBar } from "@/components/pagination-bar";
 import { StatCard } from "@/components/staff/charts";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
+import { CreateDppModal } from "@/components/admin/create-dpp-modal";
 import {
   QuestionExportModal,
   QuestionImportModal,
@@ -30,7 +31,8 @@ import {
 import { useAdminData } from "@/hooks/use-admin-data";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { QuestionFilterBar } from "@/components/admin/question-filters";
-import { addToPracticeLibrary, removeFromPracticeLibrary } from "@/lib/admin";
+import { useBatchOptions } from "@/components/admin/academic-cascade";
+import { listBatches } from "@/lib/admin";
 import {
   listQuestions,
   type QuestionFilters,
@@ -70,6 +72,11 @@ export default function QuestionBankPage() {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
   const [filters, setFilters] = useState<QuestionFilters>({});
+  /** Manually ticked rows — export or DPP creation from a specific list. */
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [dppOpen, setDppOpen] = useState(false);
+  const { data: allBatches } = useAdminData(() => listBatches(), []);
+  const batchOptions = useBatchOptions(allBatches ?? []);
   /**
    * Only the typed term is debounced. The dropdown filters resolve in a single
    * change, so delaying those would be lag with nothing to gain; the search box
@@ -86,7 +93,6 @@ export default function QuestionBankPage() {
     }),
     [filters, debouncedSearch, active, onlyMine],
   );
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const PAGE = 50;
 
@@ -103,28 +109,10 @@ export default function QuestionBankPage() {
   if (queryKey !== prevQueryKey) {
     setPrevQueryKey(queryKey);
     setOffset(0);
-  }
-
-  /** Curate (or un-curate) a question for the student practice library. */
-  async function togglePractice(q: QuestionListItem) {
-    setBusyId(q.id);
-    setNotice(null);
-    try {
-      if (q.inPracticeLibrary) {
-        await removeFromPracticeLibrary(q.id);
-        setNotice("Removed from the practice library.");
-      } else {
-        await addToPracticeLibrary(q.id);
-        setNotice("Added to the practice library — students can drill it now.");
-      }
-      reload();
-    } catch (e) {
-      setNotice(
-        e instanceof Error ? e.message : "Could not update the library.",
-      );
-    } finally {
-      setBusyId(null);
-    }
+    // A tick made under one filter view stops meaning what it looked like it
+    // meant the moment the view changes underneath it — clear it rather than
+    // silently exporting/DPP-ing rows the operator can no longer see.
+    if (ticked.size > 0) setTicked(new Set());
   }
 
   // Filters (including the tab's status and "only mine") are applied
@@ -296,13 +284,67 @@ export default function QuestionBankPage() {
             })}
           </div>
 
+          {/* Selection bar — appears once at least one row is ticked. */}
+          {ticked.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3 border-b border-admin-line/60 bg-admin/5 px-4 py-3">
+              <span className="text-sm font-semibold text-admin-ink">
+                {ticked.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setTicked(new Set())}
+                className="text-sm font-semibold text-admin hover:underline"
+              >
+                Clear
+              </button>
+              <div className="ml-auto flex gap-2">
+                <OutlineBtn
+                  icon={DownloadIcon}
+                  onClick={() => setExportOpen(true)}
+                >
+                  Export selected
+                </OutlineBtn>
+                <button
+                  type="button"
+                  onClick={() => setDppOpen(true)}
+                  className="flex items-center gap-2 rounded-lg bg-admin px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Create DPP
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-left text-sm">
               <thead>
                 <tr className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
                   <th className="w-10 px-4 py-3">
-                    <input type="checkbox" className="size-4 accent-admin" />
+                    <input
+                      type="checkbox"
+                      aria-label="Select all rows on this page"
+                      checked={
+                        rows.length > 0 && rows.every((r) => ticked.has(r.id))
+                      }
+                      ref={(el) => {
+                        if (!el) return;
+                        el.indeterminate =
+                          rows.some((r) => ticked.has(r.id)) &&
+                          !rows.every((r) => ticked.has(r.id));
+                      }}
+                      onChange={(e) => {
+                        setTicked((prev) => {
+                          const next = new Set(prev);
+                          for (const r of rows) {
+                            if (e.target.checked) next.add(r.id);
+                            else next.delete(r.id);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="size-4 accent-admin"
+                    />
                   </th>
                   <th className="px-4 py-3">Question Preview</th>
                   <th className="px-4 py-3">Subject / Chapter</th>
@@ -325,8 +367,15 @@ export default function QuestionBankPage() {
                     <QuestionRow
                       key={q.id}
                       q={q}
-                      busy={busyId === q.id}
-                      onTogglePractice={togglePractice}
+                      ticked={ticked.has(q.id)}
+                      onToggleTick={() =>
+                        setTicked((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(q.id)) next.delete(q.id);
+                          else next.add(q.id);
+                          return next;
+                        })
+                      }
                       onOpen={() => {
                         setSelectedId(q.id);
                         setDetailOpen(true);
@@ -360,6 +409,26 @@ export default function QuestionBankPage() {
       <QuestionExportModal
         open={exportOpen}
         onClose={() => setExportOpen(false)}
+        selection={
+          ticked.size > 0
+            ? { kind: "ids", ids: [...ticked] }
+            : { kind: "filters", filters: query, total }
+        }
+      />
+      <CreateDppModal
+        // A fresh key per open so the form mounts blank instead of being
+        // reset by an effect after the fact.
+        key={dppOpen ? `open-${ticked.size}` : "closed"}
+        open={dppOpen}
+        questionIds={[...ticked]}
+        batches={batchOptions}
+        onClose={() => setDppOpen(false)}
+        onCreated={() => {
+          setNotice(
+            "DPP created — students in the assigned batches can attempt it now.",
+          );
+          setTicked(new Set());
+        }}
       />
       <QuestionAuthorDrawer
         // Remounts when the target changes so the form re-seeds from it.
@@ -401,13 +470,13 @@ export default function QuestionBankPage() {
 function QuestionRow({
   q,
   onOpen,
-  onTogglePractice,
-  busy,
+  ticked,
+  onToggleTick,
 }: {
   q: QuestionListItem;
   onOpen: () => void;
-  onTogglePractice: (q: QuestionListItem) => void;
-  busy: boolean;
+  ticked: boolean;
+  onToggleTick: () => void;
 }) {
   const Icon =
     q.status === "REVIEW"
@@ -423,7 +492,14 @@ function QuestionRow({
       className={`cursor-pointer hover:bg-admin-bg/40 ${q.status === "REVIEW" ? "bg-[#fff8ec]" : ""}`}
     >
       <td className="px-4 py-4 align-top">
-        <input type="checkbox" className="mt-1 size-4 accent-admin" />
+        <input
+          type="checkbox"
+          checked={ticked}
+          onChange={onToggleTick}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Select question ${code}`}
+          className="mt-1 size-4 accent-admin"
+        />
       </td>
       <td className="px-4 py-4">
         <div className="flex gap-3">
@@ -435,11 +511,6 @@ function QuestionRow({
               ID: {code}
             </span>
             <p className="mt-1 line-clamp-2 text-admin-ink">{q.statement}</p>
-            {q.inPracticeLibrary && (
-              <span className="mt-1 inline-flex items-center gap-1 rounded bg-info/15 px-1.5 py-0.5 text-[10px] font-bold text-info">
-                ★ In practice library
-              </span>
-            )}
           </div>
         </div>
       </td>
@@ -453,27 +524,6 @@ function QuestionRow({
       </td>
       <td className="px-4 py-4 text-right align-top">
         <div className="flex items-center justify-end gap-2">
-          {q.status === "APPROVED" && (
-            <button
-              disabled={busy}
-              title={
-                q.inPracticeLibrary
-                  ? "Remove from the student practice library"
-                  : "Add to the student practice library (no approval needed)"
-              }
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePractice(q);
-              }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-bold uppercase disabled:opacity-50 ${
-                q.inPracticeLibrary
-                  ? "border-admin-line bg-white text-admin-muted hover:bg-admin-bg"
-                  : "border-admin bg-admin/5 text-admin hover:bg-admin/10"
-              }`}
-            >
-              {q.inPracticeLibrary ? "Remove" : "+ Practice"}
-            </button>
-          )}
           {q.status === "REVIEW" ? (
             <button
               onClick={(e) => {

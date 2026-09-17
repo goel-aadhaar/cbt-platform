@@ -85,7 +85,7 @@ model User {
   questionsCreated  Question[] @relation("QuestionCreatedBy")
   questionsEdited   Question[] @relation("QuestionEditedBy")
   questionsApproved Question[] @relation("QuestionApprovedBy")
-  questionsAddedToPractice Question[] @relation("QuestionPracticeAddedBy")
+  dppsCreated       Dpp[]      @relation("DppCreatedBy")
   examsCreated      Exam[]     @relation("ExamCreatedBy")
   examCategoriesCreated ExamCategory[] @relation("ExamCategoryCreatedBy")
   instructionTemplatesCreated InstructionTemplate[] @relation("InstructionTemplateCreatedBy")

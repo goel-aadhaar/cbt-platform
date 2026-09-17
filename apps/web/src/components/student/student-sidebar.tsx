@@ -8,7 +8,7 @@ import {
 } from "@/components/nav-drawer";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { ActionButton } from "@/components/action-button";
 import { InstituteLogo } from "@/components/institute-logo";
@@ -18,9 +18,7 @@ import { getUserSnapshot, logout, subscribeSession } from "@/lib/auth";
 
 import {
   BarChartIcon,
-  BookOpenIcon,
   CheckCircleIcon,
-  ChevronDownIcon,
   ClipboardIcon,
   FileTextIcon,
   HelpCircleIcon,
@@ -41,59 +39,39 @@ interface NavLink {
 }
 
 /**
- * A grouped nav item (§ Assessments — "Self Assessment" contains Practice
- * Library and My Assessments). Same shape as the admin sidebar's own
- * NavGroup; ported here because this sidebar previously had no nesting at
- * all — every prior row was flat.
- */
-interface NavGroup {
-  label: string;
-  icon: NavIcon;
-  children: NavLink[];
-}
-
-type NavEntry = NavLink | NavGroup;
-
-function isGroup(entry: NavEntry): entry is NavGroup {
-  return "children" in entry;
-}
-
-/**
- * Shared by the flat rows (`<a>`) and the group headers (`<button>`) so the
- * two cannot drift apart — see admin-sidebar.tsx, which had the same pair of
- * hand-maintained copies. The group headers rendering in a different size and
- * weight was an unlayered `button { font: inherit }` in home.css beating
- * Tailwind's utilities, not anything in this file.
+ * Shared by every row so none of them can drift from another in size/weight —
+ * see admin-sidebar.tsx, which had the same pair of hand-maintained copies at
+ * one point. Rows rendering in a different size and weight was an unlayered
+ * `button { font: inherit }` in home.css beating Tailwind's utilities, not
+ * anything in this file.
  */
 const NAV_ROW_CLASS =
   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors";
 
 /**
- * An earlier product decision deliberately kept Exams and Practice Library
- * as separate top-level destinations rather than nesting Practice under
- * Exams (the original Figma). "Self Assessment" reverses that specifically
- * for Practice Library + the new My Assessments — the two things a student
- * does independently of a scheduled, proctored exam — while Exams itself
- * stays a top-level destination, unchanged.
+ * Exactly three exam/practice destinations, flat (§ Product Structure):
+ *
+ *  CBT           — Computer Based Test, the strict examination environment.
+ *                  Was "Exams"/"Mock Test"; the route and exam kind
+ *                  (MOCK_TEST) are unchanged, only the label is new.
+ *  DPP           — Daily Practice Paper, replacing "Practice Library". Was
+ *                  an ad-hoc "pick a subject and pull questions" pool; is now
+ *                  named, teacher-curated papers.
+ *  Practice Test — teacher-managed flexible practice, was "My Assessments"
+ *                  nested under a "Self Assessment" group. The nesting is
+ *                  gone along with the old ad-hoc practice pool it was
+ *                  paired with — a flat top-level entry is what the product
+ *                  spec explicitly calls for ("no confusing naming, no
+ *                  duplicate categories").
  */
-const NAV: NavEntry[] = [
+const NAV: NavLink[] = [
   { label: "Home", href: "/student", icon: HomeIcon, exact: true },
-  { label: "Exams", href: "/student/exams", icon: FileTextIcon },
+  { label: "CBT", href: "/student/exams", icon: FileTextIcon },
+  { label: "DPP", href: "/student/dpp", icon: ClipboardIcon },
   {
-    label: "Self Assessment",
-    icon: BookOpenIcon,
-    children: [
-      {
-        label: "Practice Library",
-        href: "/student/practice",
-        icon: ClipboardIcon,
-      },
-      {
-        label: "My Assessments",
-        href: "/student/self-assessment/assessments",
-        icon: CheckCircleIcon,
-      },
-    ],
+    label: "Practice Test",
+    href: "/student/practice-test",
+    icon: CheckCircleIcon,
   },
   { label: "Resources", href: "/student/resources", icon: FileTextIcon },
   {
@@ -120,19 +98,6 @@ export function StudentSidebar() {
     getUserSnapshot,
     () => null,
   );
-  /** Manually toggled, per group — ORed at render time with "a child of this
-   *  group is the current page" (same pattern as the admin sidebar), so
-   *  landing directly on a Self Assessment child shows it already expanded. */
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const toggleGroup = (label: string) =>
-    setExpandedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
-      return next;
-    });
 
   /**
    * Signing out revokes the session server-side, so it is a round trip. Left
@@ -179,51 +144,9 @@ export function StudentSidebar() {
 
       {/* Nav */}
       <nav className="mt-7 flex flex-1 flex-col gap-1">
-        {NAV.map((entry) => {
-          if (isGroup(entry)) {
-            const childActive = entry.children.some((c) =>
-              pathname.startsWith(c.href),
-            );
-            const expanded = expandedGroups.has(entry.label) || childActive;
-            const Icon = entry.icon;
-            return (
-              <div key={entry.label}>
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(entry.label)}
-                  aria-expanded={expanded}
-                  className={`${NAV_ROW_CLASS} w-full ${
-                    childActive
-                      ? "text-white"
-                      : "text-white/80 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon className="size-5 shrink-0" />
-                  <span className="flex-1 text-left">{entry.label}</span>
-                  <ChevronDownIcon
-                    className={`size-3.5 shrink-0 transition-transform ${
-                      expanded ? "" : "-rotate-90"
-                    }`}
-                  />
-                </button>
-                {expanded && (
-                  <div className="ml-4 flex flex-col gap-1 border-l border-white/15 py-1 pl-3">
-                    {entry.children.map((child) => (
-                      <StudentNavRow
-                        key={child.href}
-                        item={child}
-                        pathname={pathname}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          }
-          return (
-            <StudentNavRow key={entry.href} item={entry} pathname={pathname} />
-          );
-        })}
+        {NAV.map((entry) => (
+          <StudentNavRow key={entry.href} item={entry} pathname={pathname} />
+        ))}
       </nav>
 
       {/* User card + logout */}
@@ -258,7 +181,7 @@ export function StudentSidebar() {
   );
 }
 
-/** One flat link row — used for both top-level items and a group's children. */
+/** One flat nav row. */
 function StudentNavRow({
   item,
   pathname,

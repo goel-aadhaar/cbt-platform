@@ -51,4 +51,6 @@ model Institute {
   @@map("institutes")
   resources        Resource[]
   resourceBatches  ResourceBatch[]
+  dpps             Dpp[]
+  dppBatches       DppBatch[]
 }

@@ -538,30 +538,6 @@ export function actOnQuestion(
 }
 
 /* ------------------------------------------------------------------ *
- * PRACTICE LIBRARY CURATION (§2.4) — TEACHER or ADMIN, no approval     *
- * ------------------------------------------------------------------ */
-
-/** POST /questions/:id/practice — add an APPROVED question to the library. */
-export function addToPracticeLibrary(
-  questionId: string,
-): Promise<{ id: string; inPracticeLibrary: boolean }> {
-  return apiFetch(`/questions/${questionId}/practice`, {
-    method: "POST",
-    ...auth(),
-  });
-}
-
-/** DELETE /questions/:id/practice — remove it (stays in the bank). */
-export function removeFromPracticeLibrary(
-  questionId: string,
-): Promise<{ id: string; inPracticeLibrary: boolean }> {
-  return apiFetch(`/questions/${questionId}/practice`, {
-    method: "DELETE",
-    ...auth(),
-  });
-}
-
-/* ------------------------------------------------------------------ *
  * EXAM LIFECYCLE                                                      *
  * ------------------------------------------------------------------ */
 

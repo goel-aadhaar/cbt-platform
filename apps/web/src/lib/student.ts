@@ -175,7 +175,7 @@ export interface AvailableExam {
  *
  * `kind` defaults to MOCK_TEST on the server when omitted (§ Assessments) —
  * the existing "Live Exam" flow never passes it and must keep seeing exactly
- * what it saw before; "My Assessments" passes ASSESSMENT explicitly.
+ * what it saw before; the Practice Test page passes ASSESSMENT explicitly.
  */
 export async function fetchAvailableExams(
   kind?: "MOCK_TEST" | "ASSESSMENT",
@@ -538,7 +538,7 @@ export interface MyAttempt {
   exam: {
     id: string;
     title: string;
-    /** MOCK_TEST or ASSESSMENT (§ Assessments) — lets "My Assessments"
+    /** MOCK_TEST or ASSESSMENT (§ Product Structure) — lets Practice Test
      *  filter this same shared history to just its own kind. */
     kind: "MOCK_TEST" | "ASSESSMENT";
     startAt: string | null;

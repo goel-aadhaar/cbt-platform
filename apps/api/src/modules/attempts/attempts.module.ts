@@ -3,11 +3,15 @@ import { Module } from '@nestjs/common';
 import { AdminAttemptsController } from './admin-attempts.controller';
 import { AuthModule } from '../auth/auth.module';
 import { MediaModule } from '../media/media.module';
+import { ResultsModule } from '../results/results.module';
 import { AttemptsController } from './attempts.controller';
 import { AttemptsService } from './attempts.service';
 
 @Module({
-  imports: [AuthModule, MediaModule], // for TenantContextService
+  // ResultsModule: a Practice Test (ASSESSMENT) attempt is evaluated the
+  // moment it is submitted rather than waiting for an admin/teacher publish
+  // step or the exam's own window to close — see AttemptsService.submit().
+  imports: [AuthModule, MediaModule, ResultsModule], // for TenantContextService
   controllers: [AttemptsController, AdminAttemptsController],
   providers: [AttemptsService],
   /**

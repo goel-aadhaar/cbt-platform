@@ -31,9 +31,6 @@ export interface QuestionListItem {
   isActive: boolean;
   statement: string;
   createdAt: string;
-  /** Curated into the student practice library by a teacher (§2.4). */
-  inPracticeLibrary: boolean;
-  practiceAddedAt: string | null;
   /** Author, so a teacher can pick their own work out of the bank. */
   createdBy: { id: string; name: string } | null;
 }
@@ -53,8 +50,6 @@ export interface QuestionQuery {
   examCategoryId?: string;
   /** Single tag to match (the API matches one tag at a time). */
   tag?: string;
-  /** Only questions curated into the practice library (or only those not). */
-  inPracticeLibrary?: boolean;
   /** Only questions the signed-in user wrote. */
   mine?: boolean;
   /** Free-text, served by the Postgres full-text search port. */
@@ -74,7 +69,6 @@ export type QuestionFilters = Pick<
   | "examCategoryId"
   | "tag"
   | "search"
-  | "inPracticeLibrary"
   | "mine"
 >;
 
@@ -115,8 +109,6 @@ export async function listQuestions(
   if (q.type) params.set("type", q.type);
   if (q.examCategoryId) params.set("examCategoryId", q.examCategoryId);
   if (q.tag) params.set("tag", q.tag);
-  if (q.inPracticeLibrary !== undefined)
-    params.set("inPracticeLibrary", String(q.inPracticeLibrary));
   if (q.mine) params.set("mine", "true");
   if (q.search) params.set("search", q.search);
   const limit = q.limit ?? 50;
@@ -307,6 +299,68 @@ export async function importQuestionsFile(
     );
   }
   return payload as QuestionImportSummary;
+}
+
+export type ExportFormat = "PDF" | "DOCX";
+
+/** Body for POST /questions/export. Either `ids` or `filters` — see the
+ * function doc below for which one wins when both are present. */
+export interface ExportQuestionsInput {
+  /** Exactly these questions, in this order — used for a manual tick-list. */
+  ids?: string[];
+  /** Every question matching these filters — used for "select all filtered". */
+  filters?: QuestionFilters & { status?: QuestionStatus };
+  format: ExportFormat;
+  /** false = "Questions Only" — the correct answer is never included. */
+  includeAnswers: boolean;
+}
+
+/**
+ * POST /questions/export — a real PDF or DOCX of the selected questions.
+ *
+ * `ids` takes priority when both are sent: a manual tick-list is always more
+ * specific than "whatever the filters currently match". Streams the file the
+ * same way every other export in the console does — fetch + blob + a
+ * throwaway <a>, because an <a href> cannot carry the bearer token this
+ * route needs.
+ */
+export async function exportQuestions(
+  input: ExportQuestionsInput,
+): Promise<void> {
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const res = await fetch(`${base}/questions/export`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getToken() ?? ""}`,
+    },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg = body?.message;
+    throw new Error(
+      Array.isArray(msg)
+        ? msg.join(", ")
+        : (msg ?? `Export failed (${res.status})`),
+    );
+  }
+  // The server names the file (subject/date/answers-or-not); read it back
+  // from the header it sends rather than guessing one here.
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  const filename = match?.[1] ?? `questions.${input.format.toLowerCase()}`;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /**

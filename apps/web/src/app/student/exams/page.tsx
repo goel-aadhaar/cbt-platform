@@ -5,14 +5,12 @@ import Link from "next/link";
 import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
-  BookOpenIcon,
   ChevronRightIcon,
   ClockIcon,
   FileTextIcon,
 } from "@/components/student/icons";
 import { useAvailableExams } from "@/hooks/use-available-exams";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
-import { usePracticeFacets } from "@/hooks/use-practice";
 import { hasSatExam, type MyAttempt } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
@@ -29,7 +27,6 @@ function formatDate(iso: string): string {
 export default function StudentExamsPage() {
   const { items: available, loading: loadingExams } = useAvailableExams();
   const { items: attempts, loading: loadingHistory } = useMyAttempts();
-  const { data: facets } = usePracticeFacets();
 
   const live = available.find((e) => e.attempt?.status !== "SUBMITTED") ?? null;
   const resumable = available.find((e) => e.attempt?.status === "IN_PROGRESS");
@@ -50,21 +47,21 @@ export default function StudentExamsPage() {
   );
 
   return (
-    <StudentShell breadcrumb={["Exams"]}>
+    <StudentShell breadcrumb={["CBT"]}>
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
-          Exams
+          CBT
         </h1>
         <p className="mt-1 text-sm text-admin-muted">
-          Take a full mock test or sharpen specific topics. Your personalized
-          practice environment.
+          Computer Based Test — a strict, timed examination environment matching
+          the real exam.
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:max-w-xl">
         <HeroCard
           icon={FileTextIcon}
-          title="Full Mock Tests"
+          title="CBT Papers"
           description="Simulate the real exam — timed, full-syllabus tests based on latest patterns."
           stat={
             loadingHistory
@@ -77,22 +74,9 @@ export default function StudentExamsPage() {
                       : ""
                   }${pendingCount > 0 ? ` · ${pendingCount} awaiting results` : ""}`
           }
-          ctaLabel="Browse Mock Tests"
+          ctaLabel="Browse CBT Papers"
           ctaHref="/student/exams/mock"
           variant="solid"
-        />
-        <HeroCard
-          icon={BookOpenIcon}
-          title="Practice Library"
-          description="Practice by subject, chapter, or topic at your own pace to strengthen weak areas."
-          stat={
-            facets
-              ? `${facets.total} question${facets.total === 1 ? "" : "s"} across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}`
-              : "Loading your library…"
-          }
-          ctaLabel="Start Practicing"
-          ctaHref="/student/practice"
-          variant="muted"
         />
       </div>
 
@@ -115,10 +99,10 @@ export default function StudentExamsPage() {
                   it&apos;ll appear here.
                 </p>
                 <Link
-                  href="/student/practice"
+                  href="/student/dpp"
                   className="mt-4 flex items-center justify-center rounded-lg border border-admin-line py-2.5 text-sm font-bold text-admin hover:bg-admin/5"
                 >
-                  Practise instead
+                  Practise a DPP instead
                 </Link>
               </>
             ) : (

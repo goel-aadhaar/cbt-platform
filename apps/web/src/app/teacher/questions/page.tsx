@@ -4,15 +4,17 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { PlusIcon, SearchIcon, UploadIcon } from "@/components/admin/icons";
 import { PaginationBar } from "@/components/pagination-bar";
+import { CreateDppModal } from "@/components/admin/create-dpp-modal";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { QuestionImportModal } from "@/components/admin/question-modals";
 import { Panel, StatusPill } from "@/components/staff/charts";
+import { useAdminData } from "@/hooks/use-admin-data";
 import { useKeyedAsyncAction } from "@/hooks/use-async-action";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import { getUserSnapshot } from "@/lib/auth";
-import { actOnQuestion } from "@/lib/admin";
+import { actOnQuestion, getMyBatches } from "@/lib/admin";
 import {
   listQuestions,
   type QuestionListItem,
@@ -54,6 +56,12 @@ function QuestionsScreen() {
   // Bulk import was reachable only from the admin console, even though the API
   // has always allowed TEACHER — and a teacher is who actually builds a bank.
   const [importOpen, setImportOpen] = useState(false);
+  /** Manually ticked rows — the source for "Create DPP" below. */
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [dppOpen, setDppOpen] = useState(false);
+  // Only the batches this teacher actually teaches — the server checks again,
+  // this list is convenience, not the control (same as the exam scheduler).
+  const { data: myBatches } = useAdminData(() => getMyBatches(), []);
 
   const load = useCallback(
     async (s: Scope, term: string, at: number) => {
@@ -186,6 +194,30 @@ function QuestionsScreen() {
         </button>
       </div>
 
+      {/* Selection bar — the direct Question Bank → tick → Create DPP flow
+          (§ Product Structure); no separate "add to Practice Bank" step. */}
+      {ticked.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-admin-line/60 bg-admin/5 px-4 py-3">
+          <span className="text-sm font-semibold text-admin-ink">
+            {ticked.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => setTicked(new Set())}
+            className="text-sm font-semibold text-admin hover:underline"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => setDppOpen(true)}
+            className="ml-auto flex items-center gap-2 rounded-lg bg-admin px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+          >
+            Create DPP
+          </button>
+        </div>
+      )}
+
       {error && (
         <p
           role="alert"
@@ -234,6 +266,27 @@ function QuestionsScreen() {
                   submitAction.isPending(q.id) ? "opacity-50" : ""
                 }`}
               >
+                {/* Only APPROVED questions may go into a DPP — same rule the
+                    server enforces, so an unapproved row gets no checkbox at
+                    all rather than one that would fail on submit. */}
+                {q.status === "APPROVED" ? (
+                  <input
+                    type="checkbox"
+                    checked={ticked.has(q.id)}
+                    onChange={() =>
+                      setTicked((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(q.id)) next.delete(q.id);
+                        else next.add(q.id);
+                        return next;
+                      })
+                    }
+                    aria-label="Select for DPP"
+                    className="mt-1.5 size-4 shrink-0 accent-admin"
+                  />
+                ) : (
+                  <span className="mt-1.5 size-4 shrink-0" />
+                )}
                 <button
                   type="button"
                   onClick={() => setOpenId(q.id)}
@@ -311,6 +364,21 @@ function QuestionsScreen() {
                 : "."),
           );
           void load(scope, debouncedSearch.trim(), offset);
+        }}
+      />
+      <CreateDppModal
+        // A fresh key per open so the form mounts blank instead of being
+        // reset by an effect after the fact.
+        key={dppOpen ? `open-${ticked.size}` : "closed"}
+        open={dppOpen}
+        questionIds={[...ticked]}
+        batches={myBatches ?? []}
+        onClose={() => setDppOpen(false)}
+        onCreated={() => {
+          setNotice(
+            "DPP created — students in the assigned batches can attempt it now.",
+          );
+          setTicked(new Set());
         }}
       />
     </TeacherShell>

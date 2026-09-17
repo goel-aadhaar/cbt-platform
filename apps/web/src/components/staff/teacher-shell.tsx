@@ -10,6 +10,7 @@ import {
   FileTextIcon,
   GridIcon,
   HelpCircleIcon,
+  LayersIcon,
   UserIcon,
   UsersIcon,
 } from "@/components/admin/icons";
@@ -29,10 +30,11 @@ const NAV: StaffNavItem[] = [
   { label: "Question Bank", href: "/teacher/questions", icon: DatabaseIcon },
   { label: "My Exams", href: "/teacher/exams", icon: ClipboardIcon },
   {
-    label: "Assessments",
+    label: "Practice Test",
     href: "/teacher/assessments",
     icon: CheckCircleIcon,
   },
+  { label: "DPP", href: "/teacher/dpp", icon: LayersIcon },
   { label: "Student Reports", href: "/teacher/reports", icon: BarChartIcon },
   { label: "Students", href: "/teacher/students", icon: UsersIcon },
   { label: "Resources", href: "/teacher/resources", icon: FileTextIcon },

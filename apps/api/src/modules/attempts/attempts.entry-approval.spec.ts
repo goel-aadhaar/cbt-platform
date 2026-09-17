@@ -37,7 +37,7 @@ describe('AttemptsService — exam entry approval', () => {
     /** No existing attempt row at all — the fresh-request path. */
     noAttempt?: boolean;
     examWindow?: { startAt: Date; endAt: Date };
-    /** MOCK_TEST (default) or ASSESSMENT — see the capped-timer tests below. */
+    /** MOCK_TEST (default) or ASSESSMENT — see the uncapped-timer tests below. */
     examKind?: 'MOCK_TEST' | 'ASSESSMENT';
     durationMinutes?: number;
     role?: 'STUDENT' | 'ADMIN';
@@ -208,6 +208,7 @@ describe('AttemptsService — exam entry approval', () => {
       prisma as never,
       tenant as never,
       {} as never, // MediaStoragePort — never called (no mediaKeys in fixtures)
+      {} as never, // ResultsService — never called; submit() isn't exercised here
     );
 
     return { service, prisma, tenant, getAttemptRow: () => attemptRow };
@@ -398,31 +399,36 @@ describe('AttemptsService — exam entry approval', () => {
   });
 
   /**
-   * ASSESSMENT's one deliberate timer difference from MOCK_TEST (§ Assessments
-   * — "critical timer requirement"): available time is
-   * MIN(duration, windowEnd - startTime), computed purely from the server's
-   * own clock and the exam's own endAt. Mirrors the brief's own worked
-   * example table (3h duration, a window closing at a fixed clock time) as
-   * relative minutes-remaining-in-window, since faking the system clock is
-   * not this codebase's convention for this kind of test (see
-   * teacher-scope/system-metrics specs) — MIN(duration, remaining) is the
-   * exact same relationship regardless of what the wall-clock reads.
+   * ASSESSMENT (Practice Test) timer (§ Product Structure — "Availability
+   * Window ≠ Exam Duration"): `endAt` gates ENTRY only (see the "window has
+   * closed" test above); once admitted, the student always receives the
+   * FULL configured duration, exactly like MOCK_TEST.
+   *
+   * This used to be MIN(duration, windowEnd - startTime) — a student
+   * starting with 10 minutes left in the window got a 10-minute exam however
+   * long the paper was configured for. The product spec now explicitly
+   * forbids that Mock-Test-style clamp for Practice Test: "once a student
+   * starts inside the allowed availability window, their configured exam
+   * duration begins" — full stop, never truncated by the window's own end.
+   * These tests pin the corrected behaviour and would have caught the old
+   * clamp as a regression.
    */
-  describe('begin() — ASSESSMENT capped timer (§ Assessments)', () => {
+  describe('begin() — ASSESSMENT (Practice Test) uncapped timer', () => {
     const THREE_HOURS = 180;
     const TOLERANCE_MS = 5_000; // wall-clock drift between setup and assertion
 
     it.each([
-      // [minutes remaining in the window, expected available minutes]
-      [9 * 60, THREE_HOURS], // "starts at 12 PM" — window barely touched
-      [5 * 60, THREE_HOURS], // "starts at 4 PM" — still plenty of window left
-      [2 * 60, 2 * 60], // "starts at 7 PM" — window is the binding constraint
-      [60, 60], // "starts at 8 PM"
-      [30, 30], // "starts at 8:30 PM"
-      [1, 1], // "starts at 8:59 PM"
+      // Minutes remaining in the window when the student starts — the
+      // granted time must be the full 180 regardless.
+      9 * 60, // "starts at 12 PM" — window barely touched
+      5 * 60, // "starts at 4 PM"
+      2 * 60, // "starts at 7 PM"
+      60, // "starts at 8 PM"
+      30, // "starts at 8:30 PM"
+      1, // "starts at 8:59 PM" — one minute before the window closes
     ])(
-      'window has %i min left, duration 180 min -> available %i min',
-      async (minutesLeft, expectedMinutes) => {
+      'window has %i min left, duration 180 min -> still the full 180 min',
+      async (minutesLeft) => {
         const { service, getAttemptRow } = build({
           examKind: 'ASSESSMENT',
           durationMinutes: THREE_HOURS,
@@ -436,33 +442,36 @@ describe('AttemptsService — exam entry approval', () => {
         const state = await service.begin(ATTEMPT_ID);
         const expiresAt = getAttemptRow()?.expiresAt as Date;
         const grantedMs = expiresAt.getTime() - before;
-        const expectedMs = expectedMinutes * 60_000;
-        expect(Math.abs(grantedMs - expectedMs)).toBeLessThan(TOLERANCE_MS);
+        expect(Math.abs(grantedMs - THREE_HOURS * 60_000)).toBeLessThan(
+          TOLERANCE_MS,
+        );
         expect(
-          Math.abs(state.remainingSeconds - expectedMinutes * 60),
+          Math.abs(state.remainingSeconds - THREE_HOURS * 60),
         ).toBeLessThan(TOLERANCE_MS / 1000);
       },
     );
 
-    it('duration longer than the remaining window -> timer is reduced to the remaining window (never exceeds endAt)', async () => {
+    it('duration longer than the remaining window -> the exam is allowed to outlive the window (never clamped)', async () => {
       const { service, getAttemptRow } = build({
         examKind: 'ASSESSMENT',
         durationMinutes: THREE_HOURS,
         attempt: { status: AttemptStatus.APPROVED },
         examWindow: {
           startAt: new Date(Date.now() - 60_000),
-          endAt: new Date(Date.now() + 10 * 60_000), // only 10 min left
+          endAt: new Date(Date.now() + 10 * 60_000), // only 10 min left to START in
         },
       });
+      const before = Date.now();
       await service.begin(ATTEMPT_ID);
       const expiresAt = getAttemptRow()?.expiresAt as Date;
-      // Must land at the window boundary, never past it.
-      expect(expiresAt.getTime()).toBeLessThanOrEqual(
-        Date.now() + 10 * 60_000 + TOLERANCE_MS,
+      // Runs past the window's own end — starting inside the window is all
+      // that mattered; the duration configured is what determines the timer.
+      expect(expiresAt.getTime() - before).toBeGreaterThan(
+        THREE_HOURS * 60_000 - TOLERANCE_MS,
       );
     });
 
-    it('duration shorter than the remaining window -> student receives the full duration', async () => {
+    it('duration shorter than the remaining window -> student receives exactly the configured duration', async () => {
       const { service, getAttemptRow } = build({
         examKind: 'ASSESSMENT',
         durationMinutes: 30,
@@ -480,7 +489,7 @@ describe('AttemptsService — exam entry approval', () => {
       );
     });
 
-    it('MOCK_TEST is unaffected by this cap — same exam shape still grants the full duration (regression)', async () => {
+    it('MOCK_TEST behaves identically — same exam shape grants the full duration (regression)', async () => {
       const { service, getAttemptRow } = build({
         examKind: 'MOCK_TEST',
         durationMinutes: THREE_HOURS,

@@ -1276,9 +1276,29 @@ export class ResultsService {
 
     const exam = await this.prisma.exam.findFirst({
       where: { id: mine.examId, instituteId: ctx.instituteId },
-      select: { id: true, title: true },
+      select: { id: true, title: true, kind: true, endAt: true },
     });
     if (!exam) throw new NotFoundException('Exam not found');
+
+    /**
+     * Practice Test (ASSESSMENT) evaluates and publishes each attempt's OWN
+     * result the moment it is submitted — see AttemptsService.submit() — so
+     * `published` above is true well before the whole cohort has finished.
+     * A leaderboard built from that is a moving, incomplete ranking; the
+     * product spec is explicit that it "can be published after the test
+     * ends" while the individual result stays immediate. So for this kind
+     * specifically, the CROSS-STUDENT board additionally waits for the
+     * exam's own availability window to close — the individual result this
+     * method's caller already has is unaffected either way.
+     */
+    if (
+      exam.kind === 'ASSESSMENT' &&
+      (!exam.endAt || new Date() < exam.endAt)
+    ) {
+      throw new NotFoundException(
+        'The leaderboard is not available until this test’s window closes.',
+      );
+    }
 
     const rows = await this.prisma.result.findMany({
       where: {

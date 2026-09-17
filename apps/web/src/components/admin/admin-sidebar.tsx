@@ -98,6 +98,7 @@ const NAV: NavEntry[] = [
   },
   { label: "Exams", href: "/admin/exams", icon: ClipboardIcon },
   { label: "Question Bank", href: "/admin/questions", icon: DatabaseIcon },
+  { label: "DPP", href: "/admin/dpp", icon: LayersIcon },
   {
     label: "Results & Reports",
     icon: BarChartIcon,

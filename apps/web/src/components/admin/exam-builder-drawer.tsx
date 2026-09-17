@@ -868,8 +868,8 @@ export function ExamBuilderDrawer({
             <p className="text-xs font-semibold uppercase tracking-wide text-admin-muted">
               {isAssessment
                 ? editing
-                  ? "Assessments / Edit"
-                  : "Assessments / New"
+                  ? "Practice Test / Edit"
+                  : "Practice Test / New"
                 : editing
                   ? "Exams / Edit"
                   : "Exams / New"}
@@ -878,7 +878,7 @@ export function ExamBuilderDrawer({
               {editing
                 ? `Edit ${editing.title}`
                 : isAssessment
-                  ? "Create New Assessment"
+                  ? "Create New Practice Test"
                   : "Create New Exam"}
             </h2>
           </div>
@@ -1000,12 +1000,19 @@ export function ExamBuilderDrawer({
                 />
                 <p className="mt-1 text-xs text-admin-muted">
                   {isAssessment
-                    ? "This is exactly what students will see — assessments aren't renamed on publish."
+                    ? "This is exactly what students will see — a Practice Test isn't renamed on publish."
                     : "For your own reference while the paper is in review."}
                 </p>
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Duration (minutes)" required>
+                <Field
+                  label={
+                    isAssessment
+                      ? "Exam Duration (minutes)"
+                      : "Duration (minutes)"
+                  }
+                  required
+                >
                   <input
                     type="number"
                     min={1}
@@ -1014,15 +1021,22 @@ export function ExamBuilderDrawer({
                     className={inputCls}
                   />
                 </Field>
-                <Field label="Max proctoring violations">
-                  <input
-                    type="number"
-                    min={0}
-                    value={maxViolations}
-                    onChange={(e) => setMaxViolations(Number(e.target.value))}
-                    className={inputCls}
-                  />
-                </Field>
+                {/* Practice Test is a flexible environment by product design
+                    — no tab-switch restriction, no proctoring — so the
+                    server forces this to 0 regardless of what is submitted
+                    here. Showing a control that can never take effect would
+                    be worse than showing nothing. */}
+                {!isAssessment && (
+                  <Field label="Max proctoring violations">
+                    <input
+                      type="number"
+                      min={0}
+                      value={maxViolations}
+                      onChange={(e) => setMaxViolations(Number(e.target.value))}
+                      className={inputCls}
+                    />
+                  </Field>
+                )}
               </div>
               <Field label="Passing marks (optional)">
                 <input
@@ -1294,11 +1308,6 @@ export function ExamBuilderDrawer({
                                 <Tag tone={q.difficulty}>{q.difficulty}</Tag>
                                 <Tag>{q.type}</Tag>
                                 <Tag>{q.marks} marks</Tag>
-                                {q.inPracticeLibrary && (
-                                  <Tag tone="practice">
-                                    ★ In practice library
-                                  </Tag>
-                                )}
                                 {q.examCategory && (
                                   <Tag>{q.examCategory.name}</Tag>
                                 )}
@@ -1413,12 +1422,23 @@ export function ExamBuilderDrawer({
                   {(isAssessment ? myBatches : batches).length === 0 && (
                     <p className="text-sm text-admin-muted">
                       {isAssessment
-                        ? "You aren't assigned to any batches yet — ask an admin to assign you one before scheduling an assessment."
+                        ? "You aren't assigned to any batches yet — ask an admin to assign you one before scheduling a Practice Test."
                         : "No batches found."}
                     </p>
                   )}
                 </div>
               </Field>
+              {/* Two DIFFERENT time settings, deliberately not one ambiguous
+                  "duration" (§ Product Structure): the window below is when
+                  a student may START; the Exam Duration set on the previous
+                  step is how long they get once they do. A student starting
+                  with 10 minutes left in this window still gets the full
+                  duration — see attempts.service.ts begin(). */}
+              {isAssessment && (
+                <p className="-mb-1 text-xs font-bold uppercase tracking-wide text-admin-muted">
+                  Availability window — when students may start
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Opens at" required>
                   <input
@@ -1439,8 +1459,11 @@ export function ExamBuilderDrawer({
               </div>
               {isAssessment ? (
                 <p className="text-xs text-admin-muted">
-                  Students in the batches above will be able to enter once the
-                  window opens — no admin review or approval step.
+                  Students in the batches above can start any time in this
+                  window — no admin review or approval step. Once a student
+                  starts, they get the full {durationMinutes}-minute Exam
+                  Duration set earlier, even if the window closes before they
+                  finish.
                 </p>
               ) : (
                 <Check
@@ -1456,7 +1479,10 @@ export function ExamBuilderDrawer({
           {step === 4 && (
             <div className="flex flex-col gap-3 text-sm">
               <Row k="Title" v={title} />
-              <Row k="Duration" v={`${durationMinutes} minutes`} />
+              <Row
+                k={isAssessment ? "Exam Duration" : "Duration"}
+                v={`${durationMinutes} minutes`}
+              />
               <Row
                 k="Program"
                 v={programs.find((p) => p.id === programId)?.name ?? "—"}
@@ -1594,7 +1620,7 @@ export function ExamBuilderDrawer({
                       // unfinished exam back to the reviewer.
                       "Save changes"
                     : isAssessment
-                      ? "Schedule & Publish Assessment"
+                      ? "Schedule & Publish Practice Test"
                       : isTeacher
                         ? "Create & Submit for Approval"
                         : "Create Exam"}

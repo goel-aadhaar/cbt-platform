@@ -1,13 +1,11 @@
 import {
   Body,
   Controller,
-  Get,
   HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
-  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -16,15 +14,15 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import {
   CheckAnswerDto,
   CompleteSessionDto,
-  QueryPracticeDto,
   StartSessionDto,
 } from './dto/practice.dto';
 import { PracticeService } from './practice.service';
 
 /**
- * Student practice library (§2.4). Read-only drilling over the questions a
- * teacher curated — no attempt row, no timer, no proctoring. Answer keys are
- * never listed; `POST /practice/check` grades one answer at a time.
+ * Student DPP attempts (§ Product Structure). No attempt row, no timer, no
+ * proctoring — a session over one named, teacher-curated paper. Answer keys
+ * are never listed; each answer is graded and revealed one at a time as the
+ * student commits it.
  */
 @ApiTags('practice')
 @ApiBearerAuth()
@@ -33,26 +31,7 @@ import { PracticeService } from './practice.service';
 export class PracticeController {
   constructor(private readonly practice: PracticeService) {}
 
-  /** Subjects/chapters/topics available to drill, with counts. */
-  @Get('facets')
-  facets() {
-    return this.practice.facets();
-  }
-
-  @Get('questions')
-  questions(@Query() query: QueryPracticeDto) {
-    return this.practice.questions(query);
-  }
-
-  @Post('check')
-  @HttpCode(HttpStatus.OK)
-  check(@Body() dto: CheckAnswerDto) {
-    return this.practice.check(dto);
-  }
-
-  /* --- Sessions: the progress the library reports is built from these. --- */
-
-  /** Open a session and receive its question set. */
+  /** Open (or resume) a session and receive its question set. */
   @Post('sessions')
   startSession(@Body() dto: StartSessionDto) {
     return this.practice.startSession(dto);

@@ -107,14 +107,11 @@ export default function FullMockTestsPage() {
 
   return (
     <StudentShell
-      breadcrumb={[
-        { label: "Exams", href: "/student/exams" },
-        "Full Mock Tests",
-      ]}
+      breadcrumb={[{ label: "CBT", href: "/student/exams" }, "CBT Papers"]}
     >
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-[-0.6px] text-admin-ink">
-          Full Mock Tests
+          CBT Papers
         </h1>
         <p className="mt-1 text-sm text-admin-muted">
           You&apos;ve got this. Review your upcoming schedule and join active

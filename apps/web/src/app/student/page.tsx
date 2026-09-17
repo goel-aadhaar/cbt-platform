@@ -18,7 +18,7 @@ import {
 } from "@/components/student/icons";
 import { useExamSchedule } from "@/hooks/use-exam-schedule";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
-import { usePracticeFacets } from "@/hooks/use-practice";
+import { useMyDpps } from "@/hooks/use-practice";
 import { hasSatExam, type MyAttempt, type UpcomingExam } from "@/lib/student";
 import type { ComponentType, SVGProps } from "react";
 
@@ -42,7 +42,7 @@ interface Stat {
 export default function StudentHomePage() {
   const { items: attempts, loading: loadingAttempts } = useMyAttempts();
   const { live, upcoming, loading: loadingSchedule } = useExamSchedule();
-  const { data: facets } = usePracticeFacets();
+  const { data: dpps } = useMyDpps();
 
   const sat = attempts.filter(hasSatExam);
   const scored = sat.filter((a) => a.result !== null);
@@ -113,13 +113,13 @@ export default function StudentHomePage() {
       barColor: "#006049",
     },
     {
-      label: "Practice Qs",
-      value: facets ? String(facets.total) : "—",
-      sub: facets
-        ? `across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}`
+      label: "DPPs Assigned",
+      value: dpps ? String(dpps.length) : "—",
+      sub: dpps
+        ? `${dpps.filter((d) => d.attempt?.status === "COMPLETED").length} completed`
         : "loading…",
-      pct: facets ? Math.min(100, facets.total) : 0,
-      loading: facets === null,
+      pct: dpps ? Math.min(100, dpps.length * 10) : 0,
+      loading: dpps === null,
       icon: BookOpenIcon,
       iconBg: "#ccfbf1",
       iconColor: "#14b8a6",
@@ -155,18 +155,18 @@ export default function StudentHomePage() {
                 <PencilIcon className="size-5" />
               </span>
               <h3 className="mt-4 text-lg font-semibold text-admin-ink">
-                Practice Mock Test
+                Daily Practice Paper
               </h3>
               <p className="mt-1 text-sm text-admin-muted">
-                {facets && facets.total > 0
-                  ? `${facets.total} curated questions across ${facets.subjects.length} subject${facets.subjects.length === 1 ? "" : "s"}, at your own pace.`
-                  : "Practise by subject, chapter or topic to strengthen weak areas."}
+                {dpps && dpps.length > 0
+                  ? `${dpps.length} DPP${dpps.length === 1 ? "" : "s"} shared by your teachers, at your own pace.`
+                  : "Your teachers' curated practice papers will appear here."}
               </p>
               <Link
-                href="/student/practice"
+                href="/student/dpp"
                 className="mt-auto flex items-center justify-center gap-2 rounded-lg border-2 border-admin px-4 py-3 text-base font-bold text-admin hover:bg-admin/5"
               >
-                Start Practice
+                Open DPP
                 <ArrowRightIcon className="size-4" />
               </Link>
             </article>

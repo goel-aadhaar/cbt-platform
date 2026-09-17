@@ -44,6 +44,7 @@ model Subject {
   @@index([instituteId])
   @@map("subjects")
   resources Resource[]
+  dpps      Dpp[]
 }
 
 /// A chapter within a subject. Admin-managed; mirrors Class (academic.prisma).
@@ -61,6 +62,7 @@ model Chapter {
   topics    Topic[]
   questions Question[]
   resources Resource[]
+  dpps      Dpp[]
 
   @@unique([subjectId, name])
   @@index([instituteId])
@@ -139,14 +141,6 @@ model Question {
   /// alter the GENERATED expression.
   searchVector Unsupported("tsvector")? @default(dbgenerated()) @map("search_vector")
 
-  /// Practice library (§2.4). A teacher curates a SUBSET of APPROVED questions
-  /// that students may drill — the library is not the whole bank. No admin
-  /// approval is required to add or remove one. A question may sit in the
-  /// library AND be used in exams; the exam builder surfaces that overlap.
-  inPracticeLibrary Boolean   @default(false) @map("in_practice_library")
-  practiceAddedById String?   @map("practice_added_by_id") @db.Uuid
-  practiceAddedAt   DateTime? @map("practice_added_at")
-
   // Lifecycle & edit tracking (§2.5).
   status       QuestionStatus @default(DRAFT)
   isActive     Boolean        @default(true) @map("is_active")
@@ -162,7 +156,6 @@ model Question {
   createdBy  User      @relation("QuestionCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
   editedBy   User?     @relation("QuestionEditedBy", fields: [editedById], references: [id], onDelete: SetNull)
   approvedBy      User? @relation("QuestionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  practiceAddedBy User? @relation("QuestionPracticeAddedBy", fields: [practiceAddedById], references: [id], onDelete: SetNull)
   subjectRef      Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
   chapterRef      Chapter      @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   topicRef        Topic?       @relation(fields: [topicId], references: [id], onDelete: SetNull)
@@ -170,6 +163,7 @@ model Question {
   examQuestions ExamQuestion[]
   responses     Response[]
   practiceAnswers PracticeAnswer[]
+  dppQuestions    DppQuestion[]
 
   @@index([instituteId])
   @@index([instituteId, status])
@@ -177,7 +171,6 @@ model Question {
   @@index([subjectId])
   @@index([chapterId])
   @@index([examCategoryId])
-  @@index([instituteId, inPracticeLibrary])
   @@index([searchVector], type: Gin)
   @@map("questions")
 }

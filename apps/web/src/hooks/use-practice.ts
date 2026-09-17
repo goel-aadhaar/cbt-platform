@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { fetchPracticeFacets, type PracticeFacets } from "@/lib/practice";
+import { listMyDpps, type MyDpp } from "@/lib/dpp";
 
 interface Async<T> {
   data: T | null;
@@ -27,16 +27,16 @@ function message(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-/** GET /practice/facets — the subject/chapter/topic tree with counts. */
-export function usePracticeFacets(): Async<PracticeFacets> {
+/** GET /me/dpps — DPPs assigned to the calling student's own batch. */
+export function useMyDpps(): Async<MyDpp[]> {
   const [nonce, setNonce] = useState(0);
-  const [settled, setSettled] = useState<Settled<PracticeFacets> | null>(null);
+  const [settled, setSettled] = useState<Settled<MyDpp[]> | null>(null);
 
-  const key = `facets#${nonce}`;
+  const key = `dpps#${nonce}`;
 
   useEffect(() => {
     let cancelled = false;
-    fetchPracticeFacets()
+    listMyDpps()
       .then((data) => {
         if (!cancelled) setSettled({ key, data, error: null });
       })
@@ -45,7 +45,7 @@ export function usePracticeFacets(): Async<PracticeFacets> {
           setSettled({
             key,
             data: null,
-            error: message(e, "Could not load practice library"),
+            error: message(e, "Could not load your DPPs"),
           });
         }
       });
@@ -62,8 +62,3 @@ export function usePracticeFacets(): Async<PracticeFacets> {
     reload,
   };
 }
-
-/**
- * GET /practice/questions for a filter set. `enabled` defers the fetch until
- * the caller has resolved its filters (e.g. a slug → real subject name).
- */

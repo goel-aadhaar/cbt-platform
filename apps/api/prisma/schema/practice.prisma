@@ -1,18 +1,102 @@
-/// Practice library sessions (§2.4).
+/// Daily Practice Papers (§ Product Structure) and the sessions students run
+/// against them.
 ///
-/// Practice is deliberately SEPARATE from exams: no Attempt row, no proctoring,
-/// no Result, and nothing here ever reaches a report card. These tables exist
-/// only so the student's own library can show progress — which chapters they
-/// have worked through, how they are doing on a topic, and how a session
-/// compares with their own average.
+/// A DPP is a NAMED, teacher-curated set of questions — "Plant Kingdom P1
+/// DPP" — assembled directly from the central Question Bank (filter, tick,
+/// name it) and assigned to specific batches, the same way an Exam is
+/// assembled and assigned. It is deliberately NOT a new exam engine: no
+/// sections, no marking scheme, no approval workflow, no proctoring — DPP is
+/// untimed, self-paced practice, so it borrows only the batch-assignment
+/// idiom (DppBatch mirrors ExamBatch/ResourceBatch exactly) and reuses
+/// Question directly (DppQuestion is a thin join, never a copy).
+///
+/// PracticeSession/PracticeAnswer are the SAME tables that used to back the
+/// old ad-hoc "pick a subject and pull whatever's curated" practice library;
+/// they are unchanged in shape apart from the added `dppId`, which is what
+/// makes a session "an attempt at THIS named paper" instead of an ad-hoc
+/// pull. Old rows (dppId null) remain valid history.
+model Dpp {
+  id          String  @id @default(uuid()) @db.Uuid
+  instituteId String  @map("institute_id") @db.Uuid
+  title       String
+  description String?
+
+  /// Tagging for the student-facing shelf (grouped like Resources' Subject >
+  /// Chapter). Optional: a DPP mixing subjects still needs somewhere to sit,
+  /// so this narrows display/browsing, not eligibility.
+  subjectId String? @map("subject_id") @db.Uuid
+  chapterId String? @map("chapter_id") @db.Uuid
+
+  isActive    Boolean  @default(true) @map("is_active")
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  institute Institute        @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  subject   Subject?         @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+  chapter   Chapter?         @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  createdBy User             @relation("DppCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  questions DppQuestion[]
+  batches   DppBatch[]
+  sessions  PracticeSession[]
+
+  @@index([instituteId])
+  @@index([instituteId, subjectId])
+  @@index([instituteId, isActive])
+  @@map("dpps")
+}
+
+/// One question inside a DPP. `order` is the authored sequence — a DPP is a
+/// fixed paper, not a shuffled pull, so students see it in the order the
+/// teacher built it.
+model DppQuestion {
+  id          String @id @default(uuid()) @db.Uuid
+  dppId       String @map("dpp_id") @db.Uuid
+  questionId  String @map("question_id") @db.Uuid
+  instituteId String @map("institute_id") @db.Uuid
+  order       Int    @default(0)
+
+  dpp      Dpp      @relation(fields: [dppId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([dppId, questionId])
+  @@index([dppId])
+  @@index([questionId])
+  @@map("dpp_questions")
+}
+
+/// Which batches a DPP was shared with — identical shape to ExamBatch and
+/// ResourceBatch, the repo's one join-table idiom for "assigned to batches".
+model DppBatch {
+  id          String   @id @default(uuid()) @db.Uuid
+  dppId       String   @map("dpp_id") @db.Uuid
+  batchId     String   @map("batch_id") @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  dpp       Dpp       @relation(fields: [dppId], references: [id], onDelete: Cascade)
+  batch     Batch     @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+
+  @@unique([dppId, batchId])
+  @@index([dppId])
+  @@index([instituteId])
+  @@map("dpp_batches")
+}
 
 model PracticeSession {
   id          String @id @default(uuid()) @db.Uuid
   instituteId String @map("institute_id") @db.Uuid
   studentId   String @map("student_id") @db.Uuid
 
-  /// What the set was drawn from. `chapter`/`topic` narrow the scope; a
-  /// subject-wide set leaves both null.
+  /// The named paper this session is attempting. Null only for historical
+  /// rows created before DPP existed (the old ad-hoc pull) — every session
+  /// created from here on always names one.
+  dppId String? @map("dpp_id") @db.Uuid
+
+  /// What the set was drawn from. Legacy ad-hoc fields — a DPP session
+  /// copies its DPP's tagging here at start time so old and new sessions
+  /// report through the same shape.
   subject String
   chapter String?
   topic   String?
@@ -31,10 +115,13 @@ model PracticeSession {
 
   institute Institute        @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  dpp       Dpp?             @relation(fields: [dppId], references: [id], onDelete: Cascade)
   answers   PracticeAnswer[]
 
   @@index([studentId, subject])
   @@index([studentId, completedAt])
+  @@index([studentId, dppId])
+  @@index([dppId])
   @@index([instituteId])
   @@map("practice_sessions")
 }

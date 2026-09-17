@@ -14,7 +14,7 @@ import {
   TrophyIcon,
 } from "@/components/student/icons";
 import { useMyAttempts } from "@/hooks/use-my-attempts";
-import { usePracticeFacets } from "@/hooks/use-practice";
+import { useMyDpps } from "@/hooks/use-practice";
 import { hasSatExam } from "@/lib/student";
 
 type Tab = "overall" | "subject" | "mock";
@@ -22,7 +22,7 @@ type Tab = "overall" | "subject" | "mock";
 const TABS: { id: Tab; label: string }[] = [
   { id: "overall", label: "Overall" },
   { id: "subject", label: "Subject-wise" },
-  { id: "mock", label: "Mock Tests" },
+  { id: "mock", label: "CBT" },
 ];
 
 export default function StudentReportsPage() {
@@ -71,9 +71,9 @@ function OverallTab() {
     loading: attemptsLoading,
     error: attemptsError,
   } = useMyAttempts();
-  const { data: facets, loading: facetsLoading } = usePracticeFacets();
+  const { data: dpps, loading: dppsLoading } = useMyDpps();
 
-  const loading = attemptsLoading || facetsLoading;
+  const loading = attemptsLoading || dppsLoading;
 
   if (attemptsError) {
     return (
@@ -136,12 +136,37 @@ function OverallTab() {
     },
     {
       label: "Questions Practised",
-      value: facets ? String(facets.practised) : "—",
+      value: dpps
+        ? String(dpps.reduce((n, d) => n + (d.attempt?.answered ?? 0), 0))
+        : "—",
       icon: BookOpenIcon,
     },
   ];
 
-  const topSubjects = [...(facets?.subjects ?? [])]
+  /**
+   * DPP replaced the old ad-hoc practice library, which reported mastery per
+   * subject from a `/practice/facets` aggregation the backend no longer has
+   * (a DPP is a named paper, not a subject-wide pool). This derives the same
+   * shape — subject, mastery % — from the DPPs the student has actually
+   * attempted, averaged where a subject has more than one.
+   */
+  const subjectAccuracy = new Map<
+    string,
+    { correct: number; answered: number }
+  >();
+  for (const d of dpps ?? []) {
+    if (!d.attempt || d.attempt.answered === 0) continue;
+    const name = d.subject?.name ?? "Unfiled";
+    const acc = subjectAccuracy.get(name) ?? { correct: 0, answered: 0 };
+    acc.correct += d.attempt.correct;
+    acc.answered += d.attempt.answered;
+    subjectAccuracy.set(name, acc);
+  }
+  const topSubjects = [...subjectAccuracy.entries()]
+    .map(([subject, acc]) => ({
+      subject,
+      mastery: Math.round((acc.correct / acc.answered) * 100),
+    }))
     .sort((a, b) => b.mastery - a.mastery)
     .slice(0, 4);
 
@@ -174,12 +199,10 @@ function OverallTab() {
           <h3 className="text-lg font-semibold text-admin-ink">
             Subject Mastery
           </h3>
-          <p className="text-sm text-admin-muted">
-            From your practice sessions.
-          </p>
+          <p className="text-sm text-admin-muted">From your DPP attempts.</p>
           {topSubjects.length === 0 ? (
             <p className="mt-6 text-sm text-admin-muted">
-              Practise a few sets to see your strongest subjects here.
+              Attempt a few DPPs to see your strongest subjects here.
             </p>
           ) : (
             <div className="mt-5 flex flex-col gap-4">
@@ -311,8 +334,7 @@ function OverallTab() {
 /* ---------------- Subject-wise (static design) ---------------- */
 
 function SubjectTab() {
-  const { data, loading, error } = usePracticeFacets();
-  const [openSubject, setOpenSubject] = useState<string | null>(null);
+  const { data: dpps, loading, error } = useMyDpps();
 
   if (error) {
     return (
@@ -338,7 +360,44 @@ function SubjectTab() {
     );
   }
 
-  const subjects = data?.subjects ?? [];
+  /**
+   * DPP replaced the ad-hoc practice library this tab used to read from
+   * (`/practice/facets`), which had a chapter/topic drill-down the new
+   * named-paper model has no equivalent aggregation for — a DPP tags at most
+   * one subject/chapter, not a whole pool of them. Rather than build a new
+   * backend aggregation for a breakdown this deep, the tab now reports at
+   * the level DPP data actually supports: subject-wise accuracy.
+   */
+  const bySubject = new Map<
+    string,
+    { practised: number; count: number; correct: number; answered: number }
+  >();
+  for (const d of dpps ?? []) {
+    const name = d.subject?.name ?? "Unfiled";
+    const agg = bySubject.get(name) ?? {
+      practised: 0,
+      count: 0,
+      correct: 0,
+      answered: 0,
+    };
+    agg.count += d.questionCount;
+    if (d.attempt) {
+      agg.practised += d.attempt.answered;
+      agg.correct += d.attempt.correct;
+      agg.answered += d.attempt.answered;
+    }
+    bySubject.set(name, agg);
+  }
+  const subjects = [...bySubject.entries()]
+    .map(([subject, agg]) => ({
+      subject,
+      practised: agg.practised,
+      count: agg.count,
+      mastery:
+        agg.answered > 0 ? Math.round((agg.correct / agg.answered) * 100) : 0,
+    }))
+    .sort((a, b) => b.mastery - a.mastery);
+
   if (subjects.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-admin-line bg-white p-12 text-center">
@@ -346,92 +405,38 @@ function SubjectTab() {
           No subject data yet
         </p>
         <p className="mx-auto mt-1 max-w-md text-sm text-admin-muted">
-          Subject accuracy is built from your practice sessions. Once you drill
-          a few sets in the Practice Library, your breakdown appears here.
+          Subject accuracy is built from your DPP attempts. Once you complete a
+          few DPPs, your breakdown appears here.
         </p>
         <Link
-          href="/student/practice"
+          href="/student/dpp"
           className="mt-5 inline-flex rounded-lg bg-admin px-5 py-2.5 text-sm font-bold text-white hover:opacity-95"
         >
-          Go to Practice Library
+          Go to DPP
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-        {subjects.map((s) => (
-          <div
-            key={s.subject}
-            className="flex flex-col items-center rounded-2xl border border-admin-line/40 bg-white p-6 text-center shadow-[0_4px_10px_rgba(0,0,0,0.04)]"
-          >
-            <h3 className="text-lg font-bold text-admin-ink">{s.subject}</h3>
-            <div className="my-4">
-              <BigRing value={s.mastery} />
-            </div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
-              Mastery
-            </p>
-            <p className="mt-1 text-sm text-admin-muted">
-              {s.practised} of {s.count} questions practised
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                setOpenSubject((o) => (o === s.subject ? null : s.subject))
-              }
-              className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-admin hover:underline"
-            >
-              {openSubject === s.subject ? "Hide" : "View"} Chapter Breakdown
-              <ArrowRightIcon className="size-4" />
-            </button>
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+      {subjects.map((s) => (
+        <div
+          key={s.subject}
+          className="flex flex-col items-center rounded-2xl border border-admin-line/40 bg-white p-6 text-center shadow-[0_4px_10px_rgba(0,0,0,0.04)]"
+        >
+          <h3 className="text-lg font-bold text-admin-ink">{s.subject}</h3>
+          <div className="my-4">
+            <BigRing value={s.mastery} />
           </div>
-        ))}
-      </div>
-
-      {openSubject && (
-        <section className="rounded-2xl border border-admin-line/40 bg-white shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
-          <div className="border-b border-admin-line/40 px-6 py-4">
-            <h3 className="text-lg font-semibold text-admin-ink">
-              {openSubject} — chapter breakdown
-            </h3>
-            <p className="mt-0.5 text-xs text-admin-muted">
-              Mastery is the share of a chapter&apos;s questions you have
-              answered correctly at least once.
-            </p>
-          </div>
-          {(
-            subjects.find((s) => s.subject === openSubject)?.chapters ?? []
-          ).map((c) => (
-            <div
-              key={c.chapter}
-              className="flex items-center gap-4 border-b border-admin-line/20 px-6 py-4 last:border-b-0"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-admin-ink">
-                  {c.chapter}
-                </span>
-                <span className="block text-xs text-admin-muted">
-                  {c.practised}/{c.count} practised
-                </span>
-              </span>
-              <span className="w-40 shrink-0">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-admin-line/30">
-                  <div
-                    className="h-full rounded-full bg-admin"
-                    style={{ width: `${c.mastery}%` }}
-                  />
-                </div>
-              </span>
-              <span className="w-12 shrink-0 text-right text-sm font-bold text-admin-ink">
-                {c.mastery}%
-              </span>
-            </div>
-          ))}
-        </section>
-      )}
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-admin-muted">
+            Mastery
+          </p>
+          <p className="mt-1 text-sm text-admin-muted">
+            {s.practised} of {s.count} questions practised
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

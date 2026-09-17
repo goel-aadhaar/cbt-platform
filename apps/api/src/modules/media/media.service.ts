@@ -172,8 +172,9 @@ export class MediaService {
    * a guessed UUID. Entitlement is checked against a `Response` row rather than
    * the exam: one is created for every question the moment a candidate starts
    * that paper, so it covers the live exam and the later review with a single
-   * condition, and it excludes papers they never sat. Practice-library
-   * questions are open to any candidate by design.
+   * condition, and it excludes papers they never sat. A DPP question is
+   * entitled the same way Resources are: only if it sits in a DPP assigned to
+   * the student's OWN batch — DPP is batch-scoped, not open to the institute.
    *
    * A denial is a 404, matching every other not-visible-in-your-scope lookup —
    * it does not confirm that the key exists.
@@ -205,7 +206,13 @@ export class MediaService {
         instituteId: ctx.instituteId ?? undefined,
         mediaKeys: { has: key },
         OR: [
-          { inPracticeLibrary: true },
+          {
+            dppQuestions: {
+              some: {
+                dpp: { batches: { some: { batchId: student.batchId } } },
+              },
+            },
+          },
           { responses: { some: { attempt: { studentId: student.id } } } },
         ],
       },

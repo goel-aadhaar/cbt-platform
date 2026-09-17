@@ -170,23 +170,6 @@ export function QuestionFilterBar({
           onChange={(v) => set({ tag: v })}
         />
 
-        <button
-          type="button"
-          onClick={() =>
-            set({
-              inPracticeLibrary: value.inPracticeLibrary ? undefined : true,
-            })
-          }
-          className={`h-10 rounded-lg border px-3 text-sm font-semibold ${
-            value.inPracticeLibrary
-              ? "border-admin bg-admin/10 text-admin"
-              : "border-admin-line bg-white text-admin-muted hover:text-admin-ink"
-          }`}
-          title="Show only questions curated into the student practice library"
-        >
-          In practice library
-        </button>
-
         {activeCount > 0 && (
           <button
             type="button"

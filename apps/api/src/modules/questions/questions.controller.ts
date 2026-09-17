@@ -2,10 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Delete,
   Get,
-  HttpCode,
-  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -28,8 +25,10 @@ import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ArchiveQuestionDto } from './dto/archive-question.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
+import { ExportQuestionsDto } from './dto/export-questions.dto';
 import { QueryQuestionsDto } from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import { QuestionExportService } from './question-export.service';
 import { QuestionsService } from './questions.service';
 
 @ApiTags('questions')
@@ -37,7 +36,31 @@ import { QuestionsService } from './questions.service';
 @Roles(Role.TEACHER, Role.ADMIN)
 @Controller({ path: 'questions', version: '1' })
 export class QuestionsController {
-  constructor(private readonly questions: QuestionsService) {}
+  constructor(
+    private readonly questions: QuestionsService,
+    private readonly exports: QuestionExportService,
+  ) {}
+
+  /**
+   * A real PDF or DOCX of the selected questions (§ Product Structure) —
+   * ADMIN only, matching the requirement that export is an admin action.
+   * `ids` (a manual tick-list) takes priority over `filters` ("export all
+   * filtered") when both are sent — see ExportQuestionsDto.
+   */
+  @Post('export')
+  @Roles(Role.ADMIN)
+  async export(@Body() dto: ExportQuestionsDto): Promise<StreamableFile> {
+    const { filename, buffer, mimeType } = await this.exports.export(
+      dto.ids,
+      dto.filters,
+      dto.format,
+      dto.includeAnswers,
+    );
+    return new StreamableFile(buffer, {
+      type: mimeType,
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
 
   @Post()
   create(@Body() dto: CreateQuestionDto) {
@@ -146,22 +169,6 @@ export class QuestionsController {
   @Roles(Role.ADMIN)
   reject(@Param('id', ParseUUIDPipe) id: string) {
     return this.questions.reject(id);
-  }
-
-  /**
-   * Practice-library curation (§2.4) — TEACHER or ADMIN, no approval step.
-   * Adding here does not remove the question from exam use.
-   */
-  @Post(':id/practice')
-  @HttpCode(HttpStatus.OK)
-  addToPractice(@Param('id', ParseUUIDPipe) id: string) {
-    return this.questions.addToPracticeLibrary(id);
-  }
-
-  @Delete(':id/practice')
-  @HttpCode(HttpStatus.OK)
-  removeFromPractice(@Param('id', ParseUUIDPipe) id: string) {
-    return this.questions.removeFromPracticeLibrary(id);
   }
 
   @Post(':id/archive')

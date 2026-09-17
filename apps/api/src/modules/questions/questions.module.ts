@@ -10,6 +10,7 @@ import { UnavailableAiProvider } from './adapters/unavailable-ai.provider';
 import { AiProviderPort } from './ports/ai-provider.port';
 import { QuestionImportPort } from './ports/question-import.port';
 import { QuestionSearchPort } from './ports/question-search.port';
+import { QuestionExportService } from './question-export.service';
 import { QuestionsController } from './questions.controller';
 import { QuestionsService } from './questions.service';
 
@@ -27,6 +28,7 @@ import { QuestionsService } from './questions.service';
   controllers: [QuestionsController],
   providers: [
     QuestionsService,
+    QuestionExportService,
     { provide: QuestionSearchPort, useClass: PostgresFullTextSearchAdapter },
     // Accepts .docx and .xlsx; see QuestionImportAdapter for why the port
     // stays format-agnostic rather than the service choosing a parser.

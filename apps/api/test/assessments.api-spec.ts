@@ -8,11 +8,15 @@ import {
 } from './support/client';
 
 /**
- * Assessments (§ Assessments) — the second exam workflow, real end-to-end
- * against the live server: no admin approval, teacher-direct scheduling,
- * auto-approved entry, the capped MIN(duration, window-remaining) timer, and
- * the automatic close→evaluate→publish pipeline with no request or open
- * browser driving it.
+ * Assessments / Practice Test (§ Product Structure) — the second exam
+ * workflow, real end-to-end against the live server: no admin approval,
+ * teacher-direct scheduling, auto-approved entry, the FULL configured
+ * duration once admitted (the availability window gates entry only — it used
+ * to also clamp the timer; that rule was removed, see the test below), an
+ * immediately-visible individual result on submit, a leaderboard that waits
+ * for the window to close, and the automatic close→evaluate→publish sweep
+ * that remains the safety net for stragglers with no request or open browser
+ * driving it.
  */
 describe('Assessments (§ Assessments)', () => {
   let tenant: TenantFixture;
@@ -243,14 +247,16 @@ describe('Assessments (§ Assessments)', () => {
     expect(begun.body.remainingSeconds).toBeGreaterThan(59 * 60);
   });
 
-  it('the timer is capped at the remaining window, not the full configured duration', async () => {
+  it('grants the FULL configured duration even when the window closes moments after starting', async () => {
+    // 3 hours of duration, window closing in ~2 minutes — starting inside the
+    // window is all that matters; per the product spec, "Availability Window
+    // ≠ Exam Duration" and the exam is allowed to outlive its own window.
     const examId = await draftAssessment({ durationMinutes: 180 });
     await api(`/exams/${examId}/batches`, {
       method: 'POST',
       token: tenant.teacherToken,
       body: { batchId: tenant.batchId },
     });
-    // 3 hours of duration, but the window closes in ~2 minutes.
     await api(`/exams/${examId}/schedule-assessment`, {
       method: 'POST',
       token: tenant.teacherToken,
@@ -260,7 +266,7 @@ describe('Assessments (§ Assessments)', () => {
       },
     });
 
-    const studentToken = await addStudent(tenant, 'Capped Timer', 'CT1');
+    const studentToken = await addStudent(tenant, 'Full Duration', 'FD1');
     const entry = await api<{ id: string }>('/attempts', {
       method: 'POST',
       token: studentToken,
@@ -271,10 +277,44 @@ describe('Assessments (§ Assessments)', () => {
       { method: 'POST', token: studentToken },
     );
     expectStatus(begun, 200);
-    // Capped near the ~2-minute window, nowhere near the 3-hour duration.
-    expect(begun.body.remainingSeconds).toBeLessThan(130);
-    expect(begun.body.remainingSeconds).toBeGreaterThan(90);
+    // ~180 minutes, generously bounded against request latency — NOT capped
+    // to the ~2-minute window.
+    expect(begun.body.remainingSeconds).toBeGreaterThan(179 * 60);
   });
+
+  it('denies entry once the availability window has closed, even mid-second after it does', async () => {
+    const examId = await draftAssessment();
+    await api(`/exams/${examId}/batches`, {
+      method: 'POST',
+      token: tenant.teacherToken,
+      body: { batchId: tenant.batchId },
+    });
+    // endAt must be in the future to SCHEDULE at all — schedule a short
+    // window, then wait it out before attempting entry.
+    const closeAt = Date.now() + 3_000;
+    await api(`/exams/${examId}/schedule-assessment`, {
+      method: 'POST',
+      token: tenant.teacherToken,
+      body: {
+        startAt: new Date(Date.now() - 120_000).toISOString(),
+        endAt: new Date(closeAt).toISOString(),
+      },
+    });
+
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, closeAt - Date.now()) + 1_000),
+    );
+
+    const studentToken = await addStudent(tenant, 'Too Late', 'TL1');
+    // requestEntry() checks `now > exam.endAt` before creating anything —
+    // denied at the door, never reaching begin().
+    const entry = await api('/attempts', {
+      method: 'POST',
+      token: studentToken,
+      body: { examId },
+    });
+    expectStatus(entry, 400);
+  }, 30_000);
 
   it('closes automatically at the window end and evaluates/ranks/publishes with no admin or browser involved', async () => {
     const examId = await draftAssessment();
@@ -283,10 +323,12 @@ describe('Assessments (§ Assessments)', () => {
       token: tenant.teacherToken,
       body: { batchId: tenant.batchId },
     });
-    // A short-enough window to actually observe the sweep (every 30s) close
-    // it inside this test's timeout, without the attempt itself timing out
-    // before the student can submit.
-    const closeAt = Date.now() + 20_000;
+    // Long enough that scheduling, addStudent's invite/accept/login round
+    // trips, begin() and submit() all comfortably finish before the window
+    // closes (addStudent alone is several sequential requests) — short
+    // enough to still observe the sweep (every 30s) close it inside this
+    // test's own timeout below.
+    const closeAt = Date.now() + 45_000;
     await api(`/exams/${examId}/schedule-assessment`, {
       method: 'POST',
       token: tenant.teacherToken,
@@ -313,6 +355,28 @@ describe('Assessments (§ Assessments)', () => {
     // attempts.controller.ts's submit() is @HttpCode(HttpStatus.OK).
     expectStatus(submitted, 200);
 
+    /**
+     * The headline behaviour change (§ Product Structure "immediate result"):
+     * this student's OWN result is visible the instant they submit — no
+     * admin/teacher publish step, and critically, no waiting for the window
+     * above to close. Checked BEFORE any of the window-close waiting below.
+     */
+    // A 404 here means "not published yet" (getForStudent's own gate) — a
+    // 200 with a real score is the whole point of this behaviour.
+    const immediate = await api<{ totalScore: number; maxScore: number }>(
+      `/attempts/${entry.body.id}/result`,
+      { token: studentToken },
+    );
+    expectStatus(immediate, 200);
+    expect(typeof immediate.body.totalScore).toBe('number');
+
+    // The LEADERBOARD is the one piece that still waits — "published after
+    // the test ends" — even though the individual result above did not.
+    const tooEarly = await api(`/attempts/${entry.body.id}/leaderboard`, {
+      token: studentToken,
+    });
+    expectStatus(tooEarly, 404);
+
     // Trust the SERVER's clock, not the test's — wait out its own window,
     // then give the 30s sweep interval room to actually tick.
     const waitMs = Math.max(0, closeAt - Date.now()) + 35_000;
@@ -328,7 +392,9 @@ describe('Assessments (§ Assessments)', () => {
     }
     expect(status).toBe('ARCHIVED');
 
-    // Results and the leaderboard published with nobody clicking anything.
+    // Results published with nobody clicking anything (the sweep is a
+    // no-op here since evaluate() already ran on submit, but it must still
+    // succeed rather than error on an already-evaluated exam).
     const result = await api<{ published: boolean; totalScore: number }>(
       `/me/attempts`,
       { token: studentToken },
@@ -338,7 +404,18 @@ describe('Assessments (§ Assessments)', () => {
       result.body as unknown as { exam: { id: string }; result: unknown }[]
     ).find((r) => r.exam.id === examId);
     expect(row?.result).not.toBeNull();
-  }, 60_000);
+
+    // Now that the window has closed, the leaderboard endpoint no longer
+    // 404s — a single-candidate cohort still suppresses the BOARD itself
+    // (below COHORT_MIN), but that is a documented "not enough candidates"
+    // response, not "come back later".
+    const afterClose = await api<{ available: boolean }>(
+      `/attempts/${entry.body.id}/leaderboard`,
+      { token: studentToken },
+    );
+    expectStatus(afterClose, 200);
+    expect(afterClose.body.available).toBe(false);
+  }, 100_000);
 
   it('tenant isolation: another institute cannot see, join, or read this assessment', async () => {
     const other = await setupTenant('asmt-other');

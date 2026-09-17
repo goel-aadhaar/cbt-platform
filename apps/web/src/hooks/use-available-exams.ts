@@ -15,7 +15,7 @@ import { fetchAvailableExams, type AvailableExam } from "@/lib/student";
  * effect body).
  *
  * `kind` defaults to MOCK_TEST (§ Assessments) — the existing Mock Test
- * callers don't pass it; "My Assessments" passes ASSESSMENT.
+ * callers don't pass it; the Practice Test page passes ASSESSMENT.
  */
 export function useAvailableExams(kind?: "MOCK_TEST" | "ASSESSMENT"): {
   items: AvailableExam[];

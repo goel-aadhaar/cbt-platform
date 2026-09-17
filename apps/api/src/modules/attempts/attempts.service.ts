@@ -3,14 +3,17 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamKind } from '../exams/exam.types';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
+import { ResultsService } from '../results/results.service';
 import {
   AttemptStatus,
   PRE_START_ATTEMPT_STATUSES,
@@ -85,10 +88,13 @@ type AttemptStateRow = Prisma.AttemptGetPayload<{ select: typeof stateSelect }>;
  */
 @Injectable()
 export class AttemptsService {
+  private readonly logger = new Logger(AttemptsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly media: MediaStoragePort,
+    private readonly results: ResultsService,
   ) {}
 
   /**
@@ -468,34 +474,27 @@ export class AttemptsService {
       throw new BadRequestException('The exam has ended');
     }
     /**
-     * The one deliberate timer difference between the two exam kinds
-     * (§ Assessments' "critical timer requirement" — the same rule NTA-style
-     * proctored windows use):
+     * Both exam kinds (CBT/MOCK_TEST and Practice Test/ASSESSMENT) use the
+     * SAME rule: `exam.endAt` — the availability window — only gates ENTRY
+     * (checked just above); once in, the clock is the FULL configured
+     * duration regardless of how much of the window was left when the
+     * candidate started. A student who enters 5 minutes before the window
+     * closes still gets the whole exam. (Regression-tested — see
+     * attempts.entry-approval.spec.ts.)
      *
-     *  MOCK_TEST  — `exam.endAt` only gates ENTRY (checked just above); once
-     *               in, the clock is the FULL duration regardless of how
-     *               much of the entry window is left. A student who enters
-     *               5 minutes before the window closes still gets the whole
-     *               exam. (Regression-tested — see
-     *               attempts.entry-approval.spec.ts.)
+     * ASSESSMENT used to clamp this to `MIN(duration, windowEnd - now)` —
+     * starting with 30 minutes left in the window meant a 30-minute exam,
+     * however long the paper was configured for. That is the Mock-Test-style
+     * rule the product spec now explicitly forbids for Practice Test:
+     * "Availability Window ≠ Exam Duration… once a student starts inside the
+     * allowed availability window, their configured exam duration begins" —
+     * full stop, not truncated by the window's own end.
      *
-     *  ASSESSMENT — the available time is `MIN(duration, windowEnd - now)`.
-     *               A student starting with only 30 minutes left in the
-     *               window gets 30 minutes, not the full configured
-     *               duration, and the exam still cannot outlive its own
-     *               window regardless of when someone starts it.
-     *
-     * Both branches compute purely from the SERVER's own clock and the
-     * exam's own `endAt` — nothing here ever reads a client-supplied value,
-     * so there is no field a manipulated request could use to buy extra time.
+     * Computed purely from the SERVER's own clock and duration — nothing
+     * here ever reads a client-supplied value, so there is no field a
+     * manipulated request could use to buy extra time.
      */
-    const fullDuration = new Date(
-      now.getTime() + exam.durationMinutes * 60_000,
-    );
-    const expiresAt =
-      exam.kind === ExamKind.ASSESSMENT
-        ? new Date(Math.min(fullDuration.getTime(), exam.endAt.getTime()))
-        : fullDuration;
+    const expiresAt = new Date(now.getTime() + exam.durationMinutes * 60_000);
 
     await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.attempt.updateMany({
@@ -609,7 +608,7 @@ export class AttemptsService {
 
   async submit(attemptId: string) {
     const student = await this.currentStudent();
-    await this.getActiveAttempt(attemptId, student.id);
+    const attempt = await this.getActiveAttempt(attemptId, student.id);
     // Conditioned on status at the DB level — closes the race against a
     // concurrent abandon()/another submit() for the same attempt. Whichever
     // write reaches Postgres first flips the status; the loser matches zero
@@ -623,7 +622,58 @@ export class AttemptsService {
     if (count === 0) {
       throw new ConflictException('This attempt is already submitted');
     }
+
+    await this.evaluateImmediatelyIfPracticeTest(attempt.examId);
+
     return this.summary(attemptId);
+  }
+
+  /**
+   * Practice Test (ASSESSMENT) shows the student their own result the
+   * instant they submit — no admin/teacher publish step, and no waiting for
+   * the availability window to close (that wait is for the LEADERBOARD only,
+   * see ResultsService.getLeaderboardForStudent). Mock Test is unaffected: an
+   * admin still evaluates it explicitly, exactly as before.
+   *
+   * evaluate() re-scores and re-ranks EVERY submitted attempt for this exam,
+   * not just this one — it already has to be idempotent and safely
+   * re-runnable for that reason (answer-key corrections call it the same
+   * way), so a leaderboard-in-progress simply reflects whoever has submitted
+   * so far, and settles once the last student does.
+   *
+   * Best-effort: a transient failure here must not turn an otherwise
+   * successful submission into an error for the student. AssessmentClosureService's
+   * sweep remains the safety net that retries evaluate() once the window
+   * closes regardless of whether this inline call ever succeeded.
+   */
+  private async evaluateImmediatelyIfPracticeTest(examId: string) {
+    const exam = await this.prisma.exam.findUnique({
+      where: { id: examId },
+      select: { kind: true, instituteId: true, createdById: true },
+    });
+    if (!exam || exam.kind !== ExamKind.ASSESSMENT) return;
+
+    try {
+      // Same escape hatch AssessmentClosureService uses: ResultsService reads
+      // instituteId from AsyncLocalStorage, which only a real HTTP request
+      // normally populates. ADMIN (not TEACHER) so TeacherScopeService's
+      // batch restriction — which only ever applies to a TEACHER context —
+      // cannot narrow what this system action can see.
+      await this.tenant.run(
+        {
+          userId: exam.createdById,
+          role: Role.ADMIN,
+          instituteId: exam.instituteId,
+          isSuperadmin: false,
+        },
+        () => this.results.evaluate(examId),
+      );
+    } catch (err) {
+      this.logger.error(
+        `Immediate evaluation failed for Practice Test ${examId} — the closure sweep will retry at window end`,
+        err instanceof Error ? err.stack : err,
+      );
+    }
   }
 
   /**

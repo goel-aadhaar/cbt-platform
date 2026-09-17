@@ -46,12 +46,6 @@ export class QueryQuestionsDto {
   @IsString()
   tag?: string;
 
-  /** Restrict to (or exclude) questions curated into the practice library. */
-  @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
-  @IsBoolean()
-  inPracticeLibrary?: boolean;
-
   /**
    * Only questions the caller wrote. Backs the teacher console, where "what
    * have I contributed" is a different question from "what is in the bank".
