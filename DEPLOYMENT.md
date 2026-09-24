@@ -1,7 +1,7 @@
 # Deployment — single instance (e.g. EC2 t3.small)
 
 Both apps run as plain Node processes under pm2, behind nginx for TLS and
-domain routing. The database is Neon (managed Postgres) — nothing to install
+domain routing. The database is AWS RDS for PostgreSQL — nothing to install
 for it on the instance itself.
 
 ## No domain yet? Start here
@@ -34,7 +34,7 @@ Everything else below (build, seed, pm2, verify) is the same either way.
   `api.yourdomain.com` (backend).
 - Security group: `22` (SSH, restricted to your IP), `80`, `443` open. Do
   **not** open `3000`/`4000` — nginx is the only public entry point.
-- A **separate** Neon database (or branch) for production. Reusing the dev
+- A **separate** RDS instance (or database) for production. Reusing the dev
   database mixes real users with test/demo data.
 
 ## One-time instance setup
@@ -66,7 +66,9 @@ cd /var/www/codonmind
 Create `apps/api/.env` (copy `apps/api/.env.example` as a starting point) with
 real production values:
 
-- `DATABASE_URL` — the **production** Neon connection string.
+- `DATABASE_URL` — the **production** RDS connection string (a
+  least-privilege role once RLS is enforced — see "Known, deliberately
+  deferred gaps" below for what that role needs).
 - `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` — generate a fresh pair with the
   command in `.env.example`; don't reuse a dev keypair.
 - `NODE_ENV=production`
@@ -265,9 +267,21 @@ been exercised somewhere other than production.
   not fine if you ever replace the instance or scale to more than one — see
   the "Media storage" section of `.env.example` for the S3 config that
   activates the moment `AWS_S3_BUCKET` is set.
-- Row-Level Security is staged in migrations but not enforced (the app
-  connects as the table owner, which Postgres always exempts from RLS) — see
-  `FEATURES.md`'s Known Gaps for what enforcing it needs.
+- Row-Level Security (DEF-001) is enforced as of `20260924000000_force_tenant_rls`
+  — but only if `apps/api/.env`'s `DATABASE_URL` is a **least-privilege**
+  role, not the RDS master user / `postgres`. On AWS RDS specifically, the
+  master user bypasses RLS even under `FORCE ROW LEVEL SECURITY` (it's a
+  member of `rds_superuser`, which RDS treats as bypass-eligible regardless
+  of what `pg_roles.rolsuper`/`rolbypassrls` report) — confirmed empirically
+  against this production database. Create a dedicated role with no
+  `rds_superuser` membership and `GRANT SELECT, INSERT, UPDATE, DELETE ON
+ALL TABLES IN SCHEMA public` (plus `ALTER DEFAULT PRIVILEGES FOR ROLE
+postgres ...` so future migrations' new tables inherit the grant), and
+  point `DATABASE_URL` at it. That role can't run DDL, so
+  `prisma migrate deploy` still needs the owning role — `scripts/deploy.sh`
+  reads a server-local, never-committed `.env.migrate` (one line:
+  `DATABASE_URL=<the owner connection string>`) and sources it just for the
+  migration step, if present.
 - `/api/docs` (Swagger) is public. That's API documentation, not data, but if
   you'd rather not expose your endpoint list publicly, gate or remove the
   `SwaggerModule.setup(...)` call in `apps/api/src/main.ts`.

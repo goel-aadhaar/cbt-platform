@@ -42,6 +42,19 @@ else
 fi
 
 echo "==> Applying database migrations..."
+# DEF-001: once RLS is FORCE-enforced, apps/api/.env's DATABASE_URL is a
+# least-privilege role (DML only, granted no table ownership) so RLS
+# actually binds for it — but that role also can't run DDL, which
+# `prisma migrate deploy` needs. `.env.migrate` is a server-local,
+# never-committed file holding just the table-owning role's connection
+# string, for this one step only; absent on any environment that hasn't
+# made this split (the plain DATABASE_URL from .env is used instead, same
+# as before this existed).
+if [ -f .env.migrate ]; then
+  set -a
+  source .env.migrate
+  set +a
+fi
 pnpm --filter @drsk/api exec prisma migrate deploy
 
 echo "==> Building web (bakes in apps/web/.env's NEXT_PUBLIC_* values)..."
