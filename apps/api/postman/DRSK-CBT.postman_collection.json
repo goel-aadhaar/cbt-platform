@@ -66,7 +66,57 @@
       "name": "1 · Auth & Onboarding",
       "item": [
         {
-          "name": "Login Superadmin",
+          "name": "Login Superadmin — 1. Request OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var superChallengeId = body?.[\"challengeId\"];",
+                  "  if (superChallengeId !== undefined && superChallengeId !== null) pm.collectionVariables.set(\"superChallengeId\", String(superChallengeId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  6-digit OTP code, and paste it into collection variable: superOtpCode\");",
+                  "console.log(\"  (the dev mail adapter logs the emailed code there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/platform/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "platform", "login"]
+            },
+            "description": "Returns { otpRequired: true, challengeId, sentTo } — no session yet. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{superEmail}}\",\n  \"password\": \"{{superPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login Superadmin — 2. Verify OTP  ⟵ paste code first",
           "event": [
             {
               "listen": "test",
@@ -94,14 +144,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "raw": "{{baseUrl}}/api/v1/auth/login/verify",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "path": ["api", "v1", "auth", "login", "verify"]
             },
-            "description": "Uses the seeded superadmin. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.",
+            "description": "Set `superOtpCode` to the 6-digit code printed in the API console by step 1.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{superEmail}}\",\n  \"password\": \"{{superPassword}}\"\n}",
+              "raw": "{\n  \"challengeId\": \"{{superChallengeId}}\",\n  \"code\": \"{{superOtpCode}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -262,7 +312,57 @@
           }
         },
         {
-          "name": "Login Admin",
+          "name": "Login Admin — 1. Request OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var adminChallengeId = body?.[\"challengeId\"];",
+                  "  if (adminChallengeId !== undefined && adminChallengeId !== null) pm.collectionVariables.set(\"adminChallengeId\", String(adminChallengeId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  6-digit OTP code, and paste it into collection variable: adminOtpCode\");",
+                  "console.log(\"  (the dev mail adapter logs the emailed code there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Returns { otpRequired: true, challengeId, sentTo } — no session yet. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login Admin — 2. Verify OTP  ⟵ paste code first",
           "event": [
             {
               "listen": "test",
@@ -290,13 +390,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "raw": "{{baseUrl}}/api/v1/auth/login/verify",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "path": ["api", "v1", "auth", "login", "verify"]
             },
+            "description": "Set `adminOtpCode` to the 6-digit code printed in the API console by step 1.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "raw": "{\n  \"challengeId\": \"{{adminChallengeId}}\",\n  \"code\": \"{{adminOtpCode}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -393,7 +494,57 @@
           }
         },
         {
-          "name": "Login Teacher",
+          "name": "Login Teacher — 1. Request OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var teacherChallengeId = body?.[\"challengeId\"];",
+                  "  if (teacherChallengeId !== undefined && teacherChallengeId !== null) pm.collectionVariables.set(\"teacherChallengeId\", String(teacherChallengeId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }",
+                  "console.log(\"──────────────────────────────────────────────\");",
+                  "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
+                  "console.log(\"  6-digit OTP code, and paste it into collection variable: teacherOtpCode\");",
+                  "console.log(\"  (the dev mail adapter logs the emailed code there).\");",
+                  "console.log(\"──────────────────────────────────────────────\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Returns { otpRequired: true, challengeId, sentTo } — no session yet. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{teacherEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login Teacher — 2. Verify OTP  ⟵ paste code first",
           "event": [
             {
               "listen": "test",
@@ -421,13 +572,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "raw": "{{baseUrl}}/api/v1/auth/login/verify",
               "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "auth", "login"]
+              "path": ["api", "v1", "auth", "login", "verify"]
             },
+            "description": "Set `teacherOtpCode` to the 6-digit code printed in the API console by step 1.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"{{teacherEmail}}\",\n  \"password\": \"{{password}}\"\n}",
+              "raw": "{\n  \"challengeId\": \"{{teacherChallengeId}}\",\n  \"code\": \"{{teacherOtpCode}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -954,6 +1106,11 @@
                   "pm.test(\"status is 201 or 200\", function () {",
                   "  pm.expect(pm.response.code).to.be.oneOf([201,200]);",
                   "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var studentRoll = body?.[\"rollNumber\"];",
+                  "  if (studentRoll !== undefined && studentRoll !== null) pm.collectionVariables.set(\"studentRoll\", String(studentRoll));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }",
                   "console.log(\"──────────────────────────────────────────────\");",
                   "console.log(\"⚠ MANUAL STEP: open the API server console, copy the newest\");",
                   "console.log(\"  token=... value, and paste it into collection variable: studentInviteToken\");",
@@ -982,7 +1139,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Postman Student\",\n  \"email\": \"{{studentEmail}}\",\n  \"rollNumber\": \"{{studentRoll}}\",\n  \"batchId\": \"{{batchId}}\"\n}",
+              "raw": "{\n  \"name\": \"Postman Student\",\n  \"email\": \"{{studentEmail}}\",\n  \"batchId\": \"{{batchId}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -3548,7 +3705,7 @@
     },
     {
       "key": "superEmail",
-      "value": "superadmin@drsk.local"
+      "value": "superadmin@codonmind.in"
     },
     {
       "key": "superPassword",
@@ -3560,7 +3717,7 @@
     },
     {
       "key": "studentRoll",
-      "value": "PM001"
+      "value": ""
     },
     {
       "key": "suffix",
@@ -3580,6 +3737,18 @@
     },
     {
       "key": "studentEmail",
+      "value": ""
+    },
+    {
+      "key": "superChallengeId",
+      "value": ""
+    },
+    {
+      "key": "adminChallengeId",
+      "value": ""
+    },
+    {
+      "key": "teacherChallengeId",
       "value": ""
     },
     {

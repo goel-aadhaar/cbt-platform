@@ -158,6 +158,50 @@ const REMIND = (v) => [
   `console.log("──────────────────────────────────────────────");`,
 ];
 
+const REMIND_OTP = (v) => [
+  `console.log("──────────────────────────────────────────────");`,
+  `console.log("⚠ MANUAL STEP: open the API server console, copy the newest");`,
+  `console.log("  6-digit OTP code, and paste it into collection variable: ${v}");`,
+  `console.log("  (the dev mail adapter logs the emailed code there).");`,
+  `console.log("──────────────────────────────────────────────");`,
+];
+
+/**
+ * Every non-student login is two steps (§2.2): POST the password to get a
+ * challengeId (never a session — DEF-005 found the old collection skipping
+ * straight to a bearer token, and pointed the superadmin step at the wrong
+ * door: /auth/login explicitly REFUSES SUPERADMIN, see auth.controller.ts).
+ * `loginPath` is /auth/login for staff, /auth/platform/login for superadmin;
+ * verify is always the shared /auth/login/verify.
+ */
+function otpLogin(
+  f,
+  { name, loginPath, email, password, challengeVar, codeVar, tokenVar, auth },
+) {
+  req(f, {
+    name: `${name} — 1. Request OTP`,
+    method: 'POST',
+    path: loginPath,
+    ...(auth ? { auth } : {}),
+    body: { email, password },
+    expect: 200,
+    captures: { [challengeVar]: 'challengeId' },
+    description:
+      'Returns { otpRequired: true, challengeId, sentTo } — no session yet. ' +
+      'If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.',
+    testExtra: REMIND_OTP(codeVar),
+  });
+  req(f, {
+    name: `${name} — 2. Verify OTP  ⟵ paste code first`,
+    method: 'POST',
+    path: '/api/v1/auth/login/verify',
+    body: { challengeId: `{{${challengeVar}}}`, code: `{{${codeVar}}}` },
+    expect: 200,
+    captures: { [tokenVar]: 'accessToken' },
+    description: `Set \`${codeVar}\` to the 6-digit code printed in the API console by step 1.`,
+  });
+}
+
 // ── 0. Health ──────────────────────────────────────────────────────────────
 {
   const f = folder('0 · Health', 'Liveness and readiness. No auth.');
@@ -181,15 +225,14 @@ const REMIND = (v) => [
     '1 · Auth & Onboarding',
     'Superadmin → institute → admin → teacher. The three Accept steps need a token pasted from the API console (see the request descriptions).',
   );
-  req(f, {
+  otpLogin(f, {
     name: 'Login Superadmin',
-    method: 'POST',
-    path: '/api/v1/auth/login',
-    body: { email: '{{superEmail}}', password: '{{superPassword}}' },
-    expect: 200,
-    captures: { superToken: 'accessToken' },
-    description:
-      'Uses the seeded superadmin. If this 401s, seed the DB: `pnpm --filter @drsk/api db:seed`.',
+    loginPath: '/api/v1/auth/platform/login',
+    email: '{{superEmail}}',
+    password: '{{superPassword}}',
+    challengeVar: 'superChallengeId',
+    codeVar: 'superOtpCode',
+    tokenVar: 'superToken',
   });
   req(f, {
     name: 'Create Institute',
@@ -231,13 +274,14 @@ const REMIND = (v) => [
     description:
       'Set `adminInviteToken` to the token printed in the API console by "Invite Admin".',
   });
-  req(f, {
+  otpLogin(f, {
     name: 'Login Admin',
-    method: 'POST',
-    path: '/api/v1/auth/login',
-    body: { email: '{{adminEmail}}', password: '{{password}}' },
-    expect: 200,
-    captures: { adminToken: 'accessToken' },
+    loginPath: '/api/v1/auth/login',
+    email: '{{adminEmail}}',
+    password: '{{password}}',
+    challengeVar: 'adminChallengeId',
+    codeVar: 'adminOtpCode',
+    tokenVar: 'adminToken',
   });
   req(f, {
     name: 'Invite Teacher',
@@ -255,13 +299,14 @@ const REMIND = (v) => [
     body: { token: '{{teacherInviteToken}}', password: '{{password}}' },
     expect: [201, 200],
   });
-  req(f, {
+  otpLogin(f, {
     name: 'Login Teacher',
-    method: 'POST',
-    path: '/api/v1/auth/login',
-    body: { email: '{{teacherEmail}}', password: '{{password}}' },
-    expect: 200,
-    captures: { teacherToken: 'accessToken' },
+    loginPath: '/api/v1/auth/login',
+    email: '{{teacherEmail}}',
+    password: '{{password}}',
+    challengeVar: 'teacherChallengeId',
+    codeVar: 'teacherOtpCode',
+    tokenVar: 'teacherToken',
   });
   req(f, {
     name: 'Who am I (admin)',
@@ -389,10 +434,12 @@ const REMIND = (v) => [
     body: {
       name: 'Postman Student',
       email: '{{studentEmail}}',
-      rollNumber: '{{studentRoll}}',
       batchId: '{{batchId}}',
     },
     expect: [201, 200],
+    // rollNumber is server-generated (InviteStudentDto has no such field —
+    // forbidNonWhitelisted rejects it), so capture it instead of sending one.
+    captures: { studentRoll: 'rollNumber' },
     testExtra: REMIND('studentInviteToken'),
   });
   req(f, {
@@ -1014,18 +1061,28 @@ const collection = {
   item: items,
   variable: [
     { key: 'baseUrl', value: 'http://localhost:4000' },
-    { key: 'superEmail', value: 'superadmin@drsk.local' },
+    // Matches seed.ts's SEED_SUPERADMIN_EMAIL default. Override if the target
+    // instance was seeded with SEED_SUPERADMIN_EMAIL/PASSWORD set.
+    { key: 'superEmail', value: 'superadmin@codonmind.in' },
     { key: 'superPassword', value: 'ChangeMe123!' },
     { key: 'password', value: 'TestPass1234' },
-    { key: 'studentRoll', value: 'PM001' },
+    // Server-generated (InviteStudentDto has no rollNumber field) — captured
+    // by "Invite Student", same as superToken etc below. NOT also declared in
+    // the environment: an environment variable shadows a same-named
+    // collection variable in Postman's resolution order, which would pin this
+    // to a stale default forever regardless of what gets captured here.
+    { key: 'studentRoll', value: '' },
     { key: 'suffix', value: '' },
     { key: 'instituteSlug', value: '' },
     { key: 'adminEmail', value: '' },
     { key: 'teacherEmail', value: '' },
     { key: 'studentEmail', value: '' },
-    // The three invite tokens are intentionally NOT collection variables — they
-    // live in the environment (that's where you paste them), so nothing here
-    // shadows the environment value.
+    // The three invite tokens and three OTP codes are intentionally NOT
+    // collection variables — they live in the environment (that's where you
+    // paste them), so nothing here shadows the environment value.
+    { key: 'superChallengeId', value: '' },
+    { key: 'adminChallengeId', value: '' },
+    { key: 'teacherChallengeId', value: '' },
     { key: 'superToken', value: '' },
     { key: 'adminToken', value: '' },
     { key: 'teacherToken', value: '' },
@@ -1052,13 +1109,15 @@ const environment = {
   name: 'DRSK CBT — Local',
   values: [
     { key: 'baseUrl', value: 'http://localhost:4000', enabled: true },
-    { key: 'superEmail', value: 'superadmin@drsk.local', enabled: true },
+    { key: 'superEmail', value: 'superadmin@codonmind.in', enabled: true },
     { key: 'superPassword', value: 'ChangeMe123!', enabled: true },
     { key: 'password', value: 'TestPass1234', enabled: true },
-    { key: 'studentRoll', value: 'PM001', enabled: true },
     { key: 'adminInviteToken', value: '', enabled: true },
     { key: 'teacherInviteToken', value: '', enabled: true },
     { key: 'studentInviteToken', value: '', enabled: true },
+    { key: 'superOtpCode', value: '', enabled: true },
+    { key: 'adminOtpCode', value: '', enabled: true },
+    { key: 'teacherOtpCode', value: '', enabled: true },
   ],
   _postman_variable_scope: 'environment',
 };

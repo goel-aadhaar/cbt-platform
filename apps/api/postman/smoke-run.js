@@ -3,11 +3,13 @@
  * collection with newman end-to-end.
  *
  * In normal use the three "Accept Invite" steps need a token pasted from the API
- * console. To automate that here — and ONLY here — the runner:
- *   1. stands up a tiny broker that returns the latest invite token from the app
- *      log, and
- *   2. patches the three Accept steps IN MEMORY with a pre-request that fetches
- *      the token from the broker (pm.sendRequest, which newman's sandbox honors).
+ * console, and the three "Verify OTP" login steps (§2.2 — superadmin/admin/
+ * teacher) need a 6-digit code pasted the same way. To automate that here —
+ * and ONLY here — the runner:
+ *   1. stands up a tiny broker that returns the latest invite token / OTP code
+ *      from the app log, and
+ *   2. patches those six steps IN MEMORY with a pre-request that fetches the
+ *      value from the broker (pm.sendRequest, which newman's sandbox honors).
  * The shipped collection file is never modified; it stays manual-paste for
  * humans.
  *
@@ -35,17 +37,34 @@ const TOKEN_STEP = {
   'Accept Student Invite  ⟵ paste token first': 'studentInviteToken',
 };
 
+const OTP_STEP = {
+  'Login Superadmin — 2. Verify OTP  ⟵ paste code first': 'superOtpCode',
+  'Login Admin — 2. Verify OTP  ⟵ paste code first': 'adminOtpCode',
+  'Login Teacher — 2. Verify OTP  ⟵ paste code first': 'teacherOtpCode',
+};
+
 const latestToken = () => {
   const text = fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8') : '';
   const all = [...text.matchAll(/token=([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
   return all[all.length - 1] ?? '';
 };
 
-/** Patch the Accept steps to pull their token from the broker. */
+// Same log format test/support/client.ts's otpCodes() matches against.
+const latestOtp = () => {
+  const text = fs.existsSync(LOG) ? fs.readFileSync(LOG, 'utf8') : '';
+  const all = [...text.matchAll(/code: (\d{6})/g)].map((m) => m[1]);
+  return all[all.length - 1] ?? '';
+};
+
+/** Patch the Accept and Verify-OTP steps to pull their value from the broker. */
 function patchAcceptSteps(item) {
   for (const node of item) {
     if (node.item) patchAcceptSteps(node.item);
-    const varName = TOKEN_STEP[node.name];
+    const tokenVar = TOKEN_STEP[node.name];
+    const otpVar = OTP_STEP[node.name];
+    const varName = tokenVar ?? otpVar;
+    const brokerPath = tokenVar ? 'token' : 'otp';
+    const jsonField = tokenVar ? 'token' : 'code';
     if (varName) {
       node.event = node.event ?? [];
       node.event.push({
@@ -53,8 +72,8 @@ function patchAcceptSteps(item) {
         script: {
           type: 'text/javascript',
           exec: [
-            `pm.sendRequest('http://127.0.0.1:${BROKER_PORT}/token', function (err, res) {`,
-            `  if (!err && res.code === 200) pm.variables.set('${varName}', res.json().token);`,
+            `pm.sendRequest('http://127.0.0.1:${BROKER_PORT}/${brokerPath}', function (err, res) {`,
+            `  if (!err && res.code === 200) pm.variables.set('${varName}', res.json().${jsonField});`,
             `});`,
           ],
         },
@@ -90,9 +109,13 @@ async function main() {
   );
 
   const broker = http
-    .createServer((_req, res) => {
+    .createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ token: latestToken() }));
+      if (req.url === '/otp') {
+        res.end(JSON.stringify({ code: latestOtp() }));
+      } else {
+        res.end(JSON.stringify({ token: latestToken() }));
+      }
     })
     .listen(BROKER_PORT);
 
@@ -110,18 +133,18 @@ async function main() {
         environment: {
           values: [
             { key: 'baseUrl', value: `http://127.0.0.1:${PORT}` },
-            { key: 'superEmail', value: 'superadmin@drsk.local' },
+            { key: 'superEmail', value: 'superadmin@codonmind.in' },
             { key: 'superPassword', value: 'ChangeMe123!' },
             { key: 'password', value: 'TestPass1234' },
-            {
-              key: 'studentRoll',
-              value: 'PM' + Date.now().toString().slice(-6),
-            },
+            // studentRoll is deliberately NOT set here — it's server-generated
+            // and captured by "Invite Student" into the collection variable.
+            // An environment value of the same name would shadow that capture
+            // (environment beats collection in Postman's resolution order).
           ],
         },
         reporters: ['cli'],
         reporterOptions: { cli: { noConsole: true, noBanner: true } },
-        // Total-run budget: 90 requests over a ~230ms/query dev link to Neon,
+        // Total-run budget: 93 requests over a ~230ms/query dev link to Neon,
         // plus the inter-request delay.
         timeout: 900000,
         timeoutRequest: 30000,
