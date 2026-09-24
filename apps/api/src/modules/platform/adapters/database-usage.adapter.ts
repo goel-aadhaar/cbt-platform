@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../../database/tenant-rls.extension';
+import { TenantContextService } from '../../auth/tenant/tenant-context.service';
 import {
   PlatformUsagePort,
   UsageMetric,
@@ -21,7 +23,10 @@ export class DatabaseUsageAdapter extends PlatformUsagePort {
   readonly name = 'database';
   private readonly logger = new Logger(DatabaseUsageAdapter.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantContextService,
+  ) {
     super();
   }
 
@@ -119,9 +124,17 @@ export class DatabaseUsageAdapter extends PlatformUsagePort {
                   GROUP BY 1
                   ORDER BY 1`;
     try {
-      const rows = await this.prisma.$queryRawUnsafe<
-        { date: string; value: number }[]
-      >(sql, since);
+      // DEF-001: platform-wide, deliberately cross-institute — the caller is
+      // always an authenticated SUPERADMIN request (this whole adapter is
+      // superadmin-only), so tenantSetConfigStatement's bypass branch is what
+      // fires here. Raw SQL isn't intercepted by the tenant RLS extension.
+      const [, rows] = await this.prisma.raw.$transaction([
+        tenantSetConfigStatement(this.prisma.raw, this.tenant),
+        this.prisma.raw.$queryRawUnsafe<{ date: string; value: number }[]>(
+          sql,
+          since,
+        ),
+      ]);
       return rows.map((r) => ({ date: r.date, value: Number(r.value) }));
     } catch (error) {
       this.logger.warn(`Could not read ${table} history: ${String(error)}`);

@@ -39,7 +39,13 @@ export class MediaController {
 
   @Post()
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    // Ceiling matches MAX_DOCUMENT_BYTES in media.service.ts — the larger of
+    // the two in-app caps (images are capped tighter, at 5 MB, by the service
+    // check that runs after this). Without this, multer buffers the whole
+    // upload in memory before the in-app check ever runs (DEF-006).
+    FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }),
+  )
   upload(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body('altText') altText?: string,

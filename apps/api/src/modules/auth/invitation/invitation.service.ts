@@ -447,8 +447,14 @@ export class InvitationService {
      * the invitee sees a dead link rather than the platform silently accruing
      * accounts nobody can use.
      */
-    const user = await this.prisma.$transaction(
+    const user = await this.prisma.raw.$transaction(
       async (tx) => {
+        // DEF-001: no TenantContextService here (the inviter's own request
+        // context isn't necessarily the invitee's target institute — e.g. a
+        // superadmin inviting an admin into an institute they aren't scoped
+        // to) — `params.instituteId` is the actual authority for what this
+        // write is allowed to touch.
+        await tx.$executeRaw`SELECT set_config('app.current_institute_id', ${params.instituteId}, TRUE)`;
         const data = {
           name: params.name,
           email: params.email,

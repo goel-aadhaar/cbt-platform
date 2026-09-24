@@ -8,6 +8,7 @@ import {
 
 import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { MediaStoragePort } from './ports/media-storage.port';
@@ -320,11 +321,15 @@ export class MediaService {
      * operation: `array_remove` does it in a single statement rather than
      * read-modify-write per row, which would race a concurrent question edit.
      */
-    const detached = await this.prisma.$executeRaw`
-      UPDATE "questions"
-         SET "media_keys" = array_remove("media_keys", ${row.key})
-       WHERE "institute_id" = ${instituteId}::uuid
-         AND ${row.key} = ANY("media_keys")`;
+    // DEF-001: raw $executeRaw isn't intercepted by the tenant RLS extension.
+    const [, detached] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.$executeRaw`
+        UPDATE "questions"
+           SET "media_keys" = array_remove("media_keys", ${row.key})
+         WHERE "institute_id" = ${instituteId}::uuid
+           AND ${row.key} = ANY("media_keys")`,
+    ]);
 
     // Remove the record before the object: a stray object is harmless, a record
     // pointing at nothing is not.

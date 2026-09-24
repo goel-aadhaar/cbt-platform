@@ -182,12 +182,17 @@ sudo systemctl status 'actions.runner.*'
 > Actions > General), and CI stays on `ubuntu-latest` so only the deploy job
 > — which never runs for a pull request — goes near this machine.
 
-To deploy by hand anyway (a rollback, or when CI is unavailable):
+To deploy by hand anyway (when CI is unavailable):
 
 ```bash
 cd /var/www/codonmind
 ./scripts/deploy.sh
 ```
+
+`deploy.sh` is **forward-only** — it does `git pull --ff-only origin main`
+(refuses to move anywhere but forward) and unconditionally runs
+`prisma migrate deploy` (no down-migrations exist). It cannot roll back a bad
+release. See "Rolling back" below for that.
 
 The workflow can also be re-run from the Actions tab without pushing a
 commit — it accepts a manual `workflow_dispatch` trigger for exactly that.
@@ -226,6 +231,33 @@ python qa/uat/prod-smoke.py http://<host> /tmp/engfixture.json
 `S24-P0-08c1` fails if the deployment cannot accept the payload the current
 client sends.
 
+## Rolling back
+
+There is no automated rollback — `deploy.sh` cannot do it (see above). To roll
+back the **code** by hand:
+
+```bash
+cd /var/www/codonmind
+git checkout <previous_good_sha>
+pnpm install --frozen-lockfile
+pnpm --filter @drsk/api build
+pnpm --filter @drsk/web build
+pm2 restart drsk-api drsk-web
+```
+
+Deliberately **skip** `prisma migrate deploy` here. Migrations are
+forward-only (no down-migrations exist), so if the release you're leaving
+applied a new migration, the schema is already ahead of `<previous_good_sha>`.
+Before rolling back, check whether that migration is backward-compatible with
+the older code (an added nullable column usually is; a renamed/dropped column
+or a new `NOT NULL` is not) — if it isn't, code-only rollback will not work
+and the migration needs a hand-written down-script first.
+
+This procedure has **not been dry-run tested** — there is no staging stack to
+verify it against without risking the production instance. Treat it as a
+documented starting point for an incident, not a verified runbook, until it's
+been exercised somewhere other than production.
+
 ## Known, deliberately deferred gaps
 
 - Media (question diagrams) is stored on the instance's local disk. Fine for
@@ -239,3 +271,9 @@ client sends.
 - `/api/docs` (Swagger) is public. That's API documentation, not data, but if
   you'd rather not expose your endpoint list publicly, gate or remove the
   `SwaggerModule.setup(...)` call in `apps/api/src/main.ts`.
+- The CloudWatch usage adapter (`platform/adapters/cloudwatch-usage.adapter.ts`)
+  imports `@aws-sdk/client-cloudwatch` via a lazy `import()` so it stays an
+  _optional_ dependency — it is intentionally **not** listed in
+  `apps/api/package.json`. It's dead code until `AWS_REGION` and credentials
+  are set; if you activate it, `pnpm --filter @drsk/api add @aws-sdk/client-cloudwatch`
+  first or it will log a warning and silently return no AWS metrics.

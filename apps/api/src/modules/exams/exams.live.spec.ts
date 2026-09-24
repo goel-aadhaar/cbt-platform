@@ -120,6 +120,9 @@ describe('ExamsService — live admin actions', () => {
       },
       $transaction: jest.fn((fn) =>
         fn({
+          // DEF-001: the real transaction sets the RLS session variable as
+          // its first statement.
+          $executeRaw: jest.fn(),
           exam: {
             update: jest.fn(({ data }) => {
               // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
@@ -133,6 +136,8 @@ describe('ExamsService — live admin actions', () => {
         }),
       ),
     };
+    // DEF-001: explicit-transaction sites route through PrismaService.raw.
+    (prisma as unknown as { raw: unknown }).raw = prisma;
 
     const tenant = {
       get: jest.fn(() => ({

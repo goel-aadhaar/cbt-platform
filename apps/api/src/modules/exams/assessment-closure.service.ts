@@ -55,20 +55,33 @@ export class AssessmentClosureService {
       status: ExamStatus;
     }[];
     try {
-      due = await this.prisma.exam.findMany({
-        where: {
-          kind: ExamKind.ASSESSMENT,
-          endAt: { lte: new Date() },
-          autoClosedAt: null,
-          status: { in: [ExamStatus.PUBLISHED, ExamStatus.ARCHIVED] },
+      // Deliberately cross-institute (DEF-001's RLS is enforced from here on
+      // — without an explicit bypass context, this would silently match zero
+      // rows the moment FORCE ROW LEVEL SECURITY is applied, and the sweep
+      // would stop closing anything, for any institute, with no error).
+      due = await this.tenant.run(
+        {
+          userId: 'system',
+          role: Role.SUPERADMIN,
+          instituteId: null,
+          isSuperadmin: true,
         },
-        select: {
-          id: true,
-          instituteId: true,
-          createdById: true,
-          status: true,
-        },
-      });
+        () =>
+          this.prisma.exam.findMany({
+            where: {
+              kind: ExamKind.ASSESSMENT,
+              endAt: { lte: new Date() },
+              autoClosedAt: null,
+              status: { in: [ExamStatus.PUBLISHED, ExamStatus.ARCHIVED] },
+            },
+            select: {
+              id: true,
+              instituteId: true,
+              createdById: true,
+              status: true,
+            },
+          }),
+      );
     } catch (err) {
       this.logger.error(
         'Assessment closure sweep could not read due exams — will retry next sweep',
@@ -116,47 +129,18 @@ export class AssessmentClosureService {
     createdById: string;
     status: ExamStatus;
   }): Promise<void> {
-    if (exam.status === ExamStatus.PUBLISHED) {
-      // Conditioned on status, same idiom the rest of this codebase uses
-      // for every race-prone transition (submit/abandon/violation
-      // auto-submit) — whichever process's write actually lands wins the
-      // claim; a second concurrent tick (there is only one process today,
-      // but this is what makes a future second instance safe too) matches
-      // zero rows and does nothing further.
-      const claimed = await this.prisma.exam.updateMany({
-        where: { id: exam.id, status: ExamStatus.PUBLISHED },
-        data: { status: ExamStatus.ARCHIVED },
-      });
-      if (claimed.count === 0) return;
-
-      // Same class of event as an individual attempt's own lazy time-expiry
-      // (getActiveAttempt) — the window simply ended — not a violation or
-      // an admin intervention, so `flagged` stays false. This only catches
-      // attempts nobody's own next request ever touched again; begin()
-      // already caps an assessment attempt's expiresAt at the window end,
-      // so most would already have auto-submitted themselves on their next
-      // poll.
-      await this.prisma.attempt.updateMany({
-        where: { examId: exam.id, status: AttemptStatus.IN_PROGRESS },
-        data: {
-          status: AttemptStatus.AUTO_SUBMITTED,
-          submittedAt: new Date(),
-        },
-      });
-    }
-    // else: already ARCHIVED from an earlier tick whose evaluate() call
-    // failed after the archive+auto-submit step landed — nothing above
-    // needs redoing, only evaluate() itself.
-
     // ResultsService (like every other tenant-scoped service in this
     // codebase) reads instituteId from AsyncLocalStorage, which only a real
     // HTTP request normally populates. `TenantContextService.run` is the
     // documented escape hatch for exactly this — "seeding, background jobs"
-    // — so evaluate() runs completely unmodified inside a synthetic
-    // ADMIN-role context scoped to this one institute. ADMIN (not TEACHER)
-    // specifically so TeacherScopeService's batch restriction — which only
-    // ever applies to a TEACHER-role context — cannot narrow what this
-    // system action can see.
+    // — so everything below runs inside a synthetic ADMIN-role context
+    // scoped to this one institute: both the app-layer `where: instituteId`
+    // filters every service already adds, AND (DEF-001) the DB-layer RLS
+    // policy now enforced underneath them, need this to see or write
+    // anything at all for this exam. ADMIN (not TEACHER) specifically so
+    // TeacherScopeService's batch restriction — which only ever applies to
+    // a TEACHER-role context — cannot narrow what this system action can
+    // see.
     await this.tenant.run(
       {
         userId: exam.createdById,
@@ -164,12 +148,46 @@ export class AssessmentClosureService {
         instituteId: exam.instituteId,
         isSuperadmin: false,
       },
-      () => this.results.evaluate(exam.id),
-    );
+      async () => {
+        if (exam.status === ExamStatus.PUBLISHED) {
+          // Conditioned on status, same idiom the rest of this codebase uses
+          // for every race-prone transition (submit/abandon/violation
+          // auto-submit) — whichever process's write actually lands wins the
+          // claim; a second concurrent tick (there is only one process today,
+          // but this is what makes a future second instance safe too) matches
+          // zero rows and does nothing further.
+          const claimed = await this.prisma.exam.updateMany({
+            where: { id: exam.id, status: ExamStatus.PUBLISHED },
+            data: { status: ExamStatus.ARCHIVED },
+          });
+          if (claimed.count === 0) return;
 
-    await this.prisma.exam.update({
-      where: { id: exam.id },
-      data: { autoClosedAt: new Date() },
-    });
+          // Same class of event as an individual attempt's own lazy time-expiry
+          // (getActiveAttempt) — the window simply ended — not a violation or
+          // an admin intervention, so `flagged` stays false. This only catches
+          // attempts nobody's own next request ever touched again; begin()
+          // already caps an assessment attempt's expiresAt at the window end,
+          // so most would already have auto-submitted themselves on their next
+          // poll.
+          await this.prisma.attempt.updateMany({
+            where: { examId: exam.id, status: AttemptStatus.IN_PROGRESS },
+            data: {
+              status: AttemptStatus.AUTO_SUBMITTED,
+              submittedAt: new Date(),
+            },
+          });
+        }
+        // else: already ARCHIVED from an earlier tick whose evaluate() call
+        // failed after the archive+auto-submit step landed — nothing above
+        // needs redoing, only evaluate() itself.
+
+        await this.results.evaluate(exam.id);
+
+        await this.prisma.exam.update({
+          where: { id: exam.id },
+          data: { autoClosedAt: new Date() },
+        });
+      },
+    );
   }
 }

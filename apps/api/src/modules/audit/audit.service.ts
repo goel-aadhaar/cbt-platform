@@ -3,6 +3,7 @@ import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { AuditOutcome } from '../../generated/prisma/enums';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 
@@ -123,14 +124,15 @@ export class AuditService {
     const take = Math.min(query.limit ?? 50, 200);
     const skip = query.offset ?? 0;
 
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.auditLog.findMany({
+    const [, items, total] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.auditLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         take,
         skip,
       }),
-      this.prisma.auditLog.count({ where }),
+      this.prisma.raw.auditLog.count({ where }),
     ]);
 
     const actorIds = [

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { CreateProgramDto } from './dto/create-program.dto';
 import { UpdateProgramDto } from './dto/update-program.dto';
@@ -117,9 +118,10 @@ export class ProgramsService {
    */
   async destroy(id: string) {
     await this.findOne(id);
-    const [classes, exams] = await this.prisma.$transaction([
-      this.prisma.class.count({ where: { programId: id } }),
-      this.prisma.exam.count({ where: { programId: id } }),
+    const [, classes, exams] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.class.count({ where: { programId: id } }),
+      this.prisma.raw.exam.count({ where: { programId: id } }),
     ]);
     const blockers = [
       classes && `${classes} class(es)`,

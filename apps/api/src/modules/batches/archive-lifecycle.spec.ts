@@ -78,8 +78,12 @@ describe('archive lifecycle', () => {
         resourceBatch: { count: jest.fn() },
         announcementBatch: { count: jest.fn() },
         teacherBatch: { count: jest.fn() },
-        $transaction: jest.fn(() => Promise.resolve(counts)),
+        // DEF-001: real code now prepends a set_config statement, so the
+        // destructured result skips element 0 — match that shape here.
+        $transaction: jest.fn(() => Promise.resolve([undefined, ...counts])),
+        $executeRaw: jest.fn(),
       };
+      (prisma as unknown as { raw: unknown }).raw = prisma;
       return {
         prisma,
         service: new BatchesService(prisma as never, tenantStub() as never),
@@ -172,8 +176,10 @@ describe('archive lifecycle', () => {
         },
         class: { count: jest.fn() },
         exam: { count: jest.fn() },
-        $transaction: jest.fn(() => Promise.resolve([0, 4])),
+        $transaction: jest.fn(() => Promise.resolve([undefined, 0, 4])),
+        $executeRaw: jest.fn(),
       };
+      (prisma as unknown as { raw: unknown }).raw = prisma;
       const service = new ProgramsService(
         prisma as never,
         tenantStub() as never,

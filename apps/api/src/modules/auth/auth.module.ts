@@ -20,7 +20,6 @@ import { OtpService } from './otp.service';
 import { PasswordService } from './password.service';
 import { TeacherScopeService } from './tenant/teacher-scope.service';
 import { TenantContextInterceptor } from './tenant/tenant-context.interceptor';
-import { TenantContextService } from './tenant/tenant-context.service';
 
 /**
  * Authentication module.
@@ -59,7 +58,6 @@ import { TenantContextService } from './tenant/tenant-context.service';
     InvitationService,
     PasswordService,
     OtpService,
-    TenantContextService,
     TeacherScopeService,
     ConsoleMailService,
     SesMailService,
@@ -104,7 +102,6 @@ import { TenantContextService } from './tenant/tenant-context.service';
   exports: [
     PasswordService,
     MailService,
-    TenantContextService,
     TeacherScopeService,
     InvitationService,
     JwtModule,

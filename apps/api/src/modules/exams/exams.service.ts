@@ -9,6 +9,7 @@ import {
 import { sanitizeRichText } from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { AttemptsService } from '../attempts/attempts.service';
 import { Role } from '../auth/auth.types';
@@ -256,15 +257,16 @@ export class ExamsService {
       ...examSelect,
       _count: { select: { sections: true, questions: true, batches: true } },
     };
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.exam.findMany({
+    const [, items, total] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.exam.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         select,
         take: limit,
         skip: offset,
       }),
-      this.prisma.exam.count({ where }),
+      this.prisma.raw.exam.count({ where }),
     ]);
     return { items, total, limit, offset };
   }
@@ -385,7 +387,8 @@ export class ExamsService {
       );
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
       await tx.examQuestion.deleteMany({ where: { sectionId } });
       await tx.examSection.delete({ where: { id: sectionId } });
       // Close the gap. Done as a decrement over the tail rather than a
@@ -412,7 +415,8 @@ export class ExamsService {
       throw new NotFoundException('That question is not in this section');
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
       await tx.examQuestion.delete({ where: { id: placement.id } });
       await tx.examQuestion.updateMany({
         where: { sectionId, order: { gt: placement.order } },
@@ -492,15 +496,19 @@ export class ExamsService {
     }
 
     const offset = dto.sectionIds.length + 1000;
-    await this.prisma.$transaction([
+    await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
       ...dto.sectionIds.map((id, i) =>
-        this.prisma.examSection.update({
+        this.prisma.raw.examSection.update({
           where: { id },
           data: { order: offset + i },
         }),
       ),
       ...dto.sectionIds.map((id, i) =>
-        this.prisma.examSection.update({ where: { id }, data: { order: i } }),
+        this.prisma.raw.examSection.update({
+          where: { id },
+          data: { order: i },
+        }),
       ),
     ]);
 
@@ -546,15 +554,19 @@ export class ExamsService {
     }
 
     const offset = dto.examQuestionIds.length + 1000;
-    await this.prisma.$transaction([
+    await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
       ...dto.examQuestionIds.map((id, i) =>
-        this.prisma.examQuestion.update({
+        this.prisma.raw.examQuestion.update({
           where: { id },
           data: { order: offset + i },
         }),
       ),
       ...dto.examQuestionIds.map((id, i) =>
-        this.prisma.examQuestion.update({ where: { id }, data: { order: i } }),
+        this.prisma.raw.examQuestion.update({
+          where: { id },
+          data: { order: i },
+        }),
       ),
     ]);
 
@@ -1160,7 +1172,8 @@ export class ExamsService {
       throw new BadRequestException('Only a live exam can be force-ended');
     }
     const ctx = this.ctx();
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
       // Capture the audit row first; otherwise a crash between this update
       // and the attempts.updateMany would leave the candidates auto-submitted
       // but no record of who pulled the plug.
@@ -1237,7 +1250,8 @@ export class ExamsService {
       throw new BadRequestException('endAt must be after startAt');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
       const updated = await tx.exam.update({
         where: { id: examId },
         data,

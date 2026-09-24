@@ -13,6 +13,7 @@ import {
   sheetRecords,
 } from '../../common/spreadsheet/read-workbook';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { Prisma } from '../../generated/prisma/client';
 import { UserStatus } from '../auth/auth.types';
 import { ImportsService } from '../imports/imports.service';
@@ -397,14 +398,16 @@ export class StudentsService {
     });
 
     const [
+      ,
       students,
       total,
       allCount,
       activeCount,
       disabledCount,
       pendingCount,
-    ] = await this.prisma.$transaction([
-      this.prisma.student.findMany({
+    ] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.student.findMany({
         where,
         select: {
           id: true,
@@ -424,11 +427,13 @@ export class StudentsService {
         take,
         skip,
       }),
-      this.prisma.student.count({ where }),
-      this.prisma.student.count({ where: countsWhere }),
-      this.prisma.student.count({ where: withStatus(UserStatus.ACTIVE) }),
-      this.prisma.student.count({ where: withStatus(UserStatus.DISABLED) }),
-      this.prisma.student.count({ where: withStatus(UserStatus.PENDING) }),
+      this.prisma.raw.student.count({ where }),
+      this.prisma.raw.student.count({ where: countsWhere }),
+      this.prisma.raw.student.count({ where: withStatus(UserStatus.ACTIVE) }),
+      this.prisma.raw.student.count({
+        where: withStatus(UserStatus.DISABLED),
+      }),
+      this.prisma.raw.student.count({ where: withStatus(UserStatus.PENDING) }),
     ]);
 
     return {
@@ -495,7 +500,8 @@ export class StudentsService {
       }
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
       if (dto.name !== undefined) {
         await tx.user.update({
           where: { id: owned.userId },

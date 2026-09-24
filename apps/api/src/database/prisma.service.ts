@@ -24,6 +24,23 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
+  /**
+   * The un-extended client — same connection pool, but bypasses the tenant
+   * RLS extension (see `tenant-rls.extension.ts`). Assigned by
+   * DatabaseModule's factory, after construction, to the pre-`$extends()`
+   * instance. Existing so the handful of call sites that already run their
+   * own explicit `$transaction(...)` can set the RLS session variable
+   * themselves (once, for that whole transaction) without the extension
+   * ALSO trying to wrap each statement inside it — Prisma does not support
+   * nested transactions, and the extension's own wrapping would otherwise
+   * either throw or (in the batch-array transaction form) silently split
+   * one atomic multi-row write into several independent ones. Never used
+   * for anything else — every ordinary call goes through `this` (the
+   * extended instance DI actually injects), which is what makes the RLS
+   * policy bind at all.
+   */
+  raw!: PrismaClient;
+
   constructor(configService: ConfigService) {
     const connectionString = configService.getOrThrow<string>('database.url');
     // node-postgres pools 10 connections by default, which starves at the start

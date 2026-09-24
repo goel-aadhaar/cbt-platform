@@ -19,6 +19,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { toCsv, withBom } from '../../common/csv/to-csv';
 import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryResultsDto } from './dto/query-results.dto';
@@ -374,9 +375,10 @@ export class ResultsService {
     const autoPublish = exam.resultPolicy === ResultPolicy.IMMEDIATE;
     const now = new Date();
 
-    await this.prisma.$transaction(
-      scored.map((s) =>
-        this.prisma.result.upsert({
+    await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      ...scored.map((s) =>
+        this.prisma.raw.result.upsert({
           where: { attemptId: s.attemptId },
           create: {
             instituteId,
@@ -423,7 +425,7 @@ export class ResultsService {
           },
         }),
       ),
-    );
+    ]);
 
     // An upsert's `update` cannot read the row's current value, so a result
     // that flipped hidden→visible in the block above would be `published` with
@@ -795,9 +797,10 @@ export class ResultsService {
       );
     }
 
-    await this.prisma.$transaction(
-      dto.awards.map((a) =>
-        this.prisma.manualScore.upsert({
+    await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      ...dto.awards.map((a) =>
+        this.prisma.raw.manualScore.upsert({
           where: {
             attemptId_questionId: {
               attemptId: a.attemptId,
@@ -814,7 +817,7 @@ export class ResultsService {
           update: { marks: a.marks },
         }),
       ),
-    );
+    ]);
 
     // Same treatment as every other correction: apply now, and never pull a
     // published result back into review because it was re-scored.
@@ -880,8 +883,9 @@ export class ResultsService {
     };
     const limit = query.limit ?? DEFAULT_RESULTS_PAGE_SIZE;
     const offset = query.offset ?? 0;
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.result.findMany({
+    const [, items, total] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.result.findMany({
         where,
         orderBy: { overallRank: 'asc' },
         select: {
@@ -903,7 +907,7 @@ export class ResultsService {
         take: limit,
         skip: offset,
       }),
-      this.prisma.result.count({ where }),
+      this.prisma.raw.result.count({ where }),
     ]);
     return { items, total, limit, offset };
   }

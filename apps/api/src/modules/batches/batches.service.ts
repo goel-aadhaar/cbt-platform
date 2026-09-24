@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { CreateBatchDto } from './dto/create-batch.dto';
 import { UpdateBatchDto } from './dto/update-batch.dto';
@@ -124,14 +125,15 @@ export class BatchesService {
    */
   async destroy(id: string) {
     await this.findOne(id);
-    const [students, exams, dpps, resources, announcements, teachers] =
-      await this.prisma.$transaction([
-        this.prisma.student.count({ where: { batchId: id } }),
-        this.prisma.examBatch.count({ where: { batchId: id } }),
-        this.prisma.dppBatch.count({ where: { batchId: id } }),
-        this.prisma.resourceBatch.count({ where: { batchId: id } }),
-        this.prisma.announcementBatch.count({ where: { batchId: id } }),
-        this.prisma.teacherBatch.count({ where: { batchId: id } }),
+    const [, students, exams, dpps, resources, announcements, teachers] =
+      await this.prisma.raw.$transaction([
+        tenantSetConfigStatement(this.prisma.raw, this.tenant),
+        this.prisma.raw.student.count({ where: { batchId: id } }),
+        this.prisma.raw.examBatch.count({ where: { batchId: id } }),
+        this.prisma.raw.dppBatch.count({ where: { batchId: id } }),
+        this.prisma.raw.resourceBatch.count({ where: { batchId: id } }),
+        this.prisma.raw.announcementBatch.count({ where: { batchId: id } }),
+        this.prisma.raw.teacherBatch.count({ where: { batchId: id } }),
       ]);
     const blockers = [
       students && `${students} student(s)`,

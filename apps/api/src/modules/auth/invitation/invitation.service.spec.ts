@@ -31,6 +31,9 @@ describe('InvitationService — the email is part of the transaction', () => {
     const state = { committed: false, createdUser: false };
 
     const tx = {
+      // DEF-001: the real transaction now sets the RLS session variable as
+      // its first statement.
+      $executeRaw: jest.fn().mockResolvedValue(0),
       user: {
         create: jest.fn(() => {
           state.createdUser = true;
@@ -61,7 +64,10 @@ describe('InvitationService — the email is part of the transaction', () => {
         state.committed = true;
         return result;
       }),
-    } as unknown as PrismaService;
+    };
+    // DEF-001: explicit-transaction sites route through PrismaService.raw.
+    (prisma as unknown as { raw: unknown }).raw = prisma;
+    const typedPrisma = prisma as unknown as PrismaService;
 
     const config = {
       getOrThrow: () => ({
@@ -71,7 +77,7 @@ describe('InvitationService — the email is part of the transaction', () => {
     } as unknown as ConfigService;
 
     const service = new InvitationService(
-      prisma,
+      typedPrisma,
       {} as PasswordService,
       { sendInvitation } as unknown as MailService,
       config,

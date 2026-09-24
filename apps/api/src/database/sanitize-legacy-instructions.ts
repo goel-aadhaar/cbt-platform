@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../app.module';
 import { sanitizeRichText } from '../common/html/sanitize-html';
+import { Role } from '../modules/auth/auth.types';
+import { TenantContextService } from '../modules/auth/tenant/tenant-context.service';
 import { PrismaService } from './prisma.service';
 
 /**
@@ -21,6 +23,15 @@ async function run(): Promise<void> {
     logger: ['error', 'warn'],
   });
   const prisma = app.get(PrismaService);
+  // DEF-001: this deliberately reads/writes across every institute — bind a
+  // bypass tenant context for the rest of this one-off run, same as
+  // dev-seed.ts (see its comment for why `enterWith` rather than `run`).
+  app.get(TenantContextService).enterWith({
+    userId: 'sanitize-legacy-instructions',
+    role: Role.SUPERADMIN,
+    instituteId: null,
+    isSuperadmin: true,
+  });
 
   const rows = await prisma.exam.findMany({
     where: { instructions: { not: null } },

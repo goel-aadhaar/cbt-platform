@@ -26,16 +26,25 @@ export class PostgresFullTextSearchAdapter extends QuestionSearchPort {
     term,
     limit = 200,
   }: QuestionSearchQuery): Promise<string[]> {
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT id
-      FROM "questions"
-      WHERE "institute_id" = ${instituteId}::uuid
-        AND "search_vector" @@ websearch_to_tsquery('english', ${term})
-      ORDER BY
-        ts_rank("search_vector", websearch_to_tsquery('english', ${term})) DESC,
-        "created_at" DESC
-      LIMIT ${limit}
-    `);
+    // DEF-001: raw $queryRaw isn't intercepted by the tenant RLS extension
+    // (it only hooks model operations) — batched with the GUC set so both
+    // run on the same connection/transaction. `instituteId` (not the
+    // caller's ambient tenant context) is the source of truth here, same as
+    // it already is for the WHERE clause below.
+    const [, rows] = await this.prisma.raw.$transaction([
+      this.prisma.raw
+        .$executeRaw`SELECT set_config('app.current_institute_id', ${instituteId}, TRUE)`,
+      this.prisma.raw.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT id
+        FROM "questions"
+        WHERE "institute_id" = ${instituteId}::uuid
+          AND "search_vector" @@ websearch_to_tsquery('english', ${term})
+        ORDER BY
+          ts_rank("search_vector", websearch_to_tsquery('english', ${term})) DESC,
+          "created_at" DESC
+        LIMIT ${limit}
+      `),
+    ]);
     return rows.map((r) => r.id);
   }
 }

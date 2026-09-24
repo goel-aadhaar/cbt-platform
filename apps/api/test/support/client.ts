@@ -176,7 +176,12 @@ export async function loginSuperadmin(): Promise<string> {
   try {
     return await completeOtpLogin('/auth/platform/login', SUPERADMIN);
   } catch (e) {
-    const reason = e instanceof Error ? e.message : String(e);
+    // DEF-009: don't forward the underlying error verbatim — it can echo the
+    // request body (including the superadmin email) back into the spec log.
+    const reason = (e instanceof Error ? e.message : String(e)).replaceAll(
+      SUPERADMIN.email,
+      '<superadmin-email>',
+    );
     throw new Error(
       `Superadmin login failed. Seed the database first: pnpm --filter @drsk/api db:seed (${reason})`,
     );
@@ -265,9 +270,34 @@ export async function setupTenant(label = 't'): Promise<TenantFixture> {
   };
 }
 
+/**
+ * Invite -> accept sequences run one at a time.
+ *
+ * The accept token is read from the API's shared log as "the newest token
+ * after this invite was sent". With two invites in flight — every spec that
+ * does `Promise.all([addStudent(...), addStudent(...)])` — one caller can take
+ * the OTHER caller's token, so it activates the wrong account and its own
+ * login then fails with 401 "Invalid credentials". That was observed as an
+ * intermittent whole-suite cascade (a different spec each run). Serialising
+ * the invite/accept pair removes the race without touching the specs.
+ */
+let inviteQueue: Promise<unknown> = Promise.resolve();
+
+function inviteAndAccept(
+  path: string,
+  body: Record<string, unknown>,
+  inviterToken: string,
+): Promise<Record<string, unknown>> {
+  const run = inviteQueue.then(() =>
+    inviteAndAcceptOnce(path, body, inviterToken),
+  );
+  inviteQueue = run.catch(() => undefined);
+  return run;
+}
+
 /** Returns the invite response body — callers that need it (e.g. the
  * server-generated roll number) read it off there; the rest just await. */
-async function inviteAndAccept(
+async function inviteAndAcceptOnce(
   path: string,
   body: Record<string, unknown>,
   inviterToken: string,

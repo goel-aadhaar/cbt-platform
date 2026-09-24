@@ -14,6 +14,7 @@ import { authConfig } from './config/auth.config';
 import { databaseConfig } from './config/database.config';
 import { validateEnv } from './config/env.schema';
 import { DatabaseModule } from './database/database.module';
+import { TenantContextModule } from './modules/auth/tenant/tenant-context.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AnnouncementsModule } from './modules/announcements/announcements.module';
 import { ImportsModule } from './modules/imports/imports.module';
@@ -99,6 +100,9 @@ import { StudentsModule } from './modules/students/students.module';
     // has: every other "expiry" concept (OTP, session, an attempt's own
     // clock) is checked lazily on the next request instead.
     ScheduleModule.forRoot(),
+    // Must precede DatabaseModule: PrismaService's factory injects
+    // TenantContextService for the tenant RLS extension.
+    TenantContextModule,
     DatabaseModule,
     AuthModule,
     AuditModule,

@@ -7,6 +7,7 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { Role } from '../auth/auth.types';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -147,15 +148,16 @@ export class AnnouncementsService {
     const where: Prisma.AnnouncementWhereInput = { instituteId };
     const limit = query.limit ?? DEFAULT_ANNOUNCEMENTS_PAGE_SIZE;
     const offset = query.offset ?? 0;
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.announcement.findMany({
+    const [, items, total] = await this.prisma.raw.$transaction([
+      tenantSetConfigStatement(this.prisma.raw, this.tenant),
+      this.prisma.raw.announcement.findMany({
         where,
         orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
         select: staffSelect,
         take: limit,
         skip: offset,
       }),
-      this.prisma.announcement.count({ where }),
+      this.prisma.raw.announcement.count({ where }),
     ]);
     return { items, total, limit, offset };
   }

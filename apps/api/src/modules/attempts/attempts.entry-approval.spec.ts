@@ -190,11 +190,16 @@ describe('AttemptsService — exam entry approval', () => {
       },
       $transaction: jest.fn((fn: (tx: unknown) => unknown) =>
         fn({
+          $executeRaw: jest.fn(),
           attempt: { updateMany: jest.fn(attemptUpdateMany) },
           response: { createMany: responseCreateMany },
         }),
       ),
     };
+    // DEF-001: PrismaService.raw is the un-extended client explicit
+    // $transaction call sites use — a mock has no RLS extension to bypass,
+    // so it can just point back at itself.
+    (prisma as unknown as { raw: unknown }).raw = prisma;
 
     const tenant = {
       get: jest.fn(() => ({

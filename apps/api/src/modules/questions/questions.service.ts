@@ -8,6 +8,7 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { sanitizeQuestionText } from '../../common/html/sanitize-html';
 import { Role } from '../auth/auth.types';
 import { ResultsService } from '../results/results.service';
@@ -552,15 +553,16 @@ export class QuestionsService {
 
     const term = query.search?.trim();
     if (!term) {
-      const [items, total] = await this.prisma.$transaction([
-        this.prisma.question.findMany({
+      const [, items, total] = await this.prisma.raw.$transaction([
+        tenantSetConfigStatement(this.prisma.raw, this.tenant),
+        this.prisma.raw.question.findMany({
           where: structuralWhere,
           orderBy: { createdAt: 'desc' },
           select: listSelect,
           take: limit,
           skip: offset,
         }),
-        this.prisma.question.count({ where: structuralWhere }),
+        this.prisma.raw.question.count({ where: structuralWhere }),
       ]);
       return { items, total, limit, offset, counts };
     }
@@ -592,22 +594,23 @@ export class QuestionsService {
 
   /** Per-status tallies (§ question bank pagination) — see `findAll`'s comment. */
   private async statusCounts(where: Prisma.QuestionWhereInput) {
-    const [all, draft, review, approved, rejected, archived] =
-      await this.prisma.$transaction([
-        this.prisma.question.count({ where }),
-        this.prisma.question.count({
+    const [, all, draft, review, approved, rejected, archived] =
+      await this.prisma.raw.$transaction([
+        tenantSetConfigStatement(this.prisma.raw, this.tenant),
+        this.prisma.raw.question.count({ where }),
+        this.prisma.raw.question.count({
           where: { ...where, status: QuestionStatus.DRAFT },
         }),
-        this.prisma.question.count({
+        this.prisma.raw.question.count({
           where: { ...where, status: QuestionStatus.REVIEW },
         }),
-        this.prisma.question.count({
+        this.prisma.raw.question.count({
           where: { ...where, status: QuestionStatus.APPROVED },
         }),
-        this.prisma.question.count({
+        this.prisma.raw.question.count({
           where: { ...where, status: QuestionStatus.REJECTED },
         }),
-        this.prisma.question.count({
+        this.prisma.raw.question.count({
           where: { ...where, status: QuestionStatus.ARCHIVED },
         }),
       ]);

@@ -1,7 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 
 import { AppModule } from '../app.module';
+import { Role } from '../modules/auth/auth.types';
 import { PasswordService } from '../modules/auth/password.service';
+import { TenantContextService } from '../modules/auth/tenant/tenant-context.service';
 import { PrismaService } from './prisma.service';
 
 /**
@@ -35,6 +37,17 @@ async function devSeed(): Promise<void> {
   });
   const prisma = app.get(PrismaService);
   const passwords = app.get(PasswordService);
+  // DEF-001: RLS is FORCE-enforced now, and this script writes across a
+  // fresh institute with no HTTP request/interceptor to establish a tenant
+  // context — bind one for the rest of this run, same as a real request's
+  // TenantContextInterceptor does, via TenantContextService's other
+  // documented entry point ("seeding, background jobs").
+  app.get(TenantContextService).enterWith({
+    userId: 'dev-seed',
+    role: Role.SUPERADMIN,
+    instituteId: null,
+    isSuperadmin: true,
+  });
   const now = Date.now();
 
   // Hash each shared password once (argon2 is expensive) and reuse.

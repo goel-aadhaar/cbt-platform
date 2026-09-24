@@ -9,6 +9,7 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamKind } from '../exams/exam.types';
@@ -23,6 +24,7 @@ import {
   RecordSectionTimeDto,
   ReportViolationDto,
   SaveResponseDto,
+  validateAnswer,
 } from './dto/attempt.dto';
 
 // NOTE: the question select deliberately omits answerKey/explanation — students
@@ -496,7 +498,12 @@ export class AttemptsService {
      */
     const expiresAt = new Date(now.getTime() + exam.durationMinutes * 60_000);
 
-    await this.prisma.$transaction(async (tx) => {
+    // Routed through .raw (see PrismaService.raw's doc-comment): the tenant
+    // RLS extension can't safely wrap an already-explicit transaction, so
+    // this sets the DEF-001 RLS session variable itself, once, for the
+    // whole transaction.
+    await this.prisma.raw.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_institute_id', ${student.instituteId}, TRUE)`;
       const { count } = await tx.attempt.updateMany({
         where: { id: attemptId, status: AttemptStatus.APPROVED },
         data: { status: AttemptStatus.IN_PROGRESS, startedAt: now, expiresAt },
@@ -540,6 +547,7 @@ export class AttemptsService {
 
     const response = await this.prisma.response.findUnique({
       where: { attemptId_questionId: { attemptId, questionId } },
+      include: { question: { select: { type: true, options: true } } },
     });
     if (!response) throw new NotFoundException('Question not in this attempt');
 
@@ -559,6 +567,23 @@ export class AttemptsService {
 
     const answerProvided = dto.answer !== undefined;
     const markProvided = dto.markedForReview !== undefined;
+
+    // Reject a shape mismatch (e.g. `{answer: {x: 1}}`, or an MCQ answer with
+    // more than one character) before it is ever written — see the doc
+    // comment on `SaveResponseDto.answer` for why the DTO's own
+    // `class-validator` decorators cannot catch this.
+    if (answerProvided && !isBlank(dto.answer)) {
+      const options = Array.isArray(response.question.options)
+        ? (response.question.options as unknown as Array<{ key: string }>)
+        : [];
+      const shapeError = validateAnswer(
+        response.question.type,
+        options,
+        dto.answer,
+        response.question.type === 'MSQ',
+      );
+      if (shapeError) throw new BadRequestException(shapeError);
+    }
 
     const hasAnswer = answerProvided
       ? !isBlank(dto.answer)
@@ -596,11 +621,17 @@ export class AttemptsService {
      * `increment`. Still one atomic statement, so concurrent saves still sum.
      */
     if (dto.timeSpentMs) {
-      await this.prisma.$executeRaw`
-        UPDATE "responses"
-           SET "time_spent_ms" = COALESCE("time_spent_ms", 0) + ${dto.timeSpentMs}
-         WHERE "id" = ${response.id}::uuid
-      `;
+      // DEF-001: raw $executeRaw isn't intercepted by the tenant RLS
+      // extension (it only hooks model operations) — batched with the GUC
+      // set so both run on the same connection/transaction.
+      await this.prisma.raw.$transaction([
+        tenantSetConfigStatement(this.prisma.raw, this.tenant),
+        this.prisma.raw.$executeRaw`
+          UPDATE "responses"
+             SET "time_spent_ms" = COALESCE("time_spent_ms", 0) + ${dto.timeSpentMs}
+           WHERE "id" = ${response.id}::uuid
+        `,
+      ]);
     }
 
     return updated;
@@ -694,7 +725,8 @@ export class AttemptsService {
     // status check, so a submit() landing between the delete and the update
     // (or an abandon() racing a submit()) could wipe a just-submitted
     // attempt's answers while it still read back as SUBMITTED.
-    await this.prisma.$transaction(async (tx) => {
+    await this.prisma.raw.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_institute_id', ${student.instituteId}, TRUE)`;
       const { count } = await tx.attempt.updateMany({
         where: { id: attemptId, status: AttemptStatus.IN_PROGRESS },
         data: { status: AttemptStatus.ABANDONED, submittedAt: null },
@@ -752,7 +784,8 @@ export class AttemptsService {
     });
     const maxViolations = exam?.maxViolations ?? 0;
 
-    const outcome = await this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.raw.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_institute_id', ${student.instituteId}, TRUE)`;
       await tx.proctoringEvent.create({
         data: {
           attemptId,
