@@ -4,6 +4,12 @@
 packages:
   - "apps/*"
   - "packages/*"
+# DEF-002/DEF-003 (QA 2026-09-21): pin transitive deps with known CVEs above
+# their vulnerable range. `pnpm.overrides` in package.json is ignored by
+# pnpm 11 — this is the field's new home (https://pnpm.io/settings#overrides).
+overrides:
+  multer: ^2.3.0
+  "@xmldom/xmldom": ^0.8.15
 # pnpm blocks dependency build scripts by default (supply-chain safety).
 # We explicitly allow only the ones we trust and need:
 #   - unrs-resolver: native module resolver used by the ESLint toolchain.
@@ -17,3 +23,6 @@ allowBuilds:
   # sharp: Next.js's native image optimizer (apps/web). Trusted, prebuilt.
   sharp: true
   '@scarf/scarf': false
+  # @parcel/watcher: native filesystem watcher pulled in by the Next.js/ESLint
+  # toolchain. Prebuilt binary, same trust tier as sharp/prisma above.
+  '@parcel/watcher': true
