@@ -314,6 +314,7 @@ function otpLogin(
     path: '/api/v1/auth/me',
     auth: 'admin',
     expect: 200,
+    captures: { adminUserId: 'id' },
   });
 }
 
@@ -509,14 +510,45 @@ function otpLogin(
 {
   const f = folder(
     '4 · Question Bank',
-    'Author, review, approve; search and import.',
+    'Subject/chapter/exam-category taxonomy, then author, review, approve; search and import.',
   );
+  // Questions reference the taxonomy by id (subjectId/chapterId required,
+  // examCategoryId optional) since the product-structure refactor — the
+  // collection used to send free-text subject/chapter/examType strings,
+  // which 400 against the current CreateQuestionDto (DEF-005).
+  req(f, {
+    name: 'Create Subject',
+    method: 'POST',
+    path: '/api/v1/subjects',
+    auth: 'admin',
+    body: { name: 'Physics' },
+    expect: 201,
+    captures: { subjectId: 'id' },
+  });
+  req(f, {
+    name: 'Create Chapter',
+    method: 'POST',
+    path: '/api/v1/chapters',
+    auth: 'admin',
+    body: { subjectId: '{{subjectId}}', name: 'Mechanics' },
+    expect: 201,
+    captures: { chapterId: 'id' },
+  });
+  req(f, {
+    name: 'Create Exam Category',
+    method: 'POST',
+    path: '/api/v1/exam-categories',
+    auth: 'admin',
+    body: { name: 'NEET' },
+    expect: 201,
+    captures: { examCategoryId: 'id' },
+  });
   const mcq = (statement) => ({
-    subject: 'Physics',
-    chapter: 'Mechanics',
+    subjectId: '{{subjectId}}',
+    chapterId: '{{chapterId}}',
+    examCategoryId: '{{examCategoryId}}',
     difficulty: 'EASY',
     type: 'MCQ',
-    examType: 'NEET',
     statement,
     options: [
       { key: 'A', text: 'Newton' },
@@ -570,7 +602,7 @@ function otpLogin(
     method: 'PATCH',
     path: '/api/v1/questions/{{questionId1}}',
     auth: 'teacher',
-    body: { chapter: 'Kinematics' },
+    body: { chapterId: '{{chapterId}}' },
     expect: 200,
   });
   req(f, {
@@ -636,7 +668,7 @@ function otpLogin(
     method: 'POST',
     path: '/api/v1/questions/import',
     auth: 'teacher',
-    query: { subject: 'Physics', examType: 'NEET' },
+    query: { subjectId: '{{subjectId}}', chapterId: '{{chapterId}}' },
     formdata: [
       {
         key: 'file',
@@ -718,6 +750,25 @@ function otpLogin(
     body: { questionId: '{{questionId2}}' },
     expect: 201,
   });
+  // Exams have their own approval workflow (§2.3), same shape as questions'
+  // draft -> submit -> approve -> the paper is qualified. publish() 400s with
+  // "Only approved exams can be published" until this runs — the collection
+  // used to skip straight from building to scheduling/publishing.
+  req(f, {
+    name: 'Submit Exam for Review',
+    method: 'POST',
+    path: '/api/v1/exams/{{examId}}/submit',
+    auth: 'teacher',
+    body: { reviewerId: '{{adminUserId}}' },
+    expect: 200,
+  });
+  req(f, {
+    name: 'Approve Exam',
+    method: 'POST',
+    path: '/api/v1/exams/{{examId}}/approve',
+    auth: 'admin',
+    expect: 200,
+  });
   req(f, {
     name: 'Assign Batch',
     method: 'POST',
@@ -745,24 +796,9 @@ function otpLogin(
     auth: 'admin',
     expect: [201, 200],
   });
-  req(f, {
-    name: 'Clone Exam',
-    method: 'POST',
-    path: '/api/v1/exams/{{examId}}/clone',
-    auth: 'teacher',
-    body: { title: 'Postman Mock Test (Copy)' },
-    expect: 201,
-    captures: { clonedExamId: 'id' },
-  });
-  req(f, {
-    name: 'Unpublish the Clone',
-    method: 'POST',
-    path: '/api/v1/exams/{{clonedExamId}}/unpublish',
-    auth: 'admin',
-    expect: [201, 200, 400],
-    description:
-      'The clone is a draft, so this is a no-op/400 — included for coverage of the route.',
-  });
+  // Exam cloning was removed from the product (no route anywhere in
+  // exams.controller.ts) — the collection used to reference it; there's
+  // nothing to point the request at, so it's gone rather than fixed.
 }
 
 // ── 6. Candidate (attempt) ───────────────────────────────────────────────────
@@ -779,6 +815,24 @@ function otpLogin(
     body: { examId: '{{examId}}' },
     expect: 201,
     captures: { attemptId: 'id' },
+    description:
+      'A Mock Test entry lands PENDING_APPROVAL, not straight in — see the ' +
+      'next two steps (§ exam entry approval). Assessment-kind exams skip ' +
+      'both and go straight to Begin.',
+  });
+  req(f, {
+    name: 'Approve Attempt Entry',
+    method: 'POST',
+    path: '/api/v1/attempts/{{attemptId}}/approve',
+    auth: 'admin',
+    expect: 200,
+  });
+  req(f, {
+    name: 'Begin Attempt',
+    method: 'POST',
+    path: '/api/v1/attempts/{{attemptId}}/begin',
+    auth: 'student',
+    expect: 200,
   });
   req(f, {
     name: 'Get Attempt State',
@@ -1033,11 +1087,16 @@ function otpLogin(
     expect: 403,
   });
   req(f, {
-    name: 'Teacher exports results → 403',
+    name: 'Teacher exports results (reporting is read-only)',
     method: 'GET',
     path: '/api/v1/exams/{{examId}}/results/export/csv',
     auth: 'teacher',
-    expect: 403,
+    expect: 200,
+    description:
+      '@Roles(ADMIN, TEACHER) on this route deliberately allows a teacher ' +
+      'to export — the collection used to expect 403 here, which never ' +
+      'matched the route guard or the real-DB test suite’s own ' +
+      'expectation for this exact call.',
   });
   req(f, {
     name: 'Wrong password → 401',
@@ -1091,12 +1150,15 @@ const collection = {
     { key: 'programId', value: '' },
     { key: 'classId', value: '' },
     { key: 'batchId', value: '' },
+    { key: 'subjectId', value: '' },
+    { key: 'chapterId', value: '' },
+    { key: 'examCategoryId', value: '' },
+    { key: 'adminUserId', value: '' },
     { key: 'studentId', value: '' },
     { key: 'questionId1', value: '' },
     { key: 'questionId2', value: '' },
     { key: 'questionId3', value: '' },
     { key: 'examId', value: '' },
-    { key: 'clonedExamId', value: '' },
     { key: 'sectionId', value: '' },
     { key: 'attemptId', value: '' },
     { key: 'startAt', value: '' },

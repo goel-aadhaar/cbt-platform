@@ -598,7 +598,12 @@
                 "exec": [
                   "pm.test(\"status is 200\", function () {",
                   "  pm.expect(pm.response.code).to.be.oneOf([200]);",
-                  "});"
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var adminUserId = body?.[\"id\"];",
+                  "  if (adminUserId !== undefined && adminUserId !== null) pm.collectionVariables.set(\"adminUserId\", String(adminUserId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
                 ]
               }
             }
@@ -1408,6 +1413,150 @@
       "name": "4 · Question Bank",
       "item": [
         {
+          "name": "Create Subject",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var subjectId = body?.[\"id\"];",
+                  "  if (subjectId !== undefined && subjectId !== null) pm.collectionVariables.set(\"subjectId\", String(subjectId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/subjects",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "subjects"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Physics\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Chapter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var chapterId = body?.[\"id\"];",
+                  "  if (chapterId !== undefined && chapterId !== null) pm.collectionVariables.set(\"chapterId\", String(chapterId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/chapters",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "chapters"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"name\": \"Mechanics\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create Exam Category",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 201\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});",
+                  "try {",
+                  "  var body = pm.response.json();",
+                  "  var examCategoryId = body?.[\"id\"];",
+                  "  if (examCategoryId !== undefined && examCategoryId !== null) pm.collectionVariables.set(\"examCategoryId\", String(examCategoryId));",
+                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exam-categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exam-categories"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"NEET\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "Create Question 1",
           "event": [
             {
@@ -1446,7 +1595,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"What is the SI unit of force?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"chapterId\": \"{{chapterId}}\",\n  \"examCategoryId\": \"{{examCategoryId}}\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"statement\": \"What is the SI unit of force?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1494,7 +1643,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"Acceleration is the rate of change of what?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"chapterId\": \"{{chapterId}}\",\n  \"examCategoryId\": \"{{examCategoryId}}\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"statement\": \"Acceleration is the rate of change of what?\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1643,7 +1792,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"chapter\": \"Kinematics\"\n}",
+              "raw": "{\n  \"chapterId\": \"{{chapterId}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1811,7 +1960,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"subject\": \"Physics\",\n  \"chapter\": \"Mechanics\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"examType\": \"NEET\",\n  \"statement\": \"A throwaway question\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
+              "raw": "{\n  \"subjectId\": \"{{subjectId}}\",\n  \"chapterId\": \"{{chapterId}}\",\n  \"examCategoryId\": \"{{examCategoryId}}\",\n  \"difficulty\": \"EASY\",\n  \"type\": \"MCQ\",\n  \"statement\": \"A throwaway question\",\n  \"options\": [\n    {\n      \"key\": \"A\",\n      \"text\": \"Newton\"\n    },\n    {\n      \"key\": \"B\",\n      \"text\": \"Joule\"\n    }\n  ],\n  \"answerKey\": \"A\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1934,17 +2083,17 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/questions/import?subject=Physics&examType=NEET",
+              "raw": "{{baseUrl}}/api/v1/questions/import?subjectId={{subjectId}}&chapterId={{chapterId}}",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "questions", "import"],
               "query": [
                 {
-                  "key": "subject",
-                  "value": "Physics"
+                  "key": "subjectId",
+                  "value": "{{subjectId}}"
                 },
                 {
-                  "key": "examType",
-                  "value": "NEET"
+                  "key": "chapterId",
+                  "value": "{{chapterId}}"
                 }
               ]
             },
@@ -1963,7 +2112,7 @@
           }
         }
       ],
-      "description": "Author, review, approve; search and import."
+      "description": "Subject/chapter/exam-category taxonomy, then author, review, approve; search and import."
     },
     {
       "name": "5 · Exams",
@@ -2270,6 +2419,79 @@
           }
         },
         {
+          "name": "Submit Exam for Review",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{teacherToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "submit"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reviewerId\": \"{{adminUserId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Approve Exam",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "exams", "{{examId}}", "approve"]
+            }
+          }
+        },
+        {
           "name": "Assign Batch",
           "event": [
             {
@@ -2394,85 +2616,6 @@
               "path": ["api", "v1", "exams", "{{examId}}", "publish"]
             }
           }
-        },
-        {
-          "name": "Clone Exam",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status is 201\", function () {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([201]);",
-                  "});",
-                  "try {",
-                  "  var body = pm.response.json();",
-                  "  var clonedExamId = body?.[\"id\"];",
-                  "  if (clonedExamId !== undefined && clonedExamId !== null) pm.collectionVariables.set(\"clonedExamId\", String(clonedExamId));",
-                  "} catch (e) { console.log(\"capture failed:\", e.message); }"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{teacherToken}}"
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/exams/{{examId}}/clone",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "exams", "{{examId}}", "clone"]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Postman Mock Test (Copy)\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          }
-        },
-        {
-          "name": "Unpublish the Clone",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"status is 201 or 200 or 400\", function () {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([201,200,400]);",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "Bearer {{adminToken}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/exams/{{clonedExamId}}/unpublish",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "exams", "{{clonedExamId}}", "unpublish"]
-            },
-            "description": "The clone is a draft, so this is a no-op/400 — included for coverage of the route."
-          }
         }
       ],
       "description": "Build, schedule, publish, clone (teacher/admin)."
@@ -2517,6 +2660,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "attempts"]
             },
+            "description": "A Mock Test entry lands PENDING_APPROVAL, not straight in — see the next two steps (§ exam entry approval). Assessment-kind exams skip both and go straight to Begin.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"examId\": \"{{examId}}\"\n}",
@@ -2525,6 +2669,66 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "Approve Attempt Entry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "approve"]
+            }
+          }
+        },
+        {
+          "name": "Begin Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{studentToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/attempts/{{attemptId}}/begin",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "attempts", "{{attemptId}}", "begin"]
             }
           }
         },
@@ -3618,15 +3822,15 @@
           }
         },
         {
-          "name": "Teacher exports results → 403",
+          "name": "Teacher exports results (reporting is read-only)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"status is 403\", function () {",
-                  "  pm.expect(pm.response.code).to.be.oneOf([403]);",
+                  "pm.test(\"status is 200\", function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200]);",
                   "});"
                 ]
               }
@@ -3652,7 +3856,8 @@
                 "export",
                 "csv"
               ]
-            }
+            },
+            "description": "@Roles(ADMIN, TEACHER) on this route deliberately allows a teacher to export — the collection used to expect 403 here, which never matched the route guard or the real-DB test suite’s own expectation for this exact call."
           }
         },
         {
@@ -3784,6 +3989,22 @@
       "value": ""
     },
     {
+      "key": "subjectId",
+      "value": ""
+    },
+    {
+      "key": "chapterId",
+      "value": ""
+    },
+    {
+      "key": "examCategoryId",
+      "value": ""
+    },
+    {
+      "key": "adminUserId",
+      "value": ""
+    },
+    {
       "key": "studentId",
       "value": ""
     },
@@ -3801,10 +4022,6 @@
     },
     {
       "key": "examId",
-      "value": ""
-    },
-    {
-      "key": "clonedExamId",
       "value": ""
     },
     {
