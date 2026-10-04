@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import { useState } from "react";
 
 import { forceEndExam, pauseExam, type ExamMonitor } from "@/lib/admin";
@@ -483,7 +484,9 @@ function ParticipantsTable({
         <table className="w-full min-w-[520px] text-left text-sm">
           <thead>
             <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-              <th className="px-4 py-3">Roll Number</th>
+              <th className="whitespace-nowrap px-4 py-3">
+                {REGISTRATION_NUMBER_LABEL}
+              </th>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Progress</th>
@@ -545,7 +548,9 @@ function IncidentsList({ students }: { students: ExamMonitor["students"] }) {
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead>
             <tr className="border-b border-admin-line/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
-              <th className="px-4 py-3">Roll Number</th>
+              <th className="whitespace-nowrap px-4 py-3">
+                {REGISTRATION_NUMBER_LABEL}
+              </th>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Violations</th>
               <th className="px-4 py-3">Last Activity</th>

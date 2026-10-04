@@ -451,7 +451,7 @@ function otpLogin(
     expect: [201, 200],
   });
   req(f, {
-    name: 'Student Login (roll + password)',
+    name: 'Student Login (Registration Number + password)',
     method: 'POST',
     path: '/api/v1/auth/student/login',
     body: {
@@ -497,12 +497,13 @@ function otpLogin(
         key: 'file',
         type: 'file',
         src: [],
-        description: 'A CSV with columns: name,email,rollNumber',
+        description:
+          'A CSV with columns: name,email (the registration number is server-generated, never read from the file)',
       },
     ],
     expect: [201, 400],
     description:
-      'Attach a CSV file (columns name,email,rollNumber). 400 until a file is attached.',
+      'Attach a CSV file (columns name,email; the registration number is server-generated). 400 until a file is attached.',
   });
 }
 

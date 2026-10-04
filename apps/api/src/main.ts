@@ -83,6 +83,11 @@ async function bootstrap(): Promise<void> {
           ? false
           : true,
     credentials: true,
+    exposedHeaders: [
+      'Content-Disposition',
+      'X-Export-Students',
+      'X-Export-Result-Rows',
+    ],
   });
 
   // Global prefix + URI versioning → /api, /api/v1 (health/docs version-neutral).

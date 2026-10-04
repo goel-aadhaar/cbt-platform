@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import { useEffect, useState } from "react";
 
 import { PaginationBar } from "@/components/pagination-bar";
@@ -89,7 +90,9 @@ export default function TeacherStudentsPage() {
             <table className="w-full min-w-[600px] text-left text-sm">
               <thead>
                 <tr className="border-b border-admin-line text-xs font-bold uppercase tracking-wide text-admin-muted">
-                  <th className="px-3 py-3">Roll number</th>
+                  <th className="whitespace-nowrap px-3 py-3">
+                    {REGISTRATION_NUMBER_LABEL}
+                  </th>
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Batch</th>
                   <th className="px-3 py-3">Status</th>

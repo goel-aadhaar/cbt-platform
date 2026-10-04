@@ -208,7 +208,7 @@ export function AddStudentDrawer({
               </p>
               <p className="text-xs text-admin-muted">
                 The student receives an activation link and stays PENDING until
-                they set their password. Their roll number is assigned
+                they set their password. Their registration number is assigned
                 automatically — you&apos;ll see it once the invite is sent.
               </p>
             </div>

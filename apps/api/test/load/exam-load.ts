@@ -296,7 +296,7 @@ async function main(): Promise<void> {
     }
     if (rollNumbers.length !== CONCURRENCY) {
       throw new Error(
-        `Expected ${CONCURRENCY} roll numbers, found ${rollNumbers.length}`,
+        `Expected ${CONCURRENCY} registration numbers, found ${rollNumbers.length}`,
       );
     }
 

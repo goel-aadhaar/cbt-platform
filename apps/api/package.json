@@ -1,7 +1,7 @@
 {
   "name": "@drsk/api",
   "version": "0.0.1",
-  "description": "DRSK CBT Examination Platform \u00e2\u20ac\u201d backend API (NestJS)",
+  "description": "DRSK CBT Examination Platform â€” backend API (NestJS)",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -39,6 +39,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1114.0",
     "@aws-sdk/client-ses": "^3.1111.0",
+    "@drsk/shared": "workspace:*",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

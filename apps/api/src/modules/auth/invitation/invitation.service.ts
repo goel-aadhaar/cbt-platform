@@ -233,7 +233,7 @@ export class InvitationService {
       }
     }
     // Unreachable — the loop above always returns or throws.
-    throw new Error('Could not allocate a roll number');
+    throw new Error('Could not allocate a registration number');
   }
 
   /**
@@ -294,7 +294,7 @@ export class InvitationService {
 
     const role = user.roles[0];
     const { frontendUrl } = this.config.getOrThrow<AuthConfig>('auth');
-    const loginUrl = `${frontendUrl}/login${role === Role.STUDENT ? '' : '?as=staff'}`;
+    const loginUrl = `${frontendUrl}/login?as=${role === Role.STUDENT ? 'student' : 'staff'}`;
 
     // Best-effort: a welcome email failing to send must not undo the
     // account activation that already succeeded above.
@@ -344,7 +344,7 @@ export class InvitationService {
     if (user.status !== UserStatus.PENDING) {
       throw new BadRequestException(
         `${user.email} has already accepted their invitation, so there is ` +
-          `nothing to resend. Use a password reset if they cannot sign in.`,
+          `nothing to resend.`,
       );
     }
 

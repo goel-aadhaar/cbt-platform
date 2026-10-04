@@ -139,12 +139,12 @@ async function main() {
   });
 
   console.log('\n--- new candidate ---');
-  console.log('  Institute ID :', INSTITUTE_SLUG);
-  console.log('  Candidate ID :', nextRoll);
-  console.log('  Password     :', STUDENT_PASSWORD);
-  console.log('  Name         :', user.name);
-  console.log('  Email        :', email);
-  console.log('  Batch        :', batch.name);
+  console.log('  Institute ID        :', INSTITUTE_SLUG);
+  console.log('  Registration Number :', nextRoll);
+  console.log('  Password            :', STUDENT_PASSWORD);
+  console.log('  Name                :', user.name);
+  console.log('  Email               :', email);
+  console.log('  Batch               :', batch.name);
 
   await prisma.$disconnect();
 }

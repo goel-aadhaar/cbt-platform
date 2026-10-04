@@ -1193,7 +1193,7 @@
           }
         },
         {
-          "name": "Student Login (roll + password)",
+          "name": "Student Login (Registration Number + password)",
           "event": [
             {
               "listen": "test",
@@ -1392,7 +1392,7 @@
                 }
               ]
             },
-            "description": "Attach a CSV file (columns name,email,rollNumber). 400 until a file is attached.",
+            "description": "Attach a CSV file (columns name,email; the registration number is server-generated). 400 until a file is attached.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -1400,7 +1400,7 @@
                   "key": "file",
                   "type": "file",
                   "src": [],
-                  "description": "A CSV with columns: name,email,rollNumber"
+                  "description": "A CSV with columns: name,email (the registration number is server-generated, never read from the file)"
                 }
               ]
             }

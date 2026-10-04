@@ -1,4 +1,4 @@
-import { apiFetch } from "./api";
+import { ApiError, apiFetch } from "./api";
 import { getToken } from "./auth";
 
 /** A row from GET /students (the flattened Student+User+Batch view). */
@@ -64,6 +64,80 @@ export function listStudents(
 }
 
 const auth = () => ({ token: getToken() ?? undefined });
+
+/** Most students one Export Selected may name (the API's cap). */
+export const EXPORT_SELECTED_MAX = 1000;
+
+export interface StudentExportRequest extends Omit<
+  StudentQuery,
+  "limit" | "offset"
+> {
+  /**
+   * Only these students (Export Selected). Omit for Export All. An empty
+   * array is sent as-is and rejected by the API, so it can never widen into
+   * "every student".
+   */
+  ids?: string[];
+  /** Add each student's CBT results (one row per result). */
+  includeResults: boolean;
+}
+
+/** Counts the server reports for the file; null when the headers are not
+ * readable (a cross-origin API that does not expose them). */
+export interface StudentExportSummary {
+  students: number | null;
+  resultRows: number | null;
+}
+
+/**
+ * POST /students/export — the server selects the students and builds the CSV;
+ * this only saves it. POST rather than GET so a large selection of ids is not
+ * cut off by a URL length limit. fetch + blob because a plain link cannot
+ * carry the bearer token.
+ */
+export async function exportStudents(
+  req: StudentExportRequest,
+): Promise<StudentExportSummary> {
+  const path = "/students/export";
+  const base =
+    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+  const body = Object.fromEntries(
+    Object.entries({ ...req, search: req.search?.trim() }).filter(
+      ([, v]) => v !== undefined && v !== "",
+    ),
+  );
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getToken() ?? ""}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, await res.json().catch(() => null), path);
+  }
+  const count = (name: string) => {
+    const v = res.headers.get(name);
+    return v !== null && /^\d+$/.test(v) ? Number(v) : null;
+  };
+  const filename =
+    /filename="([^"]+)"/.exec(
+      res.headers.get("Content-Disposition") ?? "",
+    )?.[1] ?? `codonmind-students-${new Date().toISOString().slice(0, 10)}.csv`;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return {
+    students: count("X-Export-Students"),
+    resultRows: count("X-Export-Result-Rows"),
+  };
+}
 
 /** DELETE /students/:id — archives the student (sets them DISABLED). */
 export function deactivateStudent(id: string): Promise<StudentListItem> {

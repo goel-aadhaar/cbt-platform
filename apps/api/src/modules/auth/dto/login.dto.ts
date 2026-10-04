@@ -1,3 +1,5 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { STAFF_LOGIN_FIELD, STUDENT_LOGIN_FIELD } from '@drsk/shared';
 import {
   IsEmail,
   IsEnum,
@@ -5,33 +7,82 @@ import {
   IsUUID,
   Length,
   Matches,
-  MinLength,
+  ValidateBy,
+  type ValidationArguments,
 } from 'class-validator';
 
 import { Role } from '../auth.types';
 
+/**
+ * A non-empty string, reported in one sentence that names the field the way
+ * the sign-in form labels it.
+ *
+ * The login page shows a 400's messages verbatim, so `@IsString()` plus
+ * `@MinLength(1)` would put "rollNumber must be longer than or equal to 1
+ * characters" in front of a student — twice over for a missing field, once
+ * per decorator. Accepts exactly what that pair accepted.
+ */
+function IsFilledIn(label: string): PropertyDecorator {
+  return ValidateBy({
+    name: 'isFilledIn',
+    validator: {
+      validate: (value: unknown) =>
+        typeof value === 'string' && value.length > 0,
+      defaultMessage: () => `${label} is required`,
+    },
+  });
+}
+
+const EMAIL = STAFF_LOGIN_FIELD.email.label;
+
 /** Staff login (superadmin/admin/teacher) — by email. */
 export class LoginDto {
-  @IsEmail()
+  @ApiProperty({
+    description: `Shown on the sign-in form as "${EMAIL}".`,
+    example: 'you@institute.edu',
+  })
+  @IsEmail(
+    {},
+    {
+      message: ({ value }: ValidationArguments) =>
+        typeof value === 'string' && value.length > 0
+          ? `${EMAIL} must be a valid email address`
+          : `${EMAIL} is required`,
+    },
+  )
   email: string;
 
-  @IsString()
-  @MinLength(1)
+  @ApiProperty({
+    description: `Shown on the sign-in form as "${STAFF_LOGIN_FIELD.password.label}".`,
+  })
+  @IsFilledIn(STAFF_LOGIN_FIELD.password.label)
   password: string;
 }
 
-/** Student login — by institute + roll number (roll number is unique per institute). */
+/**
+ * Student login — by Institute ID + Registration Number (unique per
+ * institute). Each field is validated under the label the sign-in form and
+ * the credentials email give it.
+ */
 export class StudentLoginDto {
-  @IsString()
-  @MinLength(1)
+  @ApiProperty({
+    description: `Shown on the sign-in form as "${STUDENT_LOGIN_FIELD.instituteSlug.label}".`,
+    example: '2601000042',
+  })
+  @IsFilledIn(STUDENT_LOGIN_FIELD.instituteSlug.label)
   instituteSlug: string;
 
-  @IsString()
-  @MinLength(1)
+  @ApiProperty({
+    description: `Shown on the sign-in form as "${STUDENT_LOGIN_FIELD.rollNumber.label}". Server-generated and unique within the institute.`,
+    example: '2400183920',
+  })
+  @IsFilledIn(STUDENT_LOGIN_FIELD.rollNumber.label)
   rollNumber: string;
 
-  @IsString()
-  @MinLength(1)
+  @ApiProperty({
+    description: `Shown on the sign-in form as "${STUDENT_LOGIN_FIELD.password.label}".`,
+  })
+  @IsFilledIn(STUDENT_LOGIN_FIELD.password.label)
   password: string;
 }
 

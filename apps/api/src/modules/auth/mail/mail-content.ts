@@ -1,4 +1,10 @@
 import {
+  type LoginField,
+  STAFF_LOGIN_FIELDS,
+  STUDENT_LOGIN_FIELDS,
+} from '@drsk/shared';
+
+import {
   ContactMessageEmail,
   InvitationEmail,
   OtpEmail,
@@ -74,43 +80,98 @@ export function loginOtpContent(email: OtpEmail): EmailContent {
   };
 }
 
+/**
+ * What the Password row says. Every account's password is the one its owner
+ * typed on the accept-invite screen; the platform never generates one, so it
+ * is never in this email.
+ */
+const PASSWORD_HINT = 'The password you set when you accepted your invitation';
+
+interface CredentialRow {
+  /** Exactly the label of the matching box on the sign-in form. */
+  label: string;
+  value: string;
+  /** False for the password hint: a description, not something to type. */
+  literal: boolean;
+}
+
+/**
+ * The sign-in form's own fields, in its order, each paired with this account's
+ * value. Built from the same definitions the login page renders, so the email
+ * cannot list a field the form does not ask for, or call one by another name.
+ */
+function credentialRows<K extends string>(
+  fields: readonly LoginField<K>[],
+  values: Partial<Record<K, string>>,
+): CredentialRow[] {
+  return fields.flatMap(({ key, label }): CredentialRow[] => {
+    if (key === 'password') {
+      return [{ label, value: PASSWORD_HINT, literal: false }];
+    }
+    const value = values[key];
+    return value ? [{ label, value, literal: true }] : [];
+  });
+}
+
 /** Sent once, right after the invitee sets their password. Never includes
  * the password itself — email is not a secure channel and they just chose
- * it themselves — only the identifiers they need to sign in again. */
+ * it themselves — only what each box on their sign-in form expects. */
 export function welcomeContent(email: WelcomeEmail): EmailContent {
   const subject = email.institute
     ? `Welcome to ${email.institute} on Codonmind Nexus`
     : 'Welcome to Codonmind Nexus';
-  const details = [
-    email.institute
-      ? `<li><strong>Institute:</strong> ${escapeHtml(email.institute)}</li>`
-      : '',
-    // Labelled exactly as the sign-in form labels the field, so there is
-    // nothing to work out: what the email calls Institute ID is what the box
-    // on the screen calls Institute ID.
-    email.instituteSlug
-      ? `<li><strong>Institute ID:</strong> ${escapeHtml(email.instituteSlug)}</li>`
-      : '',
-    email.rollNumber
-      ? `<li><strong>Roll number:</strong> ${escapeHtml(email.rollNumber)}</li>`
-      : '',
-    `<li><strong>Email:</strong> ${escapeHtml(email.to)}</li>`,
-  ].join('');
-  const detailsText = [
-    email.institute ? `Institute: ${email.institute}\n` : '',
-    email.instituteSlug ? `Institute ID: ${email.instituteSlug}\n` : '',
-    email.rollNumber ? `Roll number: ${email.rollNumber}\n` : '',
-    `Email: ${email.to}\n`,
-  ].join('');
+
+  const isStudent = email.role === 'STUDENT' || email.rollNumber !== undefined;
+  const rows = isStudent
+    ? credentialRows(STUDENT_LOGIN_FIELDS, {
+        instituteSlug: email.instituteSlug,
+        rollNumber: email.rollNumber,
+      })
+    : credentialRows(STAFF_LOGIN_FIELDS, { email: email.to });
+
+  const activeHtml = email.institute
+    ? `Your account at <strong>${escapeHtml(email.institute)}</strong> is now active.`
+    : 'Your account is now active.';
+  const howTo =
+    'To sign in, enter each value below in the box with the same name on ' +
+    'the sign-in page.';
+  // Staff passwords buy an emailed code, not a session (see the staff form's
+  // "Check your email" step), so the code must not come as a surprise.
+  const codeStep = isStudent
+    ? ''
+    : 'After you enter your password, we will email a 6-digit verification ' +
+      'code to this address. Enter it to finish signing in.';
+  const noPassword =
+    'For your security, this email does not include your password.';
+
+  const cell = 'padding:10px 12px;border-bottom:1px solid #e5e7eb;';
+  const tableRows = rows
+    .map(
+      ({ label, value, literal }) =>
+        `<tr>` +
+        `<td style="${cell}color:#6b7280;font-size:13px;white-space:nowrap;width:1%;">${escapeHtml(label)}</td>` +
+        (literal
+          ? `<td style="${cell}font-family:'Courier New',Courier,monospace;font-size:15px;font-weight:700;color:#111827;">${escapeHtml(value)}</td>`
+          : `<td style="${cell}font-size:13px;color:#374151;">${escapeHtml(value)}</td>`) +
+        `</tr>`,
+    )
+    .join('');
 
   return {
     subject,
     html: layout(`
       <p>Hi ${escapeHtml(email.name)},</p>
-      <p>Thanks for accepting your invitation — your account is now active.</p>
-      <ul style="padding-left:18px;color:#111827;">${details}</ul>
+      <p>Thanks for accepting your invitation. ${activeHtml}</p>
+      <p>${howTo}</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-bottom:0;margin:16px 0;">
+        ${tableRows}
+      </table>
+      ${codeStep ? `<p>${codeStep}</p>` : ''}
       <p style="margin: 28px 0;">
         <a href="${email.loginUrl}" style="${buttonStyle}">Sign in</a>
+      </p>
+      <p style="color:#6b7280;font-size:13px;">
+        ${noPassword}
       </p>
       <p style="color:#6b7280;font-size:13px;">
         If the button doesn't work, copy this link into your browser:<br />
@@ -119,8 +180,11 @@ export function welcomeContent(email: WelcomeEmail): EmailContent {
     `),
     text:
       `Hi ${email.name},\n\n` +
-      `Thanks for accepting your invitation — your account is now active.\n\n` +
-      detailsText +
+      `Thanks for accepting your invitation. ${stripHtml(activeHtml)}\n\n` +
+      `${howTo}\n\n` +
+      rows.map(({ label, value }) => `${label}: ${value}\n`).join('') +
+      (codeStep ? `\n${codeStep}\n` : '') +
+      `\n${noPassword}\n` +
       `\nSign in: ${email.loginUrl}\n`,
   };
 }

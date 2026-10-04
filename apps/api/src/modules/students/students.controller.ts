@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
@@ -20,18 +21,42 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiOperation,
+  ApiProduces,
   ApiQuery,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 
 import { Role } from '../auth/auth.types';
 import type { AuthUser } from '../auth/auth.types';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { ExportStudentsDto } from './dto/export-students.dto';
 import { QueryStudentsDto } from './dto/query-students.dto';
 import { ReassignStudentsDto } from './dto/reassign-students.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { StudentsService } from './students.service';
+
+const EXPORT_DESCRIPTION =
+  'Roster columns registrationNumber, name, email, status, batch, joinedAt. ' +
+  'With includeResults=true, each CBT result adds a row with exam, examDate, ' +
+  'score, maxScore, percentage, rank, batchRank, correct, incorrect, ' +
+  'unattempted, percentile and published (held results included); a student ' +
+  'without results gets one row with those columns blank. Filters as for ' +
+  'GET /students; with ids, only those students among them.';
+
+const EXPORT_HEADERS_DOC = {
+  'X-Export-Students': {
+    description: 'Number of students in the file.',
+    schema: { type: 'integer' },
+  },
+  'X-Export-Result-Rows': {
+    description: 'Number of result rows (0 without includeResults).',
+    schema: { type: 'integer' },
+  },
+} as const;
 
 @ApiTags('students')
 @ApiBearerAuth()
@@ -44,6 +69,53 @@ export class StudentsController {
   @Get()
   findAll(@Query() query: QueryStudentsDto) {
     return this.students.findAll(query);
+  }
+
+  /**
+   * Student List export as CSV. GET takes the filters as query parameters;
+   * POST takes the same fields as a JSON body, for a selection of ids too
+   * long to fit in a URL. Both declared before `:id`.
+   */
+  @Get('export')
+  @ApiOperation({
+    summary: 'Export students (optionally with their CBT results) as CSV',
+    description: EXPORT_DESCRIPTION,
+  })
+  @ApiProduces('text/csv')
+  @ApiResponse({ status: 200, headers: EXPORT_HEADERS_DOC })
+  exportCsv(
+    @Query() query: ExportStudentsDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.sendExport(query, res);
+  }
+
+  @Post('export')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Export students (optionally with their CBT results) as CSV',
+    description: `${EXPORT_DESCRIPTION} Same fields as the GET, as a JSON body.`,
+  })
+  @ApiProduces('text/csv')
+  @ApiResponse({ status: 200, headers: EXPORT_HEADERS_DOC })
+  exportCsvPost(
+    @Body() body: ExportStudentsDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return this.sendExport(body, res);
+  }
+
+  private async sendExport(
+    query: ExportStudentsDto,
+    res: Response,
+  ): Promise<StreamableFile> {
+    const out = await this.students.exportRoster(query);
+    res.setHeader('X-Export-Students', String(out.students));
+    res.setHeader('X-Export-Result-Rows', String(out.resultRows));
+    return new StreamableFile(Buffer.from(out.csv, 'utf8'), {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${out.filename}"`,
+    });
   }
 
   /**

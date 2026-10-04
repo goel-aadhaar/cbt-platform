@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import type { ExamResultRow } from "@/lib/admin";
 
 import { useState } from "react";
@@ -170,13 +171,15 @@ export function ResultDetailDrawer({
           {rows.length > 0 && (
             <>
               <h3 className="mt-8 font-bold text-admin-ink">Ranked Results</h3>
-              <div className="mt-3 overflow-hidden rounded-xl border border-admin-line/60">
+              <div className="mt-3 overflow-x-auto rounded-xl border border-admin-line/60">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="bg-admin-bg/60 text-xs font-semibold uppercase tracking-wide text-admin-muted">
                       <th className="px-4 py-2">Rank</th>
                       <th className="px-4 py-2">Candidate</th>
-                      <th className="px-4 py-2">Roll</th>
+                      <th className="whitespace-nowrap px-4 py-2">
+                        {REGISTRATION_NUMBER_LABEL}
+                      </th>
                       <th className="px-4 py-2 text-right">Score</th>
                       <th className="px-4 py-2 text-right">%ile</th>
                     </tr>

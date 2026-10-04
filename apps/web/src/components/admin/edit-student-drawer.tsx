@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import { useState } from "react";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
@@ -103,7 +104,7 @@ export function EditStudentDrawer({
               {student.name}
             </h2>
             <p className="text-sm text-admin-muted">
-              Roll {student.rollNumber} · {student.email}
+              {REGISTRATION_NUMBER_LABEL} {student.rollNumber} · {student.email}
             </p>
           </div>
           <button
@@ -160,7 +161,7 @@ export function EditStudentDrawer({
 
               <label className="flex flex-col gap-1 text-sm">
                 <span className="font-semibold text-admin-muted">
-                  Roll Number
+                  {REGISTRATION_NUMBER_LABEL}
                 </span>
                 <input
                   defaultValue={student.rollNumber}

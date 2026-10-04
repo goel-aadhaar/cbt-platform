@@ -88,8 +88,8 @@ has no administrative reach.
 Additional seeded accounts:
 
 - **Teachers** — `sunita@demo.local`, `rahul@demo.local` (same password).
-- **Students** — roll numbers run consecutively from `2400183920`; all share
-  `Student@123` and the institute code `demo`.
+- **Students** — registration numbers run consecutively from `2400183920`; all
+  share `Student@123` and the institute code `demo`.
 
 Where each role lands after signing in:
 

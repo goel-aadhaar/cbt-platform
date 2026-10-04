@@ -261,7 +261,7 @@ function TenantsScreen() {
                         {t.slug} · code{" "}
                         <span
                           className="font-mono"
-                          title="Embedded in every student roll number this institute issues"
+                          title="Embedded in every student registration number this institute issues"
                         >
                           {t.code}
                         </span>{" "}

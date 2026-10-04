@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import { STAFF_LOGIN_FIELD, STUDENT_LOGIN_FIELD } from "@drsk/shared";
+
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { ApiError } from "@/lib/api";
 import { acceptInvite, type AcceptInviteResult } from "@/lib/auth";
@@ -33,6 +35,26 @@ export function AcceptInviteScreen() {
     password.length >= 8 &&
     confirm.length >= 8 &&
     password === confirm;
+
+  // The same sign-in fields, under the same labels, as the login form and the
+  // welcome email. The password is left out: they typed it a moment ago.
+  const isStudent = result?.role === "STUDENT";
+  const signInRows = (
+    !result
+      ? []
+      : isStudent
+        ? [
+            {
+              label: STUDENT_LOGIN_FIELD.instituteSlug.label,
+              value: result.institute?.slug,
+            },
+            {
+              label: STUDENT_LOGIN_FIELD.rollNumber.label,
+              value: result.rollNumber,
+            },
+          ]
+        : [{ label: STAFF_LOGIN_FIELD.email.label, value: result.email }]
+  ).filter((row): row is { label: string; value: string } => !!row.value);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,37 +110,39 @@ export function AcceptInviteScreen() {
               Account activated
             </h1>
             <p className="mt-2 text-base leading-6 text-muted">
-              <span className="font-semibold text-ink">{result.email}</span> is
-              ready to sign in with the password you just set. We&apos;ve also
-              emailed you these details.
+              Your account
+              {result.institute && (
+                <>
+                  {" "}
+                  at{" "}
+                  <span className="font-semibold text-ink">
+                    {result.institute.name}
+                  </span>
+                </>
+              )}{" "}
+              is ready. Sign in with the password you just set and the details
+              below. We&apos;ve also emailed them to{" "}
+              <span className="font-semibold text-ink">{result.email}</span>.
             </p>
 
-            {(result.institute || result.rollNumber) && (
+            {signInRows.length > 0 && (
               <dl className="mt-5 rounded border border-line bg-surface p-4 text-sm">
-                {result.institute && (
-                  <div className="flex items-baseline justify-between gap-3 py-1">
-                    <dt className="text-muted">Institute</dt>
-                    <dd className="font-semibold text-ink">
-                      {result.institute.name}{" "}
-                      <span className="font-normal text-subtle">
-                        ({result.institute.slug})
-                      </span>
+                {signInRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex items-baseline justify-between gap-3 py-1"
+                  >
+                    <dt className="text-muted">{row.label}</dt>
+                    <dd className="break-all font-mono font-semibold text-ink">
+                      {row.value}
                     </dd>
                   </div>
-                )}
-                {result.rollNumber && (
-                  <div className="flex items-baseline justify-between gap-3 py-1">
-                    <dt className="text-muted">Roll number</dt>
-                    <dd className="font-mono font-semibold text-ink">
-                      {result.rollNumber}
-                    </dd>
-                  </div>
-                )}
+                ))}
               </dl>
             )}
 
             <Link
-              href={result.role === "STUDENT" ? "/login" : "/login?as=staff"}
+              href={isStudent ? "/login?as=student" : "/login?as=staff"}
               className="mt-6 flex w-full items-center justify-center rounded bg-brand px-6 py-3.5 text-sm font-bold uppercase text-white transition-opacity hover:opacity-95"
             >
               Go to sign in

@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import { useEffect, useState } from "react";
 
 import {
@@ -110,7 +111,7 @@ function IdentityCard({ profile }: { profile: MyProfile }) {
       <dl className="mt-5 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
         <Row label="Email" value={profile.email} />
         <Row label="Account status" value={profile.status} />
-        {s && <Row label="Candidate ID" value={s.rollNumber} />}
+        {s && <Row label={REGISTRATION_NUMBER_LABEL} value={s.rollNumber} />}
         {s && <Row label="Batch" value={s.batch} />}
         {s && <Row label="Class" value={s.class} />}
         {s && <Row label="Program" value={s.program} />}
@@ -132,7 +133,7 @@ function IdentityCard({ profile }: { profile: MyProfile }) {
       {/* Say who to ask, so a wrong roll number does not become a dead end. */}
       <p className="mt-4 rounded-lg border border-admin-line/60 bg-admin-bg/50 px-3 py-2 text-xs text-admin-muted">
         {s
-          ? "Your candidate ID, batch and email are part of your examination record. Contact your institute to correct any of them."
+          ? "Your registration number, batch and email are part of your examination record. Contact your institute to correct any of them."
           : "Your email is your sign-in identifier. Contact your administrator to change it."}
       </p>
     </section>

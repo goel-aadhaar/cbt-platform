@@ -33,6 +33,9 @@ importers:
       '@aws-sdk/client-ses':
         specifier: ^3.1111.0
         version: 3.1136.0
+      '@drsk/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@nestjs/common':
         specifier: ^11.0.1
         version: 11.2.5(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -223,6 +226,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.4)
+      '@drsk/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@tiptap/extension-link':
         specifier: ^3.30.2
         version: 3.31.3(@tiptap/core@3.31.3(@tiptap/pm@3.31.3))(@tiptap/pm@3.31.3)
@@ -281,6 +287,8 @@ importers:
       typescript:
         specifier: ^5
         version: 5.9.3
+
+  packages/shared: {}
 
 packages:
 

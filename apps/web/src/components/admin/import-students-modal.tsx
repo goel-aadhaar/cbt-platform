@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import { useRef, useState } from "react";
 
 import { ActionButton } from "@/components/action-button";
@@ -188,7 +189,9 @@ export function ImportStudentsModal({
                       <tr>
                         <th className="px-3 py-2">Row</th>
                         <th className="px-3 py-2">Name</th>
-                        <th className="px-3 py-2">Roll</th>
+                        <th className="whitespace-nowrap px-3 py-2">
+                          {REGISTRATION_NUMBER_LABEL}
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-admin-line/50">
@@ -284,7 +287,7 @@ export function ImportStudentsModal({
                 <span className="mt-1 text-sm text-admin-muted">
                   {file
                     ? `${(file.size / 1024).toFixed(1)} KB — click to replace`
-                    : "Columns: name, email · roll numbers are assigned automatically · max 10 MB"}
+                    : "Columns: name, email · registration numbers are assigned automatically · max 10 MB"}
                 </span>
               </button>
               <input

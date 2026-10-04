@@ -89,11 +89,11 @@ After running `pnpm --filter @drsk/api db:seed:dev`:
 
 **Student** (candidate portal — `/login`)
 
-| Field          | Value                          |
-| -------------- | ------------------------------ |
-| Institute Code | `demo`                         |
-| Candidate ID   | `2400183920` (or `2400183921`) |
-| Password       | `Student@123`                  |
+| Field               | Value                          |
+| ------------------- | ------------------------------ |
+| Institute Code      | `demo`                         |
+| Registration Number | `2400183920` (or `2400183921`) |
+| Password            | `Student@123`                  |
 
 **Admin** (console — `/admin/login`)
 

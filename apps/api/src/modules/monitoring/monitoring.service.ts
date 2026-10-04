@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { REGISTRATION_NUMBER_LABEL } from '@drsk/shared';
 
 import { toCsv, withBom } from '../../common/csv/to-csv';
 import { ResponseStatus } from '../../generated/prisma/enums';
@@ -285,7 +286,7 @@ export class MonitoringService {
   async exportAttendanceCsv(examId: string) {
     const report = await this.getAttendance(examId);
     const headers = [
-      'Roll Number',
+      REGISTRATION_NUMBER_LABEL,
       'Name',
       'Batch',
       'Attendance',

@@ -33,9 +33,9 @@ export interface LoginResult {
 }
 
 export interface StudentLoginInput {
-  /** Institute code / slug — identifies the tenant. */
+  /** Institute ID (shown on the login form) — identifies the tenant. */
   instituteSlug: string;
-  /** Candidate ID / roll number — unique within an institute. */
+  /** Registration Number (shown on the login form) — unique within an institute. */
   rollNumber: string;
   password: string;
 }

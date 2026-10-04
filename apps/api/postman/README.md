@@ -35,7 +35,7 @@ audit, plus a folder of authorization (RBAC/tenancy) checks.
    environment variable (`superOtpCode` / `adminOtpCode` / `teacherOtpCode`),
    then run the `… — 2. Verify OTP` step, which captures the bearer token.
    Each step-1 request logs a reminder to the Postman console. (Student login
-   is a single step — roll number + password, no OTP.)
+   is a single step — registration number + password, no OTP.)
 4. **The three "Accept Invite" steps need a token pasted first**, the same way.
    Tokens are emailed, never returned in a response (correct — they're
    secrets). When you run an `Invite …` request, copy its `token=…` value from

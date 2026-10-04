@@ -614,15 +614,15 @@ async function devSeed(): Promise<void> {
   console.log('\n  Institute Code (slug):', SLUG);
   console.log('  ── Student login ─────────────────────');
   console.log(
-    '   Candidate ID :',
+    '   Registration Number :',
     '2400183920 (…21, …22 … up to',
     String(2400183920 + sIdx - 1) + ')',
   );
-  console.log('   Password     :', STUDENT_PASSWORD);
+  console.log('   Password            :', STUDENT_PASSWORD);
   console.log('  ── Admin login ───────────────────────');
-  console.log('   Email / Pass : admin@demo.local /', ADMIN_PASSWORD);
+  console.log('   Email / Pass        : admin@demo.local /', ADMIN_PASSWORD);
   console.log('  ── Teacher login ─────────────────────');
-  console.log('   Email / Pass : anil@demo.local /', TEACHER_PASSWORD);
+  console.log('   Email / Pass        : anil@demo.local /', TEACHER_PASSWORD);
   console.log('');
 }
 

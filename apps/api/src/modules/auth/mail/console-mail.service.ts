@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { STUDENT_LOGIN_FIELD } from '@drsk/shared';
 
 import {
   ContactMessageEmail,
@@ -42,7 +43,9 @@ export class ConsoleMailService extends MailService {
     this.logger.log(
       `🎉 Welcome → ${email.name} <${email.to}> as ${email.role}` +
         (email.institute ? ` @ ${email.institute}` : '') +
-        (email.rollNumber ? ` | roll: ${email.rollNumber}` : '') +
+        (email.rollNumber
+          ? ` | ${STUDENT_LOGIN_FIELD.rollNumber.label}: ${email.rollNumber}`
+          : '') +
         ` | sign in: ${email.loginUrl}`,
     );
     return Promise.resolve();

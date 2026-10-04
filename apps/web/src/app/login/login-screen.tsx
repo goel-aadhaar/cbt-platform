@@ -5,18 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
-import { ExamPreviewMockup } from "@/components/exam-preview-mockup";
-import {
-  ArrowRightIcon,
-  BrowserIcon,
-  CertifiedIcon,
-  EyeIcon,
-  EyeOffIcon,
-  LockIcon,
-  SupportIcon,
-} from "@/components/icons";
+import { LoginBanner } from "@/components/login/login-banner";
+import { LoginFooter } from "@/components/login/login-footer";
+import { ArrowRightIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
 import { homeForRole } from "@/hooks/use-auth";
 import Link from "next/link";
+
+import {
+  STAFF_LOGIN_FIELD,
+  STUDENT_LOGIN_FIELD,
+  type LoginField,
+} from "@drsk/shared";
 
 import { ApiError } from "@/lib/api";
 import {
@@ -53,11 +52,13 @@ export function LoginScreen() {
   const params = useSearchParams();
 
   // Guards bounce here with ?as=staff so an expired admin session does not
-  // land on the audience picker it already answered.
-  const preselectStaff = params.get("as") === "staff";
+  // land on the audience picker it already answered; the welcome email links
+  // students in with ?as=student, straight to the fields it lists.
+  const as = params.get("as");
+  const preselected = as === "staff" || as === "student" ? as : null;
 
   const [audience, setAudience] = useState<"student" | "staff" | null>(
-    preselectStaff ? "staff" : null,
+    preselected,
   );
 
   const [instituteSlug, setInstituteSlug] = useState(DEFAULT_INSTITUTE);
@@ -154,7 +155,7 @@ export function LoginScreen() {
       setError(
         describe(
           err,
-          "Invalid credentials. Check your Institute ID, Candidate ID and password.",
+          `Invalid credentials. Check your ${STUDENT_LOGIN_FIELD.instituteSlug.label}, ${STUDENT_LOGIN_FIELD.rollNumber.label} and ${STUDENT_LOGIN_FIELD.password.label.toLowerCase()}.`,
         ),
       );
       setSubmitting(false);
@@ -177,7 +178,10 @@ export function LoginScreen() {
       setSubmitting(false);
     } catch (err) {
       setError(
-        describe(err, "Invalid credentials. Check your email and password."),
+        describe(
+          err,
+          `Invalid credentials. Check your ${STAFF_LOGIN_FIELD.email.label.toLowerCase()} and ${STAFF_LOGIN_FIELD.password.label.toLowerCase()}.`,
+        ),
       );
       setSubmitting(false);
     }
@@ -300,32 +304,29 @@ export function LoginScreen() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    // lg and up: two halves of a screen that never scrolls. Below lg: the
+    // form fills the first screen and the banner follows it, page-scrolled.
+    <div className="flex min-h-screen flex-col bg-white lg:h-screen lg:flex-row lg:overflow-hidden">
       {/* ---------- Left: sign-in ---------- */}
-      <div className="flex w-full flex-col overflow-auto border-r border-line px-6 py-6 sm:px-12 sm:py-8 lg:w-1/2 lg:shrink-0 [@media(min-height:900px)]:sm:py-12">
-        <div className="flex items-center gap-1.5">
-          <span className="flex size-12 items-center justify-center rounded-[2px]">
-            <Image
-              src="/brand/codonmind-mark.png"
-              alt=""
-              width={39}
-              height={39}
-              priority
-              className="size-[39px] object-contain"
-            />
-          </span>
-          <span className="text-xl font-semibold tracking-[-0.5px] text-[#1a6a35]">
-            CODON MIND
-          </span>
+      <div className="flex min-h-screen w-full flex-col overflow-auto border-line px-6 py-6 sm:px-12 sm:py-8 lg:min-h-0 lg:w-1/2 lg:shrink-0 lg:border-r [@media(max-height:760px)]:sm:py-4 [@media(min-height:900px)]:sm:py-12">
+        <div className="flex h-12 items-center">
+          <Image
+            src="/brand/codonmind-logo-wide.png"
+            alt="CodonMind Nexus"
+            width={1024}
+            height={250}
+            priority
+            className="h-11 w-auto"
+          />
         </div>
 
-        <div className="flex flex-1 flex-col justify-center py-4 [@media(min-height:900px)]:py-8">
+        <div className="flex flex-1 flex-col justify-center py-4 [@media(max-height:760px)]:py-1 [@media(min-height:900px)]:py-8">
           <div className="mx-auto w-full max-w-[448px]">
             {step !== "audience" && (
               <button
                 type="button"
                 onClick={back}
-                className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-brand"
+                className="mb-4 flex items-center gap-1.5 text-sm font-semibold text-muted hover:text-brand [@media(max-height:760px)]:mb-2"
               >
                 <ArrowRightIcon className="size-3 rotate-180" />
                 Back
@@ -399,28 +400,29 @@ export function LoginScreen() {
                 />
                 <form
                   onSubmit={handleStudentSubmit}
-                  className="flex flex-col gap-4"
+                  className="flex flex-col gap-4 [@media(max-height:760px)]:gap-3"
                   noValidate
                 >
                   <Field
-                    label="Institute ID"
+                    label={STUDENT_LOGIN_FIELD.instituteSlug.label}
                     id="instituteSlug"
                     value={instituteSlug}
                     onChange={setInstituteSlug}
-                    placeholder="e.g. 2601000042"
+                    placeholder={STUDENT_LOGIN_FIELD.instituteSlug.placeholder}
                     autoComplete="organization"
                     autoFocus={!DEFAULT_INSTITUTE}
                   />
                   <Field
-                    label="Application Number / Candidate ID"
+                    label={STUDENT_LOGIN_FIELD.rollNumber.label}
                     id="rollNumber"
                     value={rollNumber}
                     onChange={setRollNumber}
-                    placeholder="e.g. 2400183920"
+                    placeholder={STUDENT_LOGIN_FIELD.rollNumber.placeholder}
                     autoComplete="username"
                     autoFocus={!!DEFAULT_INSTITUTE}
                   />
                   <PasswordField
+                    field={STUDENT_LOGIN_FIELD.password}
                     value={password}
                     onChange={setPassword}
                     show={showPassword}
@@ -440,7 +442,7 @@ export function LoginScreen() {
                 />
                 <form
                   onSubmit={submitCode}
-                  className="flex flex-col gap-4"
+                  className="flex flex-col gap-4 [@media(max-height:760px)]:gap-3"
                   noValidate
                 >
                   <label className="flex flex-col gap-1.5">
@@ -491,20 +493,21 @@ export function LoginScreen() {
 
                 <form
                   onSubmit={handleStaffSubmit}
-                  className="flex flex-col gap-4"
+                  className="flex flex-col gap-4 [@media(max-height:760px)]:gap-3"
                   noValidate
                 >
                   <Field
-                    label="Email"
+                    label={STAFF_LOGIN_FIELD.email.label}
                     id="email"
                     type="email"
                     value={email}
                     onChange={setEmail}
-                    placeholder="you@institute.edu"
+                    placeholder={STAFF_LOGIN_FIELD.email.placeholder}
                     autoComplete="username"
                     autoFocus
                   />
                   <PasswordField
+                    field={STAFF_LOGIN_FIELD.password}
                     value={password}
                     onChange={setPassword}
                     show={showPassword}
@@ -531,53 +534,10 @@ export function LoginScreen() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-col gap-2 border-t border-line pt-4 [@media(min-height:900px)]:mt-8">
-          <div className="flex items-center gap-2">
-            <SupportIcon className="h-3 w-[13px] shrink-0 text-muted" />
-            <span className="text-xs font-semibold leading-4 text-muted">
-              Technical Support: 1800-111-2222 (9:00 AM to 6:00 PM)
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <BrowserIcon className="h-[11px] w-[13px] shrink-0 text-subtle" />
-            <span className="text-xs font-semibold leading-4 text-subtle">
-              Supported Browsers: Chrome 80+, Edge 85+, Firefox 78+
-            </span>
-          </div>
-        </div>
+        <LoginFooter className="mt-6 [@media(max-height:760px)]:mt-3 [@media(min-height:900px)]:mt-8" />
       </div>
 
-      {/* ---------- Right: trust panel ---------- */}
-      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-brand-indigo p-12 lg:flex">
-        <div className="flex max-w-[576px] flex-col gap-2">
-          <h2 className="text-3xl font-bold leading-[37.5px] tracking-[-0.6px] text-white">
-            India&apos;s Trusted Examination Infrastructure
-          </h2>
-          <p className="text-lg leading-7 text-brand-soft opacity-90">
-            Secure, resilient, and highly available testing environment designed
-            for high-stakes assessments.
-          </p>
-        </div>
-
-        <div className="flex flex-1 items-center justify-center overflow-hidden py-8">
-          <ExamPreviewMockup />
-        </div>
-
-        <div className="flex flex-wrap gap-4 border-t border-[#e0e0ff]/20 pt-8">
-          <TrustBadge
-            icon={<CertifiedIcon className="h-[21px] w-[22px]" />}
-            label="Board Certified"
-          />
-          <TrustBadge
-            icon={<LockIcon className="h-[21px] w-4" />}
-            label="Data Encrypted"
-          />
-          <TrustBadge
-            icon={<EyeIcon className="h-[15px] w-[22px]" />}
-            label="Proctored & Secure"
-          />
-        </div>
-      </div>
+      <LoginBanner />
     </div>
   );
 }
@@ -588,7 +548,7 @@ export function LoginScreen() {
 
 function Heading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="mb-5 flex flex-col gap-2 [@media(min-height:900px)]:mb-8">
+    <div className="mb-5 flex flex-col gap-2 [@media(max-height:760px)]:mb-3 [@media(min-height:900px)]:mb-8">
       <h1 className="text-3xl font-bold tracking-[-0.6px] text-brand">
         {title}
       </h1>
@@ -655,11 +615,13 @@ function SubmitButton({ submitting }: { submitting: boolean }) {
 }
 
 function PasswordField({
+  field,
   value,
   onChange,
   show,
   onToggle,
 }: {
+  field: LoginField<"password">;
   value: string;
   onChange: (v: string) => void;
   show: boolean;
@@ -671,7 +633,7 @@ function PasswordField({
         htmlFor="password"
         className="text-sm font-semibold leading-[21px] text-muted"
       >
-        Password
+        {field.label}
       </label>
       <div className="relative">
         <input
@@ -679,7 +641,7 @@ function PasswordField({
           type={show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Enter your password"
+          placeholder={field.placeholder}
           autoComplete="current-password"
           className="w-full border border-[#6b7280] bg-white px-[13px] py-2.5 pr-12 text-base text-ink outline-none placeholder:text-[#6b7280] focus:border-brand focus:ring-1 focus:ring-brand"
         />
@@ -737,17 +699,6 @@ function Field({
         autoFocus={autoFocus}
         className="w-full border border-[#6b7280] bg-white px-[13px] py-2.5 text-base text-ink outline-none placeholder:text-[#6b7280] focus:border-brand focus:ring-1 focus:ring-brand"
       />
-    </div>
-  );
-}
-
-function TrustBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-[2px] border border-[#e0e0ff]/20 bg-[#e0e0ff]/10 px-4 py-2 text-[#e0e0ff]">
-      {icon}
-      <span className="text-xs font-semibold uppercase leading-4 tracking-[0.3px]">
-        {label}
-      </span>
     </div>
   );
 }

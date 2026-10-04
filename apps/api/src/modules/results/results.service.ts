@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { REGISTRATION_NUMBER_LABEL } from '@drsk/shared';
 
 import {
   ExamKind,
@@ -950,7 +951,7 @@ export class ResultsService {
     const headers = [
       'Rank',
       'Batch Rank',
-      'Roll Number',
+      REGISTRATION_NUMBER_LABEL,
       'Name',
       'Email',
       'Batch',

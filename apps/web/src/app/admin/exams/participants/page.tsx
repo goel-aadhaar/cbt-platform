@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import type { ComponentType, SVGProps } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useMemo, useState } from "react";
@@ -366,7 +367,7 @@ function ParticipantsInner() {
                   onChange={(e) => setSort(e.target.value as SortKey)}
                   className="bg-transparent text-sm outline-none"
                 >
-                  <option value="roll">Roll number</option>
+                  <option value="roll">{REGISTRATION_NUMBER_LABEL}</option>
                   <option value="name">Name</option>
                   <option value="score-desc">Score, highest first</option>
                   <option value="score-asc">Score, lowest first</option>
@@ -383,7 +384,9 @@ function ParticipantsInner() {
                     <input type="checkbox" className="size-4 accent-admin" />
                   </th>
                   <th className="px-4 py-3">Name &amp; Profile</th>
-                  <th className="px-4 py-3">Roll Number</th>
+                  <th className="whitespace-nowrap px-4 py-3">
+                    {REGISTRATION_NUMBER_LABEL}
+                  </th>
                   <th className="px-4 py-3">Eligibility</th>
                   <th className="px-4 py-3">Attempt Status</th>
                   <th className="px-4 py-3">Start Time</th>

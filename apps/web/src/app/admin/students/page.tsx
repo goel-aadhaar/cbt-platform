@@ -1,5 +1,6 @@
 "use client";
 
+import { REGISTRATION_NUMBER_LABEL } from "@drsk/shared";
 import type { ComponentType, SVGProps } from "react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, Suspense } from "react";
@@ -36,7 +37,18 @@ import { ApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { getToken } from "@/lib/auth";
 import {
+  emptySelection,
+  pageCheckState,
+  plural,
+  refreshSelected,
+  togglePage,
+  toggleRow,
+  type Selection,
+} from "@/lib/roster-selection";
+import {
   deactivateStudent,
+  EXPORT_SELECTED_MAX,
+  exportStudents,
   listStudents,
   reactivateStudent,
   resendStudentInvite,
@@ -63,8 +75,8 @@ const TAB_STATUS: (StudentListItem["status"] | undefined)[] = [
 
 /** Roster orderings offered in the Sort control. */
 const SORT_OPTIONS: { value: StudentSort; label: string }[] = [
-  { value: "roll_asc", label: "Roll number (asc)" },
-  { value: "roll_desc", label: "Roll number (desc)" },
+  { value: "roll_asc", label: `${REGISTRATION_NUMBER_LABEL} (asc)` },
+  { value: "roll_desc", label: `${REGISTRATION_NUMBER_LABEL} (desc)` },
   { value: "name_asc", label: "Name (A–Z)" },
   { value: "name_desc", label: "Name (Z–A)" },
   { value: "newest", label: "Newest first" },
@@ -119,7 +131,15 @@ function StudentsPageInner() {
   const [classId, setClassId] = useState("");
   const [programId, setProgramId] = useState("");
   const [sort, setSort] = useState<StudentSort>("roll_asc");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /**
+   * Checked students, kept across pages. Cleared whenever the result set
+   * changes (see `resultKey`), so it is always a subset of what the current
+   * filters match and an export can never include a student hidden by them.
+   */
+  const [selected, setSelected] = useState<Selection>(emptySelection);
+  const [exporting, setExporting] = useState<"all" | "selected" | null>(null);
+  /** "Export with Results": add each student's CBT results to the file. */
+  const [withResults, setWithResults] = useState(true);
   // The student whose exam record is open; `/students/:id/history` had no
   // caller anywhere in the app before this.
   const [historyFor, setHistoryFor] = useState<{
@@ -128,8 +148,15 @@ function StudentsPageInner() {
   } | null>(null);
   /** The student whose profile is being edited in the side drawer. */
   const [editFor, setEditFor] = useState<StudentListItem | null>(null);
-  /** Bulk reassign to a single destination batch — opened from the toolbar. */
-  const [reassignOpen, setReassignOpen] = useState(false);
+  /**
+   * Students the bulk-reassign drawer is moving: the whole selection from the
+   * toolbar, or one row from its menu (which no longer overwrites the
+   * selection to do so).
+   */
+  const [reassign, setReassign] = useState<{
+    rows: StudentListItem[];
+    fromSelection: boolean;
+  } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const catalogue = useOrgCatalogue();
   const programs = catalogue?.programs ?? [];
@@ -175,6 +202,17 @@ function StudentsPageInner() {
     }
   }
 
+  /** Everything that decides WHICH students are listed (not their order). */
+  const resultKey = JSON.stringify([
+    batchId,
+    classId,
+    programId,
+    activeTab,
+    search,
+  ]);
+  /** The `resultKey` the rows on screen were loaded for. */
+  const [rowsKey, setRowsKey] = useState<string | null>(null);
+
   // Load the live roster once hydrated; bounce to sign-in if unauthenticated.
   useEffect(() => {
     if (!hydrated) return;
@@ -196,6 +234,8 @@ function StudentsPageInner() {
       .then((res) => {
         if (!active) return;
         setRows(res.items);
+        setRowsKey(resultKey);
+        setSelected((prev) => refreshSelected(prev, res.items));
         setTotal(res.total);
         setCounts(res.counts);
         setError(null);
@@ -228,6 +268,7 @@ function StudentsPageInner() {
     sort,
     offset,
     refreshNonce,
+    resultKey,
   ]);
 
   /**
@@ -251,6 +292,23 @@ function StudentsPageInner() {
     setPrevFilterKey(filterKey);
     setOffset(0);
   }
+  // A different result set drops the selection (sorting and paging do not).
+  const [prevResultKey, setPrevResultKey] = useState(resultKey);
+  if (resultKey !== prevResultKey) {
+    setPrevResultKey(resultKey);
+    setSelected(emptySelection());
+  }
+
+  /** A row a write returned: merged so fields it omits (addedBy) survive. */
+  function applyUpdated(updated: StudentListItem) {
+    setRows((prev) =>
+      (prev ?? []).map((r) => (r.id === updated.id ? { ...r, ...updated } : r)),
+    );
+    setSelected((prev) => {
+      const old = prev.get(updated.id);
+      return old ? toggleRow(prev, { ...old, ...updated }, true) : prev;
+    });
+  }
 
   async function handleDeactivate(row: StudentListItem) {
     if (
@@ -263,10 +321,7 @@ function StudentsPageInner() {
     setRowBusy(row.id);
     setError(null);
     try {
-      const updated = await deactivateStudent(row.id);
-      setRows((prev) =>
-        (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
-      );
+      applyUpdated(await deactivateStudent(row.id));
       setNotice(`${row.name} deleted (archived).`);
     } catch (e: unknown) {
       setError(
@@ -281,10 +336,7 @@ function StudentsPageInner() {
     setRowBusy(row.id);
     setError(null);
     try {
-      const updated = await reactivateStudent(row.id);
-      setRows((prev) =>
-        (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
-      );
+      applyUpdated(await reactivateStudent(row.id));
       setNotice(`${row.name} reactivated.`);
     } catch (e: unknown) {
       setError(
@@ -304,8 +356,8 @@ function StudentsPageInner() {
    * writes and leaving the operator guessing which ones landed.
    */
   async function handleBulkDeactivate() {
-    const targets = items.filter(
-      (r) => selected.has(r.id) && r.status !== "DISABLED",
+    const targets = [...selected.values()].filter(
+      (r) => r.status !== "DISABLED",
     );
     if (targets.length === 0) {
       setNotice(
@@ -313,9 +365,13 @@ function StudentsPageInner() {
       );
       return;
     }
+    const skipped = selected.size - targets.length;
     if (
       !window.confirm(
-        `Deactivate ${targets.length} student(s)? They can no longer sign in, but their records and results are kept and this can be undone.`,
+        `Deactivate ${plural(targets.length, "student")}? They can no longer sign in, but their records and results are kept and this can be undone.` +
+          (skipped
+            ? ` ${plural(skipped, "selected student is", "selected students are")} already deactivated and will be skipped.`
+            : ""),
       )
     ) {
       return;
@@ -325,14 +381,11 @@ function StudentsPageInner() {
     let done = 0;
     try {
       for (const row of targets) {
-        const updated = await deactivateStudent(row.id);
-        setRows((prev) =>
-          (prev ?? []).map((r) => (r.id === row.id ? updated : r)),
-        );
+        applyUpdated(await deactivateStudent(row.id));
         done += 1;
       }
-      setNotice(`${done} student(s) deactivated.`);
-      setSelected(new Set());
+      setNotice(`${plural(done, "student")} deactivated.`);
+      setSelected(emptySelection());
     } catch (e: unknown) {
       setError(
         `${e instanceof ApiError ? e.message : "Bulk deactivation failed."}` +
@@ -359,6 +412,76 @@ function StudentsPageInner() {
   }
 
   const items = rows ?? [];
+  /** False while the rows on screen still belong to the previous filters. */
+  const pageCurrent = rowsKey === resultKey;
+  const pageCheck = pageCheckState(selected, items);
+  const rosterFilters: Omit<StudentQuery, "limit" | "offset"> = {
+    batchId: batchId || undefined,
+    classId: classId || undefined,
+    programId: programId || undefined,
+    status: TAB_STATUS[activeTab],
+    search: search || undefined,
+    sort,
+  };
+
+  /**
+   * Both buttons send the current filters to the one server-side export;
+   * "selected" adds the checked ids, so the file holds only those students
+   * and nothing the filters hide can slip in.
+   */
+  async function handleExport(mode: "all" | "selected") {
+    if (exporting) return;
+    if (mode === "selected" && selected.size === 0) {
+      setNotice("Select at least one student to export, or use Export All.");
+      return;
+    }
+    if (mode === "selected" && selected.size > EXPORT_SELECTED_MAX) {
+      setNotice(
+        `Export Selected takes up to ${fmt(EXPORT_SELECTED_MAX)} students at a time (${fmt(selected.size)} are selected). Narrow the selection, or use Export All.`,
+      );
+      return;
+    }
+    if (mode === "all" && total === 0) {
+      setNotice(
+        "No students match the current filters, so there is nothing to export.",
+      );
+      return;
+    }
+    setExporting(mode);
+    setNotice(null);
+    try {
+      const sent = mode === "selected" ? selected.size : null;
+      const out = await exportStudents({
+        ...rosterFilters,
+        ...(mode === "selected" && { ids: [...selected.keys()] }),
+        includeResults: withResults,
+      });
+      const students = out.students ?? sent ?? total;
+      const results =
+        withResults && out.resultRows !== null
+          ? ` with ${plural(out.resultRows, "result row")}`
+          : withResults
+            ? " with their results"
+            : "";
+      const leftOut =
+        sent !== null && out.students !== null && out.students < sent
+          ? ` ${plural(sent - out.students, "selected student was", "selected students were")} left out: no longer in this list (removed, or changed so they no longer match the current filters).`
+          : "";
+      setNotice(
+        mode === "all"
+          ? `Exported ${plural(students, "student")}${results} (every student matching the current filters).`
+          : `Exported ${plural(students, "student")}${results}.${leftOut}`,
+      );
+    } catch (e: unknown) {
+      setError(
+        e instanceof ApiError
+          ? `Could not build the export: ${e.message}`
+          : "Could not build the export. Please try again.",
+      );
+    } finally {
+      setExporting(null);
+    }
+  }
 
   /**
    * Tabs map to a server-side status filter. "Archived Students" and "Student
@@ -406,39 +529,51 @@ function StudentsPageInner() {
             </OutlineBtn>
             <OutlineBtn
               icon={DownloadIcon}
+              disabled={exporting !== null}
               title={
                 selected.size > 0
-                  ? `Export the ${selected.size} selected student(s)`
-                  : "Export every student matching the current filters"
+                  ? `Export only the ${plural(selected.size, "selected student")}, across all pages`
+                  : "Tick students in the list to export only them"
               }
-              onClick={() => {
-                void exportRosterCsv(
-                  {
-                    batchId: batchId || undefined,
-                    classId: classId || undefined,
-                    programId: programId || undefined,
-                    status: TAB_STATUS[activeTab],
-                    search: search || undefined,
-                    sort,
-                  },
-                  items.filter((r) => selected.has(r.id)),
-                ).catch(() =>
-                  setError("Could not build the export. Please try again."),
-                );
-              }}
+              onClick={() => void handleExport("selected")}
             >
-              {selected.size > 0
-                ? `Export Selected (${selected.size})`
-                : "Export Students"}
+              {exporting === "selected"
+                ? "Exporting…"
+                : `Export Selected (${fmt(selected.size)})`}
+            </OutlineBtn>
+            <OutlineBtn
+              icon={DownloadIcon}
+              disabled={exporting !== null}
+              title="Export every student matching the current filters, across all pages"
+              onClick={() => void handleExport("all")}
+            >
+              {exporting === "all"
+                ? "Exporting…"
+                : `Export All (${fmt(total)})`}
             </OutlineBtn>
           </div>
-          <OutlineBtn
-            icon={CheckIcon}
-            disabled
-            title="Roll numbers are generated automatically during CSV import"
-          >
-            Roll Number Generator
-          </OutlineBtn>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <label
+              className="flex items-center gap-2 text-sm font-semibold text-admin-ink"
+              title="Add each student’s CBT results to the file: one row per exam result, and one row with blank result columns for a student without any"
+            >
+              <input
+                type="checkbox"
+                className="size-4 accent-admin"
+                checked={withResults}
+                disabled={exporting !== null}
+                onChange={(e) => setWithResults(e.target.checked)}
+              />
+              Export with Results
+            </label>
+            <OutlineBtn
+              icon={CheckIcon}
+              disabled
+              title="Registration numbers are generated automatically during CSV import"
+            >
+              {REGISTRATION_NUMBER_LABEL} Generator
+            </OutlineBtn>
+          </div>
         </div>
       </div>
 
@@ -504,7 +639,7 @@ function StudentsPageInner() {
           <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by name, roll no or email…"
+            placeholder="Search by name, registration number or email…"
             aria-label="Search students"
             className="h-10 w-full rounded-lg border border-admin-line bg-admin-bg pl-9 pr-3 text-sm outline-none placeholder:text-admin-subtle focus:border-admin"
           />
@@ -583,7 +718,9 @@ function StudentsPageInner() {
               a reason while nothing is selected, rather than silently inert. */}
           <button
             type="button"
-            onClick={() => setReassignOpen(true)}
+            onClick={() =>
+              setReassign({ rows: [...selected.values()], fromSelection: true })
+            }
             disabled={selected.size === 0}
             title={
               selected.size === 0
@@ -612,6 +749,25 @@ function StudentsPageInner() {
         </div>
       </div>
 
+      {selected.size > 0 && (
+        <div
+          role="status"
+          className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-admin/30 bg-admin/5 px-4 py-2 text-sm text-admin"
+        >
+          <span className="font-semibold">{fmt(selected.size)} selected</span>
+          {pageCheck.onPage < selected.size && (
+            <span>· {fmt(pageCheck.onPage)} on this page</span>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelected(emptySelection())}
+            className="ml-auto font-semibold hover:underline"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="mt-4 overflow-x-auto rounded-xl border border-admin-line/60 bg-white">
         <table className="w-full min-w-[900px] text-left text-sm">
@@ -622,18 +778,20 @@ function StudentsPageInner() {
                   type="checkbox"
                   className="size-4 accent-admin"
                   aria-label="Select all students on this page"
-                  checked={items.length > 0 && selected.size === items.length}
-                  onChange={(e) =>
-                    setSelected(
-                      e.target.checked
-                        ? new Set(items.map((r) => r.id))
-                        : new Set(),
-                    )
-                  }
+                  title="Select all on this page"
+                  ref={(el) => {
+                    if (el) el.indeterminate = pageCheck.indeterminate;
+                  }}
+                  checked={pageCheck.checked}
+                  disabled={!pageCurrent || items.length === 0}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setSelected((prev) => togglePage(prev, items, checked));
+                  }}
                 />
               </th>
               <th className="px-4 py-3">Student Name</th>
-              <th className="px-4 py-3">Roll Number</th>
+              <th className="px-4 py-3">{REGISTRATION_NUMBER_LABEL}</th>
               <th className="px-4 py-3">Class / Batch</th>
               <th className="px-4 py-3">Date of Joining</th>
               <th className="px-4 py-3">Added By</th>
@@ -683,14 +841,11 @@ function StudentsPageInner() {
                       className="size-4 accent-admin"
                       aria-label={`Select ${r.name}`}
                       checked={selected.has(r.id)}
-                      onChange={(e) =>
-                        setSelected((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(r.id);
-                          else next.delete(r.id);
-                          return next;
-                        })
-                      }
+                      disabled={!pageCurrent}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelected((prev) => toggleRow(prev, r, checked));
+                      }}
                     />
                   </td>
                   <td className="px-4 py-4">
@@ -708,7 +863,7 @@ function StudentsPageInner() {
                     <button
                       type="button"
                       onClick={() => void copyRollNumber(r.id, r.rollNumber)}
-                      title="Copy roll number"
+                      title="Copy registration number"
                       className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-admin-bg"
                     >
                       <span className="font-mono text-xs text-admin-ink">
@@ -776,10 +931,11 @@ function StudentsPageInner() {
                                 : []),
                               {
                                 label: "Move to another batch…",
-                                onClick: () => {
-                                  setSelected(new Set([r.id]));
-                                  setReassignOpen(true);
-                                },
+                                onClick: () =>
+                                  setReassign({
+                                    rows: [r],
+                                    fromSelection: false,
+                                  }),
                                 disabled: rowBusy === r.id,
                               },
                               {
@@ -818,7 +974,7 @@ function StudentsPageInner() {
         onCreated={(studentName, rollNumber) => {
           setNotice(
             rollNumber
-              ? `Invite sent to ${studentName} — roll number ${rollNumber}.`
+              ? `Invite sent to ${studentName} — registration number ${rollNumber}.`
               : `Invite sent to ${studentName}.`,
           );
           refresh();
@@ -845,12 +1001,12 @@ function StudentsPageInner() {
         }}
       />
       <BulkReassignDrawer
-        open={reassignOpen}
-        onClose={() => setReassignOpen(false)}
-        selectedStudents={rows?.filter((r) => selected.has(r.id)) ?? []}
+        open={reassign !== null}
+        onClose={() => setReassign(null)}
+        selectedStudents={reassign?.rows ?? []}
         onChanged={() => {
           refresh();
-          setSelected(new Set());
+          if (reassign?.fromSelection) setSelected(emptySelection());
           setNotice("Students moved.");
         }}
       />
@@ -913,59 +1069,4 @@ function fmtDate(iso: string): string {
   if (Number.isNaN(d.getTime())) return "—";
   const pad = (x: number) => x.toString().padStart(2, "0");
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
-}
-
-function toCsv(rows: StudentListItem[]): string {
-  const head = "rollNumber,name,email,status,batch,joinedAt";
-  const body = rows
-    .map((r) =>
-      [
-        r.rollNumber,
-        JSON.stringify(r.name),
-        r.email,
-        r.status,
-        JSON.stringify(r.batch?.name ?? ""),
-        new Date(r.createdAt).toISOString().slice(0, 10),
-      ].join(","),
-    )
-    .join("\n");
-  return `${head}\n${body}\n`;
-}
-
-function download(csv: string): void {
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `codonmind-students-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/**
- * CSV of the roster. There is no server-side student export endpoint (only exam
- * results have one), so this builds the file client-side — but it exports the
- * WHOLE filtered set, not just the page on screen.
- *
- * The previous version serialised only the ≤200 loaded rows while the button
- * said "Export Students", so an institute with more students silently got a
- * truncated file. Pages through the API instead, and honours a checkbox
- * selection when one exists.
- */
-async function exportRosterCsv(
-  query: StudentQuery,
-  selectedRows: StudentListItem[],
-): Promise<void> {
-  if (selectedRows.length > 0) {
-    download(toCsv(selectedRows));
-    return;
-  }
-
-  const PAGE = 200;
-  const all: StudentListItem[] = [];
-  for (let offset = 0; ; offset += PAGE) {
-    const page = await listStudents({ ...query, limit: PAGE, offset });
-    all.push(...page.items);
-    if (all.length >= page.total || page.items.length === 0) break;
-  }
-  download(toCsv(all));
 }

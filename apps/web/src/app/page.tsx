@@ -76,7 +76,7 @@ const platformFeatures = [
     icon: Users,
     title: "Student Management",
     description:
-      "Manage student profiles, roll numbers, batches, login credentials and examination eligibility.",
+      "Manage student profiles, registration numbers, batches, login credentials and examination eligibility.",
     tone: "orange",
   },
   {
