@@ -41,6 +41,7 @@ function TenantsScreen() {
   const [creating, setCreating] = useState(params.get("new") === "1");
   /** id of the tenant currently being mutated, so only its row shows a spinner */
   const [invitingFor, setInvitingFor] = useState<Tenant | null>(null);
+  const [renamingFor, setRenamingFor] = useState<Tenant | null>(null);
   const [usageFor, setUsageFor] = useState<Tenant | null>(null);
   /**
    * Filter and sort live in state, not in the URL. They are a way of reading
@@ -305,6 +306,14 @@ function TenantsScreen() {
                         <button
                           type="button"
                           disabled={rowAction.isPending(t.id)}
+                          onClick={() => setRenamingFor(t)}
+                          className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          disabled={rowAction.isPending(t.id)}
                           onClick={() => void toggleActive(t)}
                           className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                         >
@@ -357,6 +366,22 @@ function TenantsScreen() {
         instituteName={usageFor?.name}
         onClose={() => setUsageFor(null)}
       />
+
+      {renamingFor && (
+        <RenameTenantModal
+          tenant={renamingFor}
+          onClose={() => setRenamingFor(null)}
+          onRenamed={(updated) => {
+            setTenants((prev) =>
+              (prev ?? []).map((x) =>
+                x.id === updated.id ? { ...x, ...updated } : x,
+              ),
+            );
+            setNotice(`Renamed to "${updated.name}".`);
+            setRenamingFor(null);
+          }}
+        />
+      )}
 
       {invitingFor && (
         <InviteAdminModal
@@ -475,6 +500,89 @@ function CreateTenantModal({
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
               {saving ? "Creating…" : "Create institute"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/** Change an institute's display name. Its sign-in code and ID stay as they are. */
+function RenameTenantModal({
+  tenant,
+  onClose,
+  onRenamed,
+}: {
+  tenant: Tenant;
+  onClose: () => void;
+  onRenamed: (updated: Tenant) => void;
+}) {
+  const [name, setName] = useState(tenant.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trimmed = name.trim();
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      onRenamed(await updateTenant(tenant.id, { name: trimmed }));
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Could not rename the institute.",
+      );
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-admin-ink">Rename institute</h2>
+        <p className="mt-1 text-sm text-admin-muted">
+          Changes the name shown across the institute. Its sign-in ID (
+          <span className="font-mono">{tenant.slug}</span>) stays the same.
+        </p>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Name
+            </span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              minLength={2}
+              autoFocus
+              className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
+            />
+          </label>
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-ink hover:bg-admin-bg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || trimmed.length < 2 || trimmed === tenant.name}
+              className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save name"}
             </button>
           </div>
         </form>
