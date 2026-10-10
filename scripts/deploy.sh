@@ -51,9 +51,16 @@ echo "==> Applying database migrations..."
 # made this split (the plain DATABASE_URL from .env is used instead, same
 # as before this existed).
 if [ -f .env.migrate ]; then
-  set -a
-  source .env.migrate
-  set +a
+  # Read the one value instead of `source`-ing the file: a connection string
+  # holds `&` (sslmode=...&sslrootcert=...), which the shell reads as
+  # "run in the background" when unquoted, so DATABASE_URL was silently never
+  # set and the migration ran as the restricted app role.
+  MIGRATE_URL="$(sed -n 's/^DATABASE_URL=//p' .env.migrate | head -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/")"
+  if [ -z "$MIGRATE_URL" ]; then
+    echo "Deploy stopped: .env.migrate exists but has no DATABASE_URL." >&2
+    exit 1
+  fi
+  export DATABASE_URL="$MIGRATE_URL"
 fi
 pnpm --filter @drsk/api exec prisma migrate deploy
 
