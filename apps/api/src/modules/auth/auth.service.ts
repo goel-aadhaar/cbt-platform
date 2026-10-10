@@ -229,7 +229,8 @@ export class AuthService {
     meta: SessionMeta,
   ): Promise<LoginResult> {
     const institute = await this.prisma.institute.findUnique({
-      where: { slug: instituteSlug },
+      // Institute IDs are stored lowercase; "Demo " must reach "demo".
+      where: { slug: instituteSlug.trim().toLowerCase() },
     });
     if (!institute) throw new UnauthorizedException('Invalid credentials');
 
@@ -372,12 +373,13 @@ export class AuthService {
     }
 
     const passwordHash = await this.passwords.hash(newPassword);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    const db = this.prisma.raw;
+    await db.$transaction([
+      db.user.update({
         where: { id: userId },
         data: { passwordHash },
       }),
-      this.prisma.session.updateMany({
+      db.session.updateMany({
         where: { userId, revokedAt: null, id: { not: sessionId } },
         data: { revokedAt: new Date() },
       }),
@@ -605,12 +607,19 @@ export class AuthService {
     const decoded = this.jwt.decode<{ exp: number }>(token);
     const expiresAt = new Date(decoded.exp * 1000);
 
-    await this.prisma.$transaction([
-      this.prisma.session.updateMany({
+    // The un-extended client on purpose. Through the extended one each step
+    // is wrapped in its own transaction and the batch no longer runs in order:
+    // the create could commit before the revoke, which then revoked the very
+    // session being issued and made a fresh sign-in fail with "signed in on
+    // another device". sessions/users carry no row-level security, so nothing
+    // here needs the tenant setting the extension adds.
+    const db = this.prisma.raw;
+    await db.$transaction([
+      db.session.updateMany({
         where: { userId, revokedAt: null },
         data: { revokedAt: new Date() },
       }),
-      this.prisma.session.create({
+      db.session.create({
         data: {
           id: sessionId,
           userId,
@@ -620,7 +629,7 @@ export class AuthService {
           activeRole,
         },
       }),
-      this.prisma.user.update({
+      db.user.update({
         where: { id: userId },
         data: { currentSessionId: sessionId },
       }),
