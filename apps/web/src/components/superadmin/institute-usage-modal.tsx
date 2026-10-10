@@ -72,7 +72,7 @@ export function InstituteUsageModal({
             </h2>
             <p className="text-sm text-admin-muted">
               {ready?.institute.name ?? instituteName ?? "Loading…"}
-              {ready ? ` · ${ready.institute.slug}` : ""}
+              {ready ? ` · Institute ID ${ready.institute.slug}` : ""}
             </p>
           </div>
           <button

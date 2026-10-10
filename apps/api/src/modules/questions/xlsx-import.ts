@@ -19,7 +19,9 @@ import { ParsedQuestion } from './ports/question-import.port';
  * Required: `statement`, `answer`.
  * Options:  `optiona` … `optionh` (or `a` … `h`), omit for INTEGER questions.
  * Optional: `type`, `difficulty`, `marks`, `negativemarks`, `explanation`,
- *           `tags`, `language`.
+ *           `tags`, `language`, and a serial-number column (`no`, `sr`,
+ *           `sr no`, `serial`, `s.no`, `#`, `q no`) holding the number the
+ *           author gave each question.
  *
  * Headers are matched case-insensitively with spaces removed, so
  * "Option A", "option a" and "optiona" are the same column, and "Negative
@@ -51,6 +53,44 @@ function optionFor(
   return undefined;
 }
 
+/**
+ * Header spellings (normalised: lower-case, spaces removed) accepted for the
+ * author's own question number. Kept as `sourceLabel` so the numbering in the
+ * file can be compared with the position the question actually has in it.
+ */
+const SERIAL_COLUMNS = [
+  'no',
+  'no.',
+  'sr',
+  'sr.',
+  'srno',
+  'srno.',
+  'sr.no',
+  'sr.no.',
+  'sno',
+  's.no',
+  's.no.',
+  'serial',
+  'serialno',
+  'serialnumber',
+  '#',
+  'qno',
+  'q.no',
+  'q.no.',
+  'qn',
+  'questionno',
+  'questionno.',
+  'questionnumber',
+];
+
+function serialFor(row: Record<string, string>): string | undefined {
+  for (const c of SERIAL_COLUMNS) {
+    const v = row[c];
+    if (v !== undefined && v !== '') return v;
+  }
+  return undefined;
+}
+
 /** Columns that are metadata rather than content, mapped to the DOCX meta keys. */
 const META_COLUMNS: Record<string, string> = {
   type: 'type',
@@ -75,7 +115,12 @@ export async function parseQuestionSheet(
   });
   const questions: ParsedQuestion[] = [];
 
+  // Position among the sheet's data rows (blank-padding rows are already gone),
+  // counted BEFORE a statement-less row is skipped, so that row leaves a gap in
+  // the numbering instead of every later question silently moving up.
+  let sourceSeq = 0;
   for (const { row: sourceRow, data: row } of rows) {
+    sourceSeq++;
     const statement = (row.statement ?? row.question ?? '').trim();
     // A row with no statement is padding, not a failure — spreadsheets are full
     // of trailing rows that carry a stray format but no content. A row with a
@@ -109,6 +154,8 @@ export async function parseQuestionSheet(
       // Word document has no such thing, so it stays undefined there and the
       // importer falls back to the question's position in the file.
       sourceRow,
+      sourceSeq,
+      ...(serialFor(row) ? { sourceLabel: serialFor(row) } : {}),
     });
   }
 

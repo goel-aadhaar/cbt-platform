@@ -20,6 +20,11 @@ export interface QuestionListItem {
   subjectId: string;
   chapterId: string;
   topicId: string | null;
+  /** The chapter's unit, derived (a question stores no unit of its own). */
+  chapterRef?: {
+    unitId: string | null;
+    unit: { id: string; name: string } | null;
+  } | null;
   difficulty: Difficulty;
   type: QuestionType;
   examCategoryId: string | null;
@@ -33,6 +38,12 @@ export interface QuestionListItem {
   createdAt: string;
   /** Author, so a teacher can pick their own work out of the bank. */
   createdBy: { id: string; name: string } | null;
+  /** Position in the uploaded file (1-based); null for hand-authored ones. */
+  sourceSeq?: number | null;
+  /** The number the author wrote for it in the file ("10", "Q10"). */
+  sourceLabel?: string | null;
+  /** The upload that created it, for the review screen. */
+  importRunId?: string | null;
 }
 
 /**
@@ -43,7 +54,11 @@ export interface QuestionListItem {
 export interface QuestionQuery {
   status?: QuestionStatus;
   subjectId?: string;
+  /** A unit id, or `"unassigned"` for chapters that have no unit. */
+  unitId?: string;
   chapterId?: string;
+  /** Any of these chapters (max 50); combines with `chapterId` as an intersection. */
+  chapterIds?: string[];
   topicId?: string;
   difficulty?: Difficulty;
   type?: QuestionType;
@@ -54,6 +69,8 @@ export interface QuestionQuery {
   mine?: boolean;
   /** Free-text, served by the Postgres full-text search port. */
   search?: string;
+  /** Only what one upload created, in the order of the source file. */
+  importRunId?: string;
   limit?: number;
   offset?: number;
 }
@@ -62,7 +79,9 @@ export interface QuestionQuery {
 export type QuestionFilters = Pick<
   QuestionQuery,
   | "subjectId"
+  | "unitId"
   | "chapterId"
+  | "chapterIds"
   | "topicId"
   | "difficulty"
   | "type"
@@ -103,7 +122,9 @@ export async function listQuestions(
   const params = new URLSearchParams();
   if (q.status) params.set("status", q.status);
   if (q.subjectId) params.set("subjectId", q.subjectId);
+  if (q.unitId) params.set("unitId", q.unitId);
   if (q.chapterId) params.set("chapterId", q.chapterId);
+  if (q.chapterIds?.length) params.set("chapterIds", q.chapterIds.join(","));
   if (q.topicId) params.set("topicId", q.topicId);
   if (q.difficulty) params.set("difficulty", q.difficulty);
   if (q.type) params.set("type", q.type);
@@ -111,6 +132,7 @@ export async function listQuestions(
   if (q.tag) params.set("tag", q.tag);
   if (q.mine) params.set("mine", "true");
   if (q.search) params.set("search", q.search);
+  if (q.importRunId) params.set("importRunId", q.importRunId);
   const limit = q.limit ?? 50;
   const offset = q.offset ?? 0;
   params.set("limit", String(limit));
@@ -258,8 +280,25 @@ export interface QuestionImportDefaults {
 
 export interface QuestionImportSummary {
   total: number;
-  imported: { index: number; id: string; type: string; statement: string }[];
-  failed: { index: number; statement: string; reason: string }[];
+  /** The upload to open on the review screen. */
+  importRunId: string;
+  imported: {
+    index: number;
+    id: string;
+    type: string;
+    statement: string;
+    sourceSeq: number;
+    sourceLabel: string | null;
+  }[];
+  failed: {
+    index: number;
+    statement: string;
+    reason: string;
+    sourceSeq: number;
+    sourceLabel: string | null;
+  }[];
+  /** Numbering oddities in the file (jumps, duplicates, skipped items). */
+  warnings: string[];
 }
 
 /**
@@ -382,6 +421,113 @@ export function setQuestionMedia(
   return apiFetch<QuestionDetail>(`/questions/${id}`, {
     method: "PATCH",
     body: confirm ? { mediaKeys, confirm: true } : { mediaKeys },
+    token: getToken() ?? undefined,
+  });
+}
+
+/** Things a reviewer should look at again before approving. */
+export type ReviewFlag = "formula" | "answer" | "label";
+
+/** A question as the review screen lists it: full content plus its flags. */
+export type ReviewQuestion = QuestionDetail & { flags?: ReviewFlag[] };
+
+/** Matches an equation that came in from Word and still needs retyping. */
+export const FORMULA_PLACEHOLDER_RE = /\[\[EQ\b/;
+
+/** True when any of these texts still carries a `[[EQ: …]]` placeholder. */
+export function hasFormulaPlaceholder(
+  ...texts: (string | null | undefined)[]
+): boolean {
+  return texts.some((t) => !!t && FORMULA_PLACEHOLDER_RE.test(t));
+}
+
+/** True when the author's own number disagrees with the question's position. */
+export function labelDiffersFromPosition(q: {
+  sourceSeq?: number | null;
+  sourceLabel?: string | null;
+}): boolean {
+  const n = /\d+/.exec(q.sourceLabel ?? "");
+  return !!q.sourceSeq && !!n && Number(n[0]) !== q.sourceSeq;
+}
+
+/** "Q10" for an imported question — its position, with the file's own label. */
+export function sourceNumberText(q: {
+  sourceSeq?: number | null;
+  sourceLabel?: string | null;
+}): string | null {
+  if (!q.sourceSeq) return null;
+  return labelDiffersFromPosition(q)
+    ? `Q${q.sourceSeq} (file: ${q.sourceLabel})`
+    : `Q${q.sourceSeq}`;
+}
+
+/** GET /imports/:id — one upload, with its failures and numbering warnings. */
+export interface ImportRunDetail {
+  id: string;
+  kind: "STUDENTS_CSV" | "QUESTIONS_DOCX";
+  fileName: string;
+  totalRows: number;
+  importedRows: number;
+  failedRows: number;
+  failures: {
+    index?: number;
+    statement?: string;
+    reason?: string;
+    sourceSeq?: number;
+    sourceLabel?: string | null;
+  }[];
+  target: string | null;
+  createdAt: string;
+  createdBy: { id: string; name: string } | null;
+  warnings: string[];
+}
+
+export function getImportRun(id: string): Promise<ImportRunDetail> {
+  return apiFetch<ImportRunDetail>(`/imports/${id}`, {
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Every question one upload created, in source order. The API caps a page at
+ * 200 and an import at 500, so this walks the pages rather than assuming one.
+ */
+export async function listImportRunQuestions(
+  importRunId: string,
+): Promise<ReviewQuestion[]> {
+  const out: ReviewQuestion[] = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await listQuestions({ importRunId, limit: 200, offset });
+    out.push(...(page.items as ReviewQuestion[]));
+    if (out.length >= page.total || page.items.length === 0) break;
+  }
+  return out;
+}
+
+export type BulkQuestionActionName = "submit" | "approve" | "reject";
+
+export interface BulkQuestionResult {
+  results: { id: string; ok: boolean; error?: string }[];
+  ok: number;
+  failed: number;
+  /** Questions of the run left alone because the action did not apply. */
+  skipped: number;
+}
+
+/**
+ * POST /questions/bulk — send everything one upload created (`importRunId`) or
+ * a list of questions (`ids`) through the review workflow. Teachers can only
+ * `submit`. Each question gets its own result, so a partial failure is visible.
+ */
+export function bulkQuestionAction(input: {
+  importRunId?: string;
+  ids?: string[];
+  action: BulkQuestionActionName;
+  reason?: string;
+}): Promise<BulkQuestionResult> {
+  return apiFetch<BulkQuestionResult>(`/questions/bulk`, {
+    method: "POST",
+    body: input,
     token: getToken() ?? undefined,
   });
 }

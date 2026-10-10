@@ -24,6 +24,7 @@ import {
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ArchiveQuestionDto } from './dto/archive-question.dto';
+import { BulkQuestionActionDto } from './dto/bulk-question-action.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { ExportQuestionsDto } from './dto/export-questions.dto';
 import { QueryQuestionsDto } from './dto/query-questions.dto';
@@ -81,6 +82,11 @@ export class QuestionsController {
    * `subjectId`/`chapterId` apply to every question in the file (selected once
    * via the import dialog's cascading dropdowns); `examCategoryId` is optional;
    * `difficulty`/`type` are per-row defaults for rows that omit them.
+   *
+   * EVERY imported question is created as a DRAFT — an administrator's upload
+   * included — and tagged with its position in the file (`sourceSeq`) and the
+   * number the author wrote (`sourceLabel`). The response carries the
+   * `importRunId` to open the review screen with, and numbering `warnings`.
    */
   /** The blank workbook to fill in, with the columns the parser expects. */
   @Get('import/template')
@@ -131,6 +137,16 @@ export class QuestionsController {
       { subjectId, chapterId, difficulty, type, examCategoryId },
       file.originalname,
     );
+  }
+
+  /**
+   * Submit / approve / reject many questions in one call — everything one
+   * import created (`importRunId`) or a list of `ids`. Teachers may only
+   * `submit`; see QuestionsService.bulkAction for the per-question semantics.
+   */
+  @Post('bulk')
+  bulk(@Body() dto: BulkQuestionActionDto) {
+    return this.questions.bulkAction(dto);
   }
 
   @Get()

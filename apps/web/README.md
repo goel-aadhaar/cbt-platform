@@ -76,10 +76,10 @@ Open **http://localhost:3000** → it redirects to `/login`.
 
 Create `apps/web/.env.local` (git-ignored). Defaults live in [`.env.example`](.env.example):
 
-| Variable                             | Default                        | Purpose                                                |
-| ------------------------------------ | ------------------------------ | ------------------------------------------------------ |
-| `NEXT_PUBLIC_API_URL`                | `http://localhost:4000/api/v1` | Base URL of the backend API.                           |
-| `NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG` | _(empty)_                      | Pre-fills the "Institute Code" field on student login. |
+| Variable                             | Default                        | Purpose                                              |
+| ------------------------------------ | ------------------------------ | ---------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`                | `http://localhost:4000/api/v1` | Base URL of the backend API.                         |
+| `NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG` | _(empty)_                      | Pre-fills the "Institute ID" field on student login. |
 
 ---
 
@@ -91,7 +91,7 @@ After running `pnpm --filter @drsk/api db:seed:dev`:
 
 | Field               | Value                          |
 | ------------------- | ------------------------------ |
-| Institute Code      | `demo`                         |
+| Institute ID        | `demo`                         |
 | Registration Number | `2400183920` (or `2400183921`) |
 | Password            | `Student@123`                  |
 
@@ -140,4 +140,4 @@ Run with `pnpm --filter @drsk/web <script>`:
 
 - **API unreachable** — the API runs on `4000` and the web app on `3000`; they no longer compete for a port. If a call fails, confirm the API health endpoint responds: `curl http://localhost:4000/api/health`.
 - **Admin login returns 500 with `database: down`** — the dev Neon database auto-suspends when idle and cold-starts on the first request (can take ~20–30s). Wait and retry; it recovers on its own.
-- **Login says "invalid credentials"** — make sure you ran `pnpm --filter @drsk/api db:seed:dev` and used the demo credentials above (student logs in with the **Institute Code**, not an email).
+- **Login says "invalid credentials"** — make sure you ran `pnpm --filter @drsk/api db:seed:dev` and used the demo credentials above (student logs in with the **Institute ID**, not an email).

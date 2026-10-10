@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 
+import { IsInstituteSlug } from './institute-slug';
+
 /**
  * Self-service edit for the caller's own institute (§ institute branding).
  * Deliberately separate from the superadmin's `UpdateInstituteDto` — no
@@ -12,6 +14,9 @@ export class UpdateMyInstituteDto {
   @IsString()
   @MinLength(2)
   name?: string;
+
+  @IsInstituteSlug()
+  slug?: string;
 
   /**
    * Storage key of a `Media` row this institute already owns (uploaded via

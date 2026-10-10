@@ -109,10 +109,10 @@ export function createTenant(body: {
   return apiFetch("/institutes", { method: "POST", body, token: token() });
 }
 
-/** Rename, suspend or restore. Suspension blocks every login for the tenant. */
+/** Rename, change Institute ID, suspend or restore. Suspension blocks every login for the tenant. */
 export function updateTenant(
   id: string,
-  body: { name?: string; isActive?: boolean },
+  body: { name?: string; slug?: string; isActive?: boolean },
 ): Promise<Tenant> {
   return apiFetch(`/institutes/${id}`, {
     method: "PATCH",
@@ -316,14 +316,52 @@ export function getMyInstitute(): Promise<MyInstitute> {
   return apiFetch<MyInstitute>("/institutes/me", { token: token() });
 }
 
-/** PATCH /institutes/me — rename (and only rename) the caller's institute. */
-export function renameMyInstitute(name: string): Promise<MyInstitute> {
+/**
+ * PATCH /institutes/me — change the caller's institute name and/or Institute ID
+ * (`slug`, what students type at sign-in). ADMIN-only; send only what changed.
+ * A taken ID comes back as a 409 whose message is safe to show as-is.
+ */
+export function updateMyInstitute(patch: {
+  name?: string;
+  slug?: string;
+}): Promise<MyInstitute> {
   return apiFetch<MyInstitute>("/institutes/me", {
     method: "PATCH",
-    body: { name },
+    body: patch,
     token: token(),
   });
 }
+
+/** PATCH /institutes/me — rename the caller's institute. */
+export function renameMyInstitute(name: string): Promise<MyInstitute> {
+  return updateMyInstitute({ name });
+}
+
+/**
+ * Shape-as-you-type for an Institute ID field: lowercase, anything outside
+ * a-z / 0-9 becomes a hyphen, runs collapse, and leading hyphens are dropped.
+ * A trailing hyphen is kept on purpose — stripping it while typing makes
+ * "sunrise-academy" impossible to enter by hand. Run
+ * {@link finalizeInstituteId} before sending.
+ */
+export function normalizeInstituteIdInput(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "");
+}
+
+/** The value to send: {@link normalizeInstituteIdInput} minus a trailing hyphen. */
+export function finalizeInstituteId(raw: string): string {
+  return normalizeInstituteIdInput(raw).replace(/-+$/, "");
+}
+
+export const INSTITUTE_ID_MIN_LENGTH = 3;
+export const INSTITUTE_ID_MAX_LENGTH = 40;
+
+/** What an admin must know before changing the ID students sign in with. */
+export const INSTITUTE_ID_CHANGE_WARNING =
+  "Students sign in with this ID. Credential emails already sent show the old ID, so tell your students the new one. Old bookmarks and saved logins stop working. If this institute's web deployment sets NEXT_PUBLIC_DEFAULT_INSTITUTE_SLUG, that setting must be updated too.";
 
 /**
  * PATCH /institutes/me — set or clear the institute's logo. `logoKey` is the

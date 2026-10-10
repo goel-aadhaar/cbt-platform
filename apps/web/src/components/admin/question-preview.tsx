@@ -1,5 +1,6 @@
 import { AuthedImage } from "@/components/authed-image";
-import type { QuestionDetail } from "@/lib/questions";
+import { RichText } from "@/components/rich-text";
+import { sourceNumberText, type QuestionDetail } from "@/lib/questions";
 
 import { CheckCircleIcon } from "./icons";
 
@@ -29,6 +30,7 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         {[
+          sourceNumberText(question),
           `Sub: ${question.subject}`,
           `Ch: ${question.chapter}`,
           question.topic ? `Topic: ${question.topic}` : null,
@@ -57,9 +59,10 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
         <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
           Question Stem
         </p>
-        <p className="mt-3 whitespace-pre-wrap text-admin-ink">
-          {question.statement}
-        </p>
+        <RichText
+          text={question.statement}
+          className="mt-3 whitespace-pre-wrap text-admin-ink"
+        />
         {question.mediaKeys.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-3">
             {question.mediaKeys.map((key) => (
@@ -111,7 +114,11 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
                         {o.key}
                       </span>
                     )}
-                    <p className="font-semibold text-admin-ink">{o.text}</p>
+                    <RichText
+                      text={o.text}
+                      as="div"
+                      className="font-semibold text-admin-ink"
+                    />
                   </div>
                 );
               })}
@@ -125,9 +132,10 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
           <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
             Explanation
           </p>
-          <p className="mt-3 whitespace-pre-wrap text-admin-ink">
-            {question.explanation}
-          </p>
+          <RichText
+            text={question.explanation}
+            className="mt-3 whitespace-pre-wrap text-admin-ink"
+          />
         </section>
       )}
     </div>

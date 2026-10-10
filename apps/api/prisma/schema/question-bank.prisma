@@ -37,6 +37,7 @@ model Subject {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  units     Unit[]
   chapters  Chapter[]
   questions Question[]
 
@@ -47,8 +48,10 @@ model Subject {
   dpps      Dpp[]
 }
 
-/// A chapter within a subject. Admin-managed; mirrors Class (academic.prisma).
-model Chapter {
+/// A unit within a subject — the level between Subject and Chapter (Subject →
+/// Unit → Chapter → Topic). Optional grouping: a chapter without a unit is
+/// "Unassigned", so adding units never forces a backfill. Admin-managed.
+model Unit {
   id          String   @id @default(uuid()) @db.Uuid
   instituteId String   @map("institute_id") @db.Uuid
   subjectId   String   @map("subject_id") @db.Uuid
@@ -57,8 +60,32 @@ model Chapter {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  institute Institute @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  subject   Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  chapters  Chapter[]
+
+  @@unique([subjectId, name])
+  @@index([instituteId])
+  @@index([subjectId])
+  @@map("units")
+}
+
+/// A chapter within a subject. Admin-managed; mirrors Class (academic.prisma).
+model Chapter {
+  id          String   @id @default(uuid()) @db.Uuid
+  instituteId String   @map("institute_id") @db.Uuid
+  subjectId   String   @map("subject_id") @db.Uuid
+  /// Optional parent unit. The chapter always keeps its subject; the service
+  /// checks the unit belongs to the same subject.
+  unitId      String?  @map("unit_id") @db.Uuid
+  name        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
   institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
   subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  unit      Unit?      @relation(fields: [unitId], references: [id], onDelete: SetNull)
   topics    Topic[]
   questions Question[]
   resources Resource[]
@@ -67,6 +94,7 @@ model Chapter {
   @@unique([subjectId, name])
   @@index([instituteId])
   @@index([subjectId])
+  @@index([unitId])
   @@map("chapters")
 }
 
@@ -119,6 +147,14 @@ model Question {
   examCategoryId String?  @map("exam_category_id") @db.Uuid
   tags       String[]     @default([])
 
+  // Where this question came from in an upload. `sourceSeq` is the 1-based
+  // position of the block/row in the file and `sourceLabel` the number the
+  // author wrote ("10", "Q10"), so the original order and numbering can always
+  // be reproduced. Null for questions typed in by hand.
+  sourceSeq   Int?    @map("source_seq")
+  sourceLabel String? @map("source_label")
+  importRunId String? @map("import_run_id") @db.Uuid
+
   // Content (§2.4). options/answerKey are JSON to fit all types:
   //   MCQ  → options [{key,text}], answerKey "A"
   //   MSQ  → options [{key,text}], answerKey ["A","C"]
@@ -160,6 +196,7 @@ model Question {
   chapterRef      Chapter      @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   topicRef        Topic?       @relation(fields: [topicId], references: [id], onDelete: SetNull)
   examCategory    ExamCategory? @relation(fields: [examCategoryId], references: [id], onDelete: SetNull)
+  importRun       ImportRun?   @relation(fields: [importRunId], references: [id], onDelete: SetNull)
   examQuestions ExamQuestion[]
   responses     Response[]
   practiceAnswers PracticeAnswer[]
@@ -171,6 +208,7 @@ model Question {
   @@index([subjectId])
   @@index([chapterId])
   @@index([examCategoryId])
+  @@index([importRunId, sourceSeq])
   @@index([searchVector], type: Gin)
   @@map("questions")
 }

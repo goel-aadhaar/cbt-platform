@@ -213,6 +213,11 @@ model ExamSection {
   order        Int
   marksCorrect Float    @default(4) @map("marks_correct")
   marksWrong   Float    @default(1) @map("marks_wrong")
+  /// Chapter-wise weightage the author set for this section, e.g.
+  /// { total: 45, items: [{ chapterId, percent: 40, count: 18 }, ...] }.
+  /// Informational target used to compare against the questions actually in
+  /// the section; scoring never reads it. Null when none was set.
+  blueprint    Json?
   createdAt    DateTime @default(now()) @map("created_at")
 
   exam      Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)

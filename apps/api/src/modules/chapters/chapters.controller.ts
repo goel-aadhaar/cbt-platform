@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseBoolPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -34,8 +35,12 @@ export class ChaptersController {
   findAll(
     @Query('subjectId', new ParseUUIDPipe({ optional: true }))
     subjectId?: string,
+    @Query('unitId', new ParseUUIDPipe({ optional: true }))
+    unitId?: string,
+    @Query('unassigned', new ParseBoolPipe({ optional: true }))
+    unassigned?: boolean,
   ) {
-    return this.chapters.findAll(subjectId);
+    return this.chapters.findAll(subjectId, unitId, unassigned);
   }
 
   @Get(':id')

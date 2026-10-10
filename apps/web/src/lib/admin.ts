@@ -8,6 +8,7 @@
 import { apiFetch } from "./api";
 import { getToken } from "./auth";
 import { listExamCategories, type ExamCategory } from "./exam-categories";
+import type { SectionBlueprint } from "./exam-blueprint";
 import type { Paginated } from "./students";
 
 const auth = () => ({ token: getToken() ?? undefined });
@@ -83,12 +84,16 @@ export interface ExamDetail {
     order: number;
     marksCorrect: number;
     marksWrong: number;
+    /** Chapter-wise weightage the author set; null when none (informational). */
+    blueprint: SectionBlueprint | null;
     questions: {
       id: string;
       order: number;
       question: {
         id: string;
         subject: string;
+        chapterId: string;
+        chapter: string;
         type: string;
         statement: string;
         marks: number;
@@ -661,7 +666,12 @@ export function scheduleAssessment(
 /** POST /exams/:id/sections */
 export function addSection(
   examId: string,
-  body: { name: string; marksCorrect?: number; marksWrong?: number },
+  body: {
+    name: string;
+    marksCorrect?: number;
+    marksWrong?: number;
+    blueprint?: SectionBlueprint;
+  },
 ): Promise<{ id: string; name: string; order: number }> {
   return apiFetch(`/exams/${examId}/sections`, {
     method: "POST",
@@ -704,10 +714,78 @@ export function updateExam(
 export function updateSection(
   examId: string,
   sectionId: string,
-  body: { name?: string; marksCorrect?: number; marksWrong?: number },
+  body: {
+    name?: string;
+    marksCorrect?: number;
+    marksWrong?: number;
+    /** Omit to leave the weightage alone; null clears it. */
+    blueprint?: SectionBlueprint | null;
+  },
 ): Promise<{ id: string; name: string; order: number }> {
   return apiFetch(`/exams/${examId}/sections/${sectionId}`, {
     method: "PATCH",
+    body,
+    ...auth(),
+  });
+}
+
+/* ---------------- Chapter-wise weightage ---------------- */
+
+export interface BlueprintChapter {
+  chapterId: string;
+  name: string;
+  /** Approved, active questions the chapter could contribute. */
+  approvedCount: number;
+}
+
+/** GET /exams/blueprint/chapters — a subject's chapters with approved counts. */
+export function fetchBlueprintChapters(
+  subjectId: string,
+): Promise<BlueprintChapter[]> {
+  return apiFetch<BlueprintChapter[]>(
+    `/exams/blueprint/chapters?subjectId=${encodeURIComponent(subjectId)}`,
+    auth(),
+  );
+}
+
+export interface BlueprintPickQuestion {
+  id: string;
+  statement: string;
+  type: "MCQ" | "MSQ" | "INTEGER";
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  marks: number;
+  subject: string;
+  chapter: string;
+  topic: string | null;
+  topicId: string | null;
+}
+
+export interface BlueprintPickResult {
+  picks: {
+    questionId: string;
+    chapterId: string;
+    chapter: string;
+    question: BlueprintPickQuestion;
+  }[];
+  counts: {
+    chapterId: string;
+    percent: number;
+    wanted: number;
+    picked: number;
+    available: number;
+  }[];
+  shortfalls: { chapterId: string; wanted: number; available: number }[];
+}
+
+/** POST /exams/blueprint/pick — suggests random approved questions; writes nothing. */
+export function pickByBlueprint(body: {
+  subjectId: string;
+  total: number;
+  items: { chapterId: string; percent: number }[];
+  excludeQuestionIds?: string[];
+}): Promise<BlueprintPickResult> {
+  return apiFetch<BlueprintPickResult>(`/exams/blueprint/pick`, {
+    method: "POST",
     body,
     ...auth(),
   });
@@ -1023,7 +1101,7 @@ export function refreshOrgCatalogue(): void {
 }
 
 /* ------------------------------------------------------------------ *
- * QUESTION TAXONOMY — subject → chapter → topic (§2.4)                *
+ * QUESTION TAXONOMY — subject → unit → chapter → topic (§2.4)        *
  * ------------------------------------------------------------------ */
 
 export interface Subject {
@@ -1031,10 +1109,22 @@ export interface Subject {
   name: string;
   isActive: boolean;
 }
+/** Optional level between a subject and its chapters. */
+export interface UnitRow {
+  id: string;
+  name: string;
+  subjectId: string;
+  isActive: boolean;
+  /** Active chapters currently inside the unit. */
+  chapterCount: number;
+}
 export interface ChapterRow {
   id: string;
   name: string;
   subjectId: string;
+  /** null = "Unassigned" (no unit). */
+  unitId?: string | null;
+  unit?: { id: string; name: string } | null;
   isActive: boolean;
 }
 export interface TopicRow {
@@ -1068,20 +1158,97 @@ export function archiveSubject(id: string): Promise<Subject> {
   return apiFetch(`/subjects/${id}`, { method: "DELETE", ...auth() });
 }
 
+/** GET /units — ADMIN or TEACHER, optionally scoped to a subject. */
+export function listUnits(subjectId?: string): Promise<UnitRow[]> {
+  const qs = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : "";
+  return apiFetch<UnitRow[]>(`/units${qs}`, auth());
+}
+
+/** POST /units — ADMIN. Name must be unique within the subject. */
+export function createUnit(subjectId: string, name: string): Promise<UnitRow> {
+  return apiFetch(`/units`, {
+    method: "POST",
+    body: { subjectId, name },
+    ...auth(),
+  });
+}
+
+/** PATCH /units/:id — rename. */
+export function renameUnit(id: string, name: string): Promise<UnitRow> {
+  return apiFetch(`/units/${id}`, {
+    method: "PATCH",
+    body: { name },
+    ...auth(),
+  });
+}
+
+/** DELETE /units/:id — ADMIN. Refused while the unit still has active chapters. */
+export function archiveUnit(id: string): Promise<UnitRow> {
+  return apiFetch(`/units/${id}`, { method: "DELETE", ...auth() });
+}
+
 /** GET /chapters — ADMIN or TEACHER, optionally scoped to a subject. */
 export function listChapters(subjectId?: string): Promise<ChapterRow[]> {
   const qs = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : "";
   return apiFetch<ChapterRow[]>(`/chapters${qs}`, auth());
 }
 
+/**
+ * Per-subject unit and chapter lists for the question filter bar, import/export
+ * modals and author drawer — they all mount together on the Question Bank, so
+ * sharing the in-flight request avoids fetching the same list several times.
+ * Short-lived (rows are edited on the taxonomy page, possibly by someone else)
+ * and dropped by `refreshQuestionTaxonomyCatalogue()`.
+ */
+const TAXONOMY_LIST_TTL_MS = 60_000;
+type CachedList<T> = { at: number; promise: Promise<T[]> };
+const unitListCache = new Map<string, CachedList<UnitRow>>();
+const chapterListCache = new Map<string, CachedList<ChapterRow>>();
+
+function cachedList<T>(
+  cache: Map<string, CachedList<T>>,
+  subjectId: string,
+  load: () => Promise<T[]>,
+): Promise<T[]> {
+  const hit = cache.get(subjectId);
+  if (hit && Date.now() - hit.at < TAXONOMY_LIST_TTL_MS) return hit.promise;
+  const promise = load();
+  cache.set(subjectId, { at: Date.now(), promise });
+  promise.catch(() => {
+    if (cache.get(subjectId)?.promise === promise) cache.delete(subjectId);
+  });
+  return promise;
+}
+
+export function listUnitsCached(subjectId: string): Promise<UnitRow[]> {
+  return cachedList(unitListCache, subjectId, () => listUnits(subjectId));
+}
+
+export function listChaptersCached(subjectId: string): Promise<ChapterRow[]> {
+  return cachedList(chapterListCache, subjectId, () => listChapters(subjectId));
+}
+
 /** POST /chapters — ADMIN. Name must be unique within the subject. */
 export function createChapter(
   subjectId: string,
   name: string,
+  unitId?: string,
 ): Promise<ChapterRow> {
   return apiFetch(`/chapters`, {
     method: "POST",
-    body: { subjectId, name },
+    body: { subjectId, name, ...(unitId ? { unitId } : {}) },
+    ...auth(),
+  });
+}
+
+/** PATCH /chapters/:id — move to a unit of the same subject, or null to detach. */
+export function moveChapter(
+  id: string,
+  unitId: string | null,
+): Promise<ChapterRow> {
+  return apiFetch(`/chapters/${id}`, {
+    method: "PATCH",
+    body: { unitId },
     ...auth(),
   });
 }
@@ -1193,6 +1360,8 @@ export function subscribeQuestionTaxonomyCatalogue(
 
 /** Cache invalidation after a subject or exam-category create/rename/archive. */
 export function refreshQuestionTaxonomyCatalogue(): void {
+  unitListCache.clear();
+  chapterListCache.clear();
   taxonomyCatalogueCache = null;
   taxonomyCatalogueFetch = null;
   ensureQuestionTaxonomyCatalogueFetched();

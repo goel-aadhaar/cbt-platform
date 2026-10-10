@@ -14,6 +14,7 @@ import {
 } from "@/lib/exam-preflight";
 import { computeExamStats, type StatsSection } from "@/lib/exam-stats";
 
+import { ExamBlueprintSummary } from "./exam-blueprint-compare";
 import { CheckIcon, EyeIcon, XIcon } from "./icons";
 import { PreFlightPanel } from "./preflight-panel";
 import { QuestionPreviewModal } from "./question-preview-modal";
@@ -41,10 +42,13 @@ function toPreflightSections(exam: ExamDetail): PreflightSection[] {
   return exam.sections.map((s) => ({
     name: s.name,
     marksWrong: s.marksWrong,
+    blueprint: s.blueprint,
     questions: s.questions.map((q) => ({
       id: q.question.id,
       topicId: q.question.topicId,
       mediaKeys: q.question.mediaKeys,
+      chapterId: q.question.chapterId,
+      chapter: q.question.chapter,
     })),
   }));
 }
@@ -245,6 +249,15 @@ export function ExamReviewDrawer({
                 <ApprovalHistory exam={exam} />
 
                 <PreFlightPanel stats={stats} preflight={preflight} />
+
+                <ExamBlueprintSummary
+                  sections={exam.sections.map((s) => ({
+                    name: s.name,
+                    marksCorrect: s.marksCorrect,
+                    blueprint: s.blueprint,
+                    questions: s.questions.map((q) => q.question),
+                  }))}
+                />
 
                 {exam.instructions && (
                   <section>

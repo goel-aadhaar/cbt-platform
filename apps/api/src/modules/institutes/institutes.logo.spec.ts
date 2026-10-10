@@ -51,7 +51,12 @@ describe('InstitutesService — logo', () => {
       ),
     };
 
-    const service = new InstitutesService(prisma as never, storage as never);
+    const audit = { record: jest.fn() };
+    const service = new InstitutesService(
+      prisma as never,
+      storage as never,
+      audit as never,
+    );
     return { service, prisma, storage, getInstituteRow: () => instituteRow };
   }
 

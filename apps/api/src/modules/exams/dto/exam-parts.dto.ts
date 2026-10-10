@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsISO8601,
@@ -7,7 +8,10 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+
+import { SectionBlueprintDto } from './blueprint.dto';
 
 export class CreateSectionDto {
   @IsString()
@@ -22,6 +26,15 @@ export class CreateSectionDto {
   @IsOptional()
   @IsNumber()
   marksWrong?: number;
+
+  /**
+   * Chapter-wise weightage the author set for this section. Informational:
+   * scoring never reads it. On update, `null` clears it.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SectionBlueprintDto)
+  blueprint?: SectionBlueprintDto | null;
 }
 
 /**
@@ -43,6 +56,15 @@ export class UpdateSectionDto {
   @IsOptional()
   @IsNumber()
   marksWrong?: number;
+
+  /**
+   * Chapter-wise weightage the author set for this section. Informational:
+   * scoring never reads it. On update, `null` clears it.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SectionBlueprintDto)
+  blueprint?: SectionBlueprintDto | null;
 }
 
 export class AddQuestionDto {

@@ -16,8 +16,13 @@ import { SuperadminShell } from "@/components/staff/superadmin-shell";
 import {
   createTenant,
   deleteTenant,
+  finalizeInstituteId,
+  INSTITUTE_ID_CHANGE_WARNING,
+  INSTITUTE_ID_MAX_LENGTH,
+  INSTITUTE_ID_MIN_LENGTH,
   inviteAdmin,
   listTenants,
+  normalizeInstituteIdInput,
   type TenantQuery,
   type TenantSort,
   updateTenant,
@@ -142,7 +147,7 @@ function TenantsScreen() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or code…"
+            placeholder="Search by name or Institute ID…"
             className="h-11 w-full rounded-full border border-admin-line bg-white pl-10 pr-4 text-sm outline-none focus:border-admin"
           />
         </div>
@@ -259,10 +264,11 @@ function TenantsScreen() {
                     <td className="px-3 py-4">
                       <p className="font-bold text-admin-ink">{t.name}</p>
                       <p className="text-xs text-admin-muted">
-                        {t.slug} · code{" "}
+                        Institute ID <span className="font-mono">{t.slug}</span>{" "}
+                        · prefix{" "}
                         <span
                           className="font-mono"
-                          title="Embedded in every student registration number this institute issues"
+                          title="Registration prefix: part of every student registration number this institute issues. It cannot be changed."
                         >
                           {t.code}
                         </span>{" "}
@@ -309,7 +315,7 @@ function TenantsScreen() {
                           onClick={() => setRenamingFor(t)}
                           className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
                         >
-                          Rename
+                          Edit
                         </button>
                         <button
                           type="button"
@@ -368,16 +374,20 @@ function TenantsScreen() {
       />
 
       {renamingFor && (
-        <RenameTenantModal
+        <EditTenantModal
           tenant={renamingFor}
           onClose={() => setRenamingFor(null)}
-          onRenamed={(updated) => {
+          onSaved={(updated, changed) => {
             setTenants((prev) =>
               (prev ?? []).map((x) =>
                 x.id === updated.id ? { ...x, ...updated } : x,
               ),
             );
-            setNotice(`Renamed to "${updated.name}".`);
+            setNotice(
+              changed.slug
+                ? `Institute ID changed to "${updated.slug}". Tell the institute's students the new ID.`
+                : `Renamed to "${updated.name}".`,
+            );
             setRenamingFor(null);
           }}
         />
@@ -415,8 +425,8 @@ function CreateTenantModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // The slug is what candidates type at login, so it is derived from the name
-  // until someone deliberately edits it.
+  // The slug is the Institute ID candidates type at login, so it is derived
+  // from the name until someone deliberately edits it.
   const effectiveSlug = touchedSlug ? slug : slugify(name);
 
   async function submit(e: React.FormEvent) {
@@ -426,7 +436,7 @@ function CreateTenantModal({
     try {
       const created = await createTenant({
         name: name.trim(),
-        slug: effectiveSlug,
+        slug: finalizeInstituteId(effectiveSlug),
       });
       onCreated(created);
     } catch (err: unknown) {
@@ -460,20 +470,21 @@ function CreateTenantModal({
           </label>
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-bold uppercase text-admin-muted">
-              Institute code
+              Institute ID
             </span>
             <input
               value={effectiveSlug}
               onChange={(e) => {
                 setTouchedSlug(true);
-                setSlug(slugify(e.target.value));
+                setSlug(normalizeInstituteIdInput(e.target.value));
               }}
               required
               placeholder="sunrise-academy"
               className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
             />
             <span className="text-xs text-admin-muted">
-              Candidates type this at sign-in. It cannot be changed later.
+              Students type this at sign-in. The institute admin can edit it
+              later from their Organization page.
             </span>
           </label>
 
@@ -496,7 +507,9 @@ function CreateTenantModal({
             </button>
             <button
               type="submit"
-              disabled={saving || !name.trim() || !effectiveSlug}
+              disabled={
+                saving || !name.trim() || !finalizeInstituteId(effectiveSlug)
+              }
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
               {saving ? "Creating…" : "Create institute"}
@@ -508,30 +521,52 @@ function CreateTenantModal({
   );
 }
 
-/** Change an institute's display name. Its sign-in code and ID stay as they are. */
-function RenameTenantModal({
+/**
+ * Edit an institute's name and Institute ID (`slug`, what students type at
+ * sign-in). Only changed fields are sent. The registration prefix (`code`) is
+ * not editable: it is part of every registration number already issued.
+ */
+function EditTenantModal({
   tenant,
   onClose,
-  onRenamed,
+  onSaved,
 }: {
   tenant: Tenant;
   onClose: () => void;
-  onRenamed: (updated: Tenant) => void;
+  onSaved: (updated: Tenant, changed: { name: boolean; slug: boolean }) => void;
 }) {
   const [name, setName] = useState(tenant.name);
+  const [slug, setSlug] = useState(tenant.slug);
+  const [understood, setUnderstood] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trimmed = name.trim();
+  const finalSlug = finalizeInstituteId(slug);
+  const nameChanged = trimmed !== tenant.name;
+  const slugChanged = finalSlug !== tenant.slug;
+  const slugLengthOk =
+    finalSlug.length >= INSTITUTE_ID_MIN_LENGTH &&
+    finalSlug.length <= INSTITUTE_ID_MAX_LENGTH;
+  const canSave =
+    !saving &&
+    trimmed.length >= 2 &&
+    (nameChanged || slugChanged) &&
+    (!slugChanged || (slugLengthOk && understood));
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canSave) return;
     setSaving(true);
     setError(null);
     try {
-      onRenamed(await updateTenant(tenant.id, { name: trimmed }));
+      const updated = await updateTenant(tenant.id, {
+        ...(nameChanged ? { name: trimmed } : {}),
+        ...(slugChanged ? { slug: finalSlug } : {}),
+      });
+      onSaved(updated, { name: nameChanged, slug: slugChanged });
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : "Could not rename the institute.",
+        err instanceof Error ? err.message : "Could not save the institute.",
       );
       setSaving(false);
     }
@@ -539,11 +574,12 @@ function RenameTenantModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-bold text-admin-ink">Rename institute</h2>
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-admin-ink">Edit institute</h2>
         <p className="mt-1 text-sm text-admin-muted">
-          Changes the name shown across the institute. Its sign-in ID (
-          <span className="font-mono">{tenant.slug}</span>) stays the same.
+          The registration prefix (
+          <span className="font-mono">{tenant.code}</span>) is part of every
+          registration number already issued and cannot be changed.
         </p>
         <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
@@ -559,6 +595,43 @@ function RenameTenantModal({
               className="rounded-lg border border-admin-line px-3 py-2.5 text-sm outline-none focus:border-admin"
             />
           </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Institute ID
+            </span>
+            <input
+              value={slug}
+              onChange={(e) =>
+                setSlug(normalizeInstituteIdInput(e.target.value))
+              }
+              onBlur={() => setSlug(finalizeInstituteId(slug))}
+              required
+              maxLength={INSTITUTE_ID_MAX_LENGTH}
+              spellCheck={false}
+              autoCapitalize="none"
+              className="rounded-lg border border-admin-line px-3 py-2.5 font-mono text-sm outline-none focus:border-admin"
+            />
+            <span className="text-xs text-admin-muted">
+              Lowercase letters, numbers and hyphens, {INSTITUTE_ID_MIN_LENGTH}
+              {"–"}
+              {INSTITUTE_ID_MAX_LENGTH} characters.
+            </span>
+          </label>
+
+          {slugChanged && (
+            <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              <p>{INSTITUTE_ID_CHANGE_WARNING}</p>
+              <label className="flex items-start gap-2 font-semibold">
+                <input
+                  type="checkbox"
+                  checked={understood}
+                  onChange={(e) => setUnderstood(e.target.checked)}
+                  className="mt-0.5"
+                />
+                I understand
+              </label>
+            </div>
+          )}
 
           {error && (
             <p
@@ -579,10 +652,10 @@ function RenameTenantModal({
             </button>
             <button
               type="submit"
-              disabled={saving || trimmed.length < 2 || trimmed === tenant.name}
+              disabled={!canSave}
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
-              {saving ? "Saving…" : "Save name"}
+              {saving ? "Saving…" : "Save changes"}
             </button>
           </div>
         </form>

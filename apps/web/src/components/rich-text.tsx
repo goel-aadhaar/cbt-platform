@@ -47,12 +47,22 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Escape everything, then put the allowlisted formatting tags back. */
+/**
+ * Escape everything, then put the allowlisted formatting tags back. A Word
+ * equation that import could not convert (`[[EQ: …]]`) is marked so a reviewer
+ * cannot miss that it still has to be retyped as LaTeX.
+ */
 function escapeButKeepFormatting(s: string): string {
-  return escapeHtml(s).replace(
-    /&lt;(\/?)(strong|em|s|sub|sup|code|br|p|ul|ol|li|blockquote)\s*\/?&gt;/gi,
-    (_m, slash: string, tag: string) => `<${slash}${tag.toLowerCase()}>`,
-  );
+  return escapeHtml(s)
+    .replace(
+      /&lt;(\/?)(strong|em|s|sub|sup|code|br|p|ul|ol|li|blockquote)\s*\/?&gt;/gi,
+      (_m, slash: string, tag: string) => `<${slash}${tag.toLowerCase()}>`,
+    )
+    .replace(
+      /\[\[EQ:[\s\S]*?\]\]/g,
+      (m) =>
+        `<mark class="rounded bg-warn/30 px-1 font-mono text-xs text-ink">${m}</mark>`,
+    );
 }
 
 function renderMath(expr: string, display: boolean): string {

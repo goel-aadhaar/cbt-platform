@@ -16,7 +16,9 @@ import { Role } from '../auth/auth.types';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamCategoriesService } from '../exam-categories/exam-categories.service';
+import { planBlueprintPick, seededRandom } from './blueprint';
 import { AdminExamActionDto } from './dto/admin-exam-action.dto';
+import { BlueprintPickDto, SectionBlueprintDto } from './dto/blueprint.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
@@ -75,6 +77,18 @@ const examSelect = {
   approvedBy: { select: { id: true, name: true } },
 } satisfies Prisma.ExamSelect;
 
+/** Section columns returned by the section routes (not the full detail). */
+const sectionSelect = {
+  id: true,
+  name: true,
+  order: true,
+  marksCorrect: true,
+  marksWrong: true,
+  blueprint: true,
+} satisfies Prisma.ExamSectionSelect;
+
+const BLUEPRINT_PICK_PREVIEW_CHARS = 200;
+
 const examDetailSelect = {
   ...examSelect,
   sections: {
@@ -85,6 +99,7 @@ const examDetailSelect = {
       order: true,
       marksCorrect: true,
       marksWrong: true,
+      blueprint: true,
       questions: {
         orderBy: { order: 'asc' },
         select: {
@@ -94,6 +109,8 @@ const examDetailSelect = {
             select: {
               id: true,
               subject: true,
+              chapterId: true,
+              chapter: true,
               type: true,
               statement: true,
               marks: true,
@@ -277,7 +294,53 @@ export class ExamsService {
       select: examDetailSelect,
     });
     if (!exam) throw new NotFoundException('Exam not found');
-    return exam;
+    return this.withBlueprintChapterNames(exam);
+  }
+
+  /**
+   * A section's blueprint stores chapter ids only. Names are attached on read
+   * (not stored) so a renamed chapter shows its current name, and a chapter
+   * with no questions in the section can still be labelled in the review.
+   */
+  private async withBlueprintChapterNames<
+    T extends { sections: { blueprint: Prisma.JsonValue }[] },
+  >(exam: T): Promise<T> {
+    type StoredItem = { chapterId: string } & Record<string, unknown>;
+    const asBlueprint = (v: Prisma.JsonValue) =>
+      v && typeof v === 'object' && !Array.isArray(v)
+        ? (v as { total?: number; items?: StoredItem[] })
+        : null;
+
+    const ids = new Set<string>();
+    for (const s of exam.sections) {
+      for (const item of asBlueprint(s.blueprint)?.items ?? []) {
+        ids.add(item.chapterId);
+      }
+    }
+    if (ids.size === 0) return exam;
+
+    const rows = await this.prisma.chapter.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(rows.map((r) => [r.id, r.name]));
+    return {
+      ...exam,
+      sections: exam.sections.map((s) => {
+        const bp = asBlueprint(s.blueprint);
+        if (!bp?.items) return s;
+        return {
+          ...s,
+          blueprint: {
+            ...bp,
+            items: bp.items.map((i) => ({
+              ...i,
+              chapter: names.get(i.chapterId) ?? null,
+            })),
+          },
+        };
+      }),
+    };
   }
 
   async update(id: string, dto: UpdateExamDto) {
@@ -303,6 +366,13 @@ export class ExamsService {
 
   async addSection(examId: string, dto: CreateSectionDto) {
     const exam = await this.getDraft(examId);
+    if (dto.blueprint) {
+      await this.assertBlueprintChapters(
+        exam.instituteId,
+        dto.name,
+        dto.blueprint,
+      );
+    }
     const order = await this.prisma.examSection.count({ where: { examId } });
     return this.prisma.examSection.create({
       data: {
@@ -312,14 +382,11 @@ export class ExamsService {
         order,
         marksCorrect: dto.marksCorrect ?? 4,
         marksWrong: dto.marksWrong ?? 1,
+        ...(dto.blueprint && {
+          blueprint: dto.blueprint as unknown as Prisma.InputJsonValue,
+        }),
       },
-      select: {
-        id: true,
-        name: true,
-        order: true,
-        marksCorrect: true,
-        marksWrong: true,
-      },
+      select: sectionSelect,
     });
   }
 
@@ -342,20 +409,29 @@ export class ExamsService {
     });
     if (!section) throw new NotFoundException('Section not found in this exam');
 
+    if (dto.blueprint) {
+      await this.assertBlueprintChapters(
+        section.instituteId,
+        dto.name ?? section.name,
+        dto.blueprint,
+      );
+    }
+
     return this.prisma.examSection.update({
       where: { id: sectionId },
       data: {
         name: dto.name ?? undefined,
         marksCorrect: dto.marksCorrect ?? undefined,
         marksWrong: dto.marksWrong ?? undefined,
+        // `null` clears the weightage; `undefined` leaves it alone.
+        blueprint:
+          dto.blueprint === null
+            ? Prisma.DbNull
+            : dto.blueprint
+              ? (dto.blueprint as unknown as Prisma.InputJsonValue)
+              : undefined,
       },
-      select: {
-        id: true,
-        name: true,
-        order: true,
-        marksCorrect: true,
-        marksWrong: true,
-      },
+      select: sectionSelect,
     });
   }
 
@@ -424,6 +500,164 @@ export class ExamsService {
       });
     });
     return { removed: questionId };
+  }
+
+  /**
+   * Every chapter in the blueprint must exist in this institute and agree with
+   * the section's subject. A section stores its subject as a name, so the name
+   * is resolved to a subject when one matches; a section with some other label
+   * (e.g. "Section A") just needs all its chapters to share one subject.
+   */
+  private async assertBlueprintChapters(
+    instituteId: string,
+    sectionName: string,
+    blueprint: SectionBlueprintDto,
+  ) {
+    const ids = blueprint.items.map((i) => i.chapterId);
+    const chapters = await this.prisma.chapter.findMany({
+      where: { id: { in: ids }, instituteId },
+      select: { id: true, subjectId: true },
+    });
+    if (chapters.length !== new Set(ids).size) {
+      throw new BadRequestException(
+        'One or more chapters in the weightage do not exist in your institute',
+      );
+    }
+    const subject = await this.prisma.subject.findFirst({
+      where: {
+        instituteId,
+        name: { equals: sectionName.trim(), mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    const subjects = new Set(chapters.map((c) => c.subjectId));
+    const consistent = subject
+      ? subjects.size === 1 && subjects.has(subject.id)
+      : subjects.size <= 1;
+    if (!consistent) {
+      throw new BadRequestException(
+        "The weightage can only use chapters from the section's own subject",
+      );
+    }
+  }
+
+  /**
+   * The subject's active chapters with how many approved questions each could
+   * contribute, so the builder never lets a teacher ask for more than exist.
+   */
+  async blueprintChapters(subjectId: string) {
+    const { instituteId } = this.ctx();
+    const [chapters, grouped] = await Promise.all([
+      this.prisma.chapter.findMany({
+        where: { instituteId, subjectId, isActive: true },
+        orderBy: { name: 'asc' },
+        select: { id: true, name: true },
+      }),
+      this.prisma.question.groupBy({
+        by: ['chapterId'],
+        where: {
+          instituteId,
+          subjectId,
+          status: 'APPROVED',
+          isActive: true,
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    const counts = new Map(grouped.map((g) => [g.chapterId, g._count._all]));
+    return chapters.map((c) => ({
+      chapterId: c.id,
+      name: c.name,
+      approvedCount: counts.get(c.id) ?? 0,
+    }));
+  }
+
+  /**
+   * Auto-pick for the weightage panel. Returns suggestions only; nothing is
+   * written, so the teacher can swap or drop questions before saving.
+   */
+  async pickByBlueprint(dto: BlueprintPickDto) {
+    const { instituteId } = this.ctx();
+    const ids = dto.items.map((i) => i.chapterId);
+    const chapters = await this.prisma.chapter.findMany({
+      where: { id: { in: ids }, instituteId, subjectId: dto.subjectId },
+      select: { id: true, name: true },
+    });
+    if (chapters.length !== ids.length) {
+      throw new BadRequestException(
+        'Every chapter must belong to the chosen subject in your institute',
+      );
+    }
+    const chapterName = new Map(chapters.map((c) => [c.id, c.name]));
+
+    const eligible = await this.prisma.question.findMany({
+      where: {
+        instituteId,
+        subjectId: dto.subjectId,
+        chapterId: { in: ids },
+        status: 'APPROVED',
+        isActive: true,
+        ...(dto.excludeQuestionIds?.length && {
+          id: { notIn: dto.excludeQuestionIds },
+        }),
+      },
+      select: { id: true, chapterId: true },
+    });
+    const pool = new Map<string, string[]>();
+    for (const q of eligible) {
+      const list = pool.get(q.chapterId);
+      if (list) list.push(q.id);
+      else pool.set(q.chapterId, [q.id]);
+    }
+
+    const plan = planBlueprintPick(
+      dto.total,
+      dto.items,
+      pool,
+      dto.seed === undefined ? undefined : seededRandom(dto.seed),
+    );
+
+    const pickedIds = plan.picked.flatMap((p) => p.questionIds);
+    const rows = pickedIds.length
+      ? await this.prisma.question.findMany({
+          where: { id: { in: pickedIds }, instituteId },
+          select: {
+            id: true,
+            statement: true,
+            type: true,
+            difficulty: true,
+            marks: true,
+            subject: true,
+            chapter: true,
+            topic: true,
+            topicId: true,
+          },
+        })
+      : [];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    const picks = plan.picked.flatMap((p) =>
+      p.questionIds.flatMap((questionId) => {
+        const q = byId.get(questionId);
+        if (!q) return [];
+        return [
+          {
+            questionId,
+            chapterId: p.chapterId,
+            chapter: chapterName.get(p.chapterId) ?? q.chapter,
+            question: {
+              ...q,
+              statement:
+                q.statement.length > BLUEPRINT_PICK_PREVIEW_CHARS
+                  ? `${q.statement.slice(0, BLUEPRINT_PICK_PREVIEW_CHARS)}...`
+                  : q.statement,
+            },
+          },
+        ];
+      }),
+    );
+
+    return { picks, counts: plan.counts, shortfalls: plan.shortfalls };
   }
 
   async addQuestion(examId: string, sectionId: string, dto: AddQuestionDto) {
@@ -515,13 +749,7 @@ export class ExamsService {
     return this.prisma.examSection.findMany({
       where: { examId },
       orderBy: { order: 'asc' },
-      select: {
-        id: true,
-        name: true,
-        order: true,
-        marksCorrect: true,
-        marksWrong: true,
-      },
+      select: sectionSelect,
     });
   }
 

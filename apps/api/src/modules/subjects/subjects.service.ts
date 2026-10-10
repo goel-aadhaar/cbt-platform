@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { CreateSubjectDto } from './dto/create-subject.dto';
 import { UpdateSubjectDto } from './dto/update-subject.dto';
@@ -70,11 +71,39 @@ export class SubjectsService {
   }
 
   async update(id: string, dto: UpdateSubjectDto) {
-    await this.findOne(id); // enforces tenant ownership
-    return this.prisma.subject.update({
-      where: { id },
-      data: { name: dto.name },
-      select: subjectSelect,
+    const existing = await this.findOne(id); // enforces tenant ownership
+    if (dto.name === undefined || dto.name === existing.name) {
+      return this.prisma.subject.update({
+        where: { id },
+        data: { name: dto.name },
+        select: subjectSelect,
+      });
+    }
+
+    const clash = await this.prisma.subject.findFirst({
+      where: {
+        instituteId: this.instituteId(),
+        name: dto.name,
+        id: { not: id },
+      },
+    });
+    if (clash) {
+      throw new ConflictException(`Subject '${dto.name}' already exists`);
+    }
+    // Questions carry the subject name as denormalised text (search, export,
+    // review screens read it), so the rename and the resync are one unit.
+    return this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
+      const updated = await tx.subject.update({
+        where: { id },
+        data: { name: dto.name },
+        select: subjectSelect,
+      });
+      await tx.question.updateMany({
+        where: { subjectId: id },
+        data: { subject: dto.name },
+      });
+      return updated;
     });
   }
 

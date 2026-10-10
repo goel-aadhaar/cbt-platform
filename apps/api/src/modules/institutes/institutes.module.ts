@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { MediaModule } from '../media/media.module';
 import { InstituteUsageService } from './institute-usage.service';
@@ -13,7 +14,7 @@ import { InstitutesService } from './institutes.service';
   // it, the route would resolve but the parameter would always be null.
   // MediaModule is for MediaStoragePort — resolving a logo key to a URL
   // (§ institute branding).
-  imports: [AuthModule, MediaModule],
+  imports: [AuthModule, MediaModule, AuditModule],
   // MyInstituteController MUST be registered before InstitutesController.
   // Both end up with a route shaped `institutes/<one segment>` — the
   // literal `institutes/me` here, and `@Get(':id')`/`@Patch(':id')` on the

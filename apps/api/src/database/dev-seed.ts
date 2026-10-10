@@ -251,6 +251,25 @@ async function devSeed(): Promise<void> {
       'Ecology',
     ],
   };
+  // Subject → Unit → Chapter. A chapter listed in no unit stays "Unassigned"
+  // (Biology → Ecology), which is how pre-existing chapters look too.
+  const UNITS: Record<string, Record<string, string[]>> = {
+    Physics: {
+      Mechanics: ['Kinematics', 'Laws of Motion'],
+      'Heat & Optics': ['Thermodynamics', 'Optics'],
+      'Electricity & Magnetism': ['Electrostatics'],
+    },
+    Chemistry: {
+      'Physical Chemistry': ['Atomic Structure', 'Thermochemistry'],
+      'Inorganic & Organic Chemistry': ['Chemical Bonding', 'Organic Basics'],
+      Electrochemistry: ['Electrochemistry'],
+    },
+    Biology: {
+      'Cell & Plant Biology': ['Cell Structure', 'Photosynthesis'],
+      'Genetics & Evolution': ['Genetics'],
+      'Human Physiology': ['Human Physiology'],
+    },
+  };
   const DIFF = ['EASY', 'MEDIUM', 'HARD'] as const;
   // Per subject, 10 questions: 6 APPROVED, 2 REVIEW, 1 DRAFT, 1 ARCHIVED.
   const STATUS_BY_J = [
@@ -286,9 +305,21 @@ async function devSeed(): Promise<void> {
     });
     subjectIdByName[subject] = subjectRow.id;
     chapterIdByName[subject] = {};
+    const unitIdByChapter: Record<string, string> = {};
+    for (const [unitName, unitChapters] of Object.entries(UNITS[subject])) {
+      const unitRow = await prisma.unit.create({
+        data: { instituteId: iid, subjectId: subjectRow.id, name: unitName },
+      });
+      for (const chapter of unitChapters) unitIdByChapter[chapter] = unitRow.id;
+    }
     for (const chapter of CHAPTERS[subject]) {
       const chapterRow = await prisma.chapter.create({
-        data: { instituteId: iid, subjectId: subjectRow.id, name: chapter },
+        data: {
+          instituteId: iid,
+          subjectId: subjectRow.id,
+          unitId: unitIdByChapter[chapter] ?? null,
+          name: chapter,
+        },
       });
       chapterIdByName[subject][chapter] = chapterRow.id;
     }
@@ -611,7 +642,7 @@ async function devSeed(): Promise<void> {
 
   console.log('\n✅ Demo tenant seeded.\n');
   console.table(counts);
-  console.log('\n  Institute Code (slug):', SLUG);
+  console.log('\n  Institute ID:', SLUG);
   console.log('  ── Student login ─────────────────────');
   console.log(
     '   Registration Number :',

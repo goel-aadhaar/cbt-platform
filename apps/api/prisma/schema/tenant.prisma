@@ -26,6 +26,7 @@ model Institute {
   students      Student[]
   questions     Question[]
   subjects      Subject[]
+  units         Unit[]
   chapters      Chapter[]
   topics        Topic[]
   exams         Exam[]

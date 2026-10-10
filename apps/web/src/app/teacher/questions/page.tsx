@@ -5,9 +5,14 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { PlusIcon, SearchIcon, UploadIcon } from "@/components/admin/icons";
 import { PaginationBar } from "@/components/pagination-bar";
 import { CreateDppModal } from "@/components/admin/create-dpp-modal";
+import { ImportSourceBadge } from "@/components/admin/import-source-badge";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { QuestionImportModal } from "@/components/admin/question-modals";
+import {
+  QuestionFilterBar,
+  UnitChip,
+} from "@/components/admin/question-filters";
 import { Panel, StatusPill } from "@/components/staff/charts";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { useKeyedAsyncAction } from "@/hooks/use-async-action";
@@ -16,7 +21,10 @@ import { TeacherShell } from "@/components/staff/teacher-shell";
 import { getUserSnapshot } from "@/lib/auth";
 import { actOnQuestion, getMyBatches } from "@/lib/admin";
 import {
+  getQuestion,
   listQuestions,
+  type QuestionDetail,
+  type QuestionFilters,
   type QuestionListItem,
   type QuestionStatus,
 } from "@/lib/questions";
@@ -53,12 +61,19 @@ function QuestionsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [authorOpen, setAuthorOpen] = useState(false);
+  /** The draft being edited in the author drawer; null means creating. */
+  const [editingQuestion, setEditingQuestion] = useState<QuestionDetail | null>(
+    null,
+  );
   // Bulk import was reachable only from the admin console, even though the API
   // has always allowed TEACHER — and a teacher is who actually builds a bank.
   const [importOpen, setImportOpen] = useState(false);
   /** Manually ticked rows — the source for "Create DPP" below. */
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [dppOpen, setDppOpen] = useState(false);
+  // Subject / unit / chapter / topic / difficulty… from the shared filter bar.
+  // The page keeps its own search box and mine/all toggle.
+  const [filters, setFilters] = useState<QuestionFilters>({});
   // Only the batches this teacher actually teaches — the server checks again,
   // this list is convenience, not the control (same as the exam scheduler).
   const { data: myBatches } = useAdminData(() => getMyBatches(), []);
@@ -70,6 +85,7 @@ function QuestionsScreen() {
         const res = await listQuestions({
           limit: PAGE,
           offset: at,
+          ...filters,
           ...(s === "mine" ? { mine: true } : {}),
           ...(term ? { search: term } : {}),
         });
@@ -83,7 +99,7 @@ function QuestionsScreen() {
         setRows([]);
       }
     },
-    [PAGE],
+    [PAGE, filters],
   );
 
   // Only the typed term is debounced — scope changes and pagination clicks
@@ -97,7 +113,7 @@ function QuestionsScreen() {
    * prop changes" pattern) rather than in an effect, to avoid an extra
    * render and a flash of the stale page before the reset lands.
    */
-  const filterKey = JSON.stringify([scope, debouncedSearch]);
+  const filterKey = JSON.stringify([scope, debouncedSearch, filters]);
   const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
@@ -127,6 +143,17 @@ function QuestionsScreen() {
    * second the same way. The keyed lock is synchronous and only ever releases
    * the row it belongs to.
    */
+  async function editDraft(id: string) {
+    try {
+      setEditingQuestion(await getQuestion(id));
+      setAuthorOpen(true);
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error ? e.message : "Could not open this draft to edit.",
+      );
+    }
+  }
+
   const submitAction = useKeyedAsyncAction(
     async (id: string) => {
       await actOnQuestion(id, "submit");
@@ -194,6 +221,19 @@ function QuestionsScreen() {
         </button>
       </div>
 
+      <div className="mb-4">
+        <QuestionFilterBar
+          value={filters}
+          onChange={(next) => {
+            setFilters(next);
+            setTicked(new Set());
+          }}
+          facetSource={rows ?? []}
+          resultCount={rows ? total : undefined}
+          showSearch={false}
+        />
+      </div>
+
       {/* Selection bar — the direct Question Bank → tick → Create DPP flow
           (§ Product Structure); no separate "add to Practice Bank" step. */}
       {ticked.size > 0 && (
@@ -255,7 +295,7 @@ function QuestionsScreen() {
           <p className="rounded-xl border border-dashed border-admin-line p-8 text-center text-sm text-admin-muted">
             {scope === "mine"
               ? "You have not written any questions yet."
-              : "No questions match that search."}
+              : "No questions match those filters."}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -301,8 +341,15 @@ function QuestionsScreen() {
                       ? ` · ${q.createdBy.id === me?.id ? "you" : q.createdBy.name}`
                       : ""}
                   </p>
+                  <span className="mt-1 inline-flex max-w-full">
+                    <UnitChip question={q} />
+                  </span>
                 </button>
                 <div className="flex shrink-0 items-center gap-2">
+                  <ImportSourceBadge
+                    question={q}
+                    reviewBase="/teacher/questions/review"
+                  />
                   <StatusPill tone={STATUS_TONE[q.status]}>
                     {q.status === "REVIEW"
                       ? "In review"
@@ -312,6 +359,17 @@ function QuestionsScreen() {
                   </StatusPill>
                   {/* A rejected question is re-submittable, or the rejection is
                       a dead end rather than a request for changes. */}
+                  {(q.status === "DRAFT" || q.status === "REJECTED") &&
+                    q.createdBy?.id === me?.id && (
+                      <button
+                        type="button"
+                        onClick={() => void editDraft(q.id)}
+                        title="Edit this draft: question, options, answer, spelling and formulas"
+                        className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg"
+                      >
+                        Edit draft
+                      </button>
+                    )}
                   {(q.status === "DRAFT" || q.status === "REJECTED") &&
                     q.createdBy?.id === me?.id && (
                       <button
@@ -349,9 +407,19 @@ function QuestionsScreen() {
         onClose={() => setOpenId(null)}
       />
       <QuestionAuthorDrawer
+        key={editingQuestion?.id ?? "new"}
         open={authorOpen}
-        onClose={() => setAuthorOpen(false)}
-        onCreated={() => void load(scope, debouncedSearch.trim(), offset)}
+        editing={editingQuestion}
+        onClose={() => {
+          setAuthorOpen(false);
+          setEditingQuestion(null);
+        }}
+        onCreated={() => {
+          setNotice(
+            editingQuestion ? "Draft updated." : "Question saved as a draft.",
+          );
+          void load(scope, debouncedSearch.trim(), offset);
+        }}
       />
       <QuestionImportModal
         open={importOpen}

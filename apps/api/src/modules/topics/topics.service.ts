@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../../database/prisma.service';
+import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { CreateTopicDto } from './dto/create-topic.dto';
 import { UpdateTopicDto } from './dto/update-topic.dto';
@@ -75,11 +76,37 @@ export class TopicsService {
   }
 
   async update(id: string, dto: UpdateTopicDto) {
-    await this.findOne(id);
-    return this.prisma.topic.update({
-      where: { id },
-      data: { name: dto.name },
-      select: topicSelect,
+    const existing = await this.findOne(id);
+    if (dto.name === undefined || dto.name === existing.name) {
+      return this.prisma.topic.update({
+        where: { id },
+        data: { name: dto.name },
+        select: topicSelect,
+      });
+    }
+
+    const clash = await this.prisma.topic.findFirst({
+      where: { chapterId: existing.chapterId, name: dto.name, id: { not: id } },
+    });
+    if (clash) {
+      throw new ConflictException(
+        `Topic '${dto.name}' already exists in this chapter`,
+      );
+    }
+    // Questions carry the topic name as denormalised text (search, export,
+    // review screens read it), so the rename and the resync are one unit.
+    return this.prisma.raw.$transaction(async (tx) => {
+      await tenantSetConfigStatement(tx, this.tenant);
+      const updated = await tx.topic.update({
+        where: { id },
+        data: { name: dto.name },
+        select: topicSelect,
+      });
+      await tx.question.updateMany({
+        where: { topicId: id },
+        data: { topic: dto.name },
+      });
+      return updated;
     });
   }
 

@@ -27,6 +27,14 @@ export interface ParsedQuestion {
    * — those fall back to the question's position in the file.
    */
   sourceRow?: number;
+  /**
+   * 1-based position of this block/row in the file, counted before anything is
+   * skipped, so a dropped block leaves a visible gap rather than shifting the
+   * numbers of everything after it.
+   */
+  sourceSeq?: number;
+  /** The number the author wrote for it ("10", "Q10"), when they wrote one. */
+  sourceLabel?: string;
 }
 
 /**

@@ -172,6 +172,14 @@ export default function AdminImportsPage() {
                         })}{" "}
                         · by {r.createdBy.name}
                       </p>
+                      {r.kind === "QUESTIONS_DOCX" && r.importedRows > 0 && (
+                        <Link
+                          href={`/admin/questions/review?run=${r.id}`}
+                          className="mt-2 inline-block text-xs font-bold text-admin hover:underline"
+                        >
+                          Review these questions
+                        </Link>
+                      )}
                     </div>
 
                     <div className="text-right">

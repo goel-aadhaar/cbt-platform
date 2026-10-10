@@ -10,6 +10,7 @@ import {
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { CreateInstituteDto } from './dto/create-institute.dto';
@@ -29,6 +30,8 @@ const summarySelect = {
 
 const MAX_CODE_ATTEMPTS = 20;
 
+const SLUG_TAKEN_MESSAGE = 'That Institute ID is already taken';
+
 /**
  * Tenant administration — superadmin only.
  *
@@ -41,6 +44,7 @@ export class InstitutesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: MediaStoragePort,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -229,15 +233,93 @@ export class InstitutesService {
 
   async update(id: string, dto: UpdateInstituteDto) {
     await this.mustExist(id);
-    const institute = await this.prisma.institute.update({
-      where: { id },
-      data: {
+    const slugChange = await this.planSlugChange(id, dto.slug);
+    const institute = await this.updateInstituteRow(
+      id,
+      {
         ...(dto.name === undefined ? {} : { name: dto.name }),
         ...(dto.isActive === undefined ? {} : { isActive: dto.isActive }),
+        ...(slugChange ? { slug: slugChange.to } : {}),
       },
-      select: summarySelect,
-    });
+      !!slugChange,
+    );
+    await this.auditSlugChange(id, slugChange);
     return this.withLogo(institute);
+  }
+
+  /**
+   * The Institute ID is `Institute.slug` (what a student types at sign-in).
+   * Returns the old/new pair when the slug really changes, null for an
+   * omitted or unchanged one, and refuses a slug another institute holds.
+   */
+  private async planSlugChange(
+    id: string,
+    slug: string | undefined,
+  ): Promise<{ from: string; to: string } | null> {
+    if (slug === undefined) return null;
+    const current = await this.prisma.institute.findUnique({
+      where: { id },
+      select: { slug: true },
+    });
+    if (!current) throw new NotFoundException('Institute not found');
+    if (current.slug === slug) return null;
+
+    const taken = await this.prisma.institute.findFirst({
+      where: { slug, id: { not: id } },
+      select: { id: true },
+    });
+    if (taken) throw new ConflictException(SLUG_TAKEN_MESSAGE);
+    return { from: current.slug, to: slug };
+  }
+
+  /**
+   * The pre-check above is TOCTOU-able: two admins can pick the same ID in
+   * the same instant, and the unique index is what actually decides. Map that
+   * loser to the same 409 instead of a 500.
+   */
+  private async updateInstituteRow(
+    id: string,
+    data: Prisma.InstituteUpdateInput,
+    slugChanging: boolean,
+  ) {
+    try {
+      return await this.prisma.institute.update({
+        where: { id },
+        data,
+        select: summarySelect,
+      });
+    } catch (err) {
+      if (
+        slugChanging &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const fields = conflictingFields(err);
+        if (fields.length === 0 || fields.some((f) => f.includes('slug'))) {
+          throw new ConflictException(SLUG_TAKEN_MESSAGE);
+        }
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Explicit, because the request interceptor records which fields a PATCH
+   * set but not their values - and for this one the old value is the only way
+   * to answer "what did students used to type".
+   */
+  private async auditSlugChange(
+    instituteId: string,
+    change: { from: string; to: string } | null,
+  ) {
+    if (!change) return;
+    await this.audit.record({
+      action: 'INSTITUTE_SLUG_CHANGED',
+      entityType: 'Institute',
+      entityId: instituteId,
+      instituteId,
+      metadata: { oldSlug: change.from, newSlug: change.to },
+    });
   }
 
   /**
@@ -271,7 +353,8 @@ export class InstitutesService {
   }
 
   /**
-   * The matching self-edit: rename the calling admin's own institute, no
+   * The matching self-edit: rename the calling admin's own institute (or
+   * change its Institute ID), no
    * path param. The actor-side guard is the only tenant boundary here —
    * there is no id from the URL to read, so a 404-via-wrong-id probe is
    * structurally impossible.
@@ -305,14 +388,17 @@ export class InstitutesService {
         );
       }
     }
-    const institute = await this.prisma.institute.update({
-      where: { id: userInstituteId },
-      data: {
+    const slugChange = await this.planSlugChange(userInstituteId, dto.slug);
+    const institute = await this.updateInstituteRow(
+      userInstituteId,
+      {
         ...(dto.name === undefined ? {} : { name: dto.name }),
         ...(dto.logoKey === undefined ? {} : { logoKey: dto.logoKey }),
+        ...(slugChange ? { slug: slugChange.to } : {}),
       },
-      select: summarySelect,
-    });
+      !!slugChange,
+    );
+    await this.auditSlugChange(userInstituteId, slugChange);
     return this.withLogo(institute);
   }
 

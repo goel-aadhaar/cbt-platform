@@ -28,6 +28,7 @@ import {
   updateExam,
   updateSection,
   type ExamDetail,
+  type BlueprintPickResult,
   assignBatch,
   createExam,
   getMyBatches,
@@ -50,6 +51,13 @@ import {
   runPreflightChecks,
   type PreflightSection,
 } from "@/lib/exam-preflight";
+import {
+  draftFromBlueprint,
+  draftToPayload,
+  normalizeBlueprint,
+  parseDraft,
+  type DraftBlueprint,
+} from "@/lib/exam-blueprint";
 import { computeExamStats, type StatsSection } from "@/lib/exam-stats";
 import {
   listInstructionTemplates,
@@ -59,11 +67,14 @@ import {
   listQuestions,
   type QuestionFilters,
   type QuestionListItem,
+  type QuestionType,
 } from "@/lib/questions";
 import { isRichTextEmpty } from "@/lib/rich-text";
 
 import { CheckIcon, EyeIcon, GripVerticalIcon, PlusIcon, XIcon } from "./icons";
 import { planExamEdit } from "@/lib/exam-edit-plan";
+import { ExamBlueprintPanel } from "./exam-blueprint-panel";
+import { ExamBlueprintSummary } from "./exam-blueprint-compare";
 import { PreFlightPanel } from "./preflight-panel";
 import { QuestionFilterBar } from "./question-filters";
 import { QuestionPreviewModal } from "./question-preview-modal";
@@ -139,6 +150,67 @@ interface DraftSection {
   marksWrong: number;
   /** Question ids chosen for this section (APPROVED only). */
   questionIds: string[];
+  /** Chapter-wise weightage being edited; null when the section has none. */
+  blueprint: DraftBlueprint | null;
+}
+
+type ExamDetailQuestion =
+  ExamDetail["sections"][number]["questions"][number]["question"];
+
+/**
+ * An exam's saved question, shaped like a bank row so the selected list, the
+ * stats and the chapter mix can read it before the bank page that contains it
+ * has been loaded. Replaced by the real row once that loads.
+ */
+function savedQuestionAsListItem(q: ExamDetailQuestion): QuestionListItem {
+  return {
+    id: q.id,
+    subject: q.subject,
+    chapter: q.chapter,
+    topic: null,
+    subjectId: "",
+    chapterId: q.chapterId,
+    topicId: q.topicId,
+    difficulty: q.difficulty,
+    type: q.type as QuestionType,
+    examCategoryId: null,
+    examCategory: null,
+    tags: [],
+    marks: q.marks,
+    negativeMarks: 0,
+    status: "APPROVED",
+    isActive: true,
+    statement: q.statement,
+    createdAt: "",
+    createdBy: null,
+  };
+}
+
+function pickAsListItem(
+  p: BlueprintPickResult["picks"][number],
+  subjectId: string,
+): QuestionListItem {
+  return {
+    id: p.questionId,
+    subject: p.question.subject,
+    chapter: p.chapter,
+    topic: p.question.topic,
+    subjectId,
+    chapterId: p.chapterId,
+    topicId: p.question.topicId,
+    difficulty: p.question.difficulty,
+    type: p.question.type,
+    examCategoryId: null,
+    examCategory: null,
+    tags: [],
+    marks: p.question.marks,
+    negativeMarks: 0,
+    status: "APPROVED",
+    isActive: true,
+    statement: p.question.statement,
+    createdAt: "",
+    createdBy: null,
+  };
 }
 
 let draftKeySeq = 0;
@@ -233,6 +305,7 @@ export function ExamBuilderDrawer({
             questionIds: [...sec.questions]
               .sort((a, b) => a.order - b.order)
               .map((q) => q.question.id),
+            blueprint: draftFromBlueprint(sec.blueprint),
           }))
       : [
           {
@@ -241,6 +314,7 @@ export function ExamBuilderDrawer({
             marksCorrect: 4,
             marksWrong: 1,
             questionIds: [],
+            blueprint: null,
           },
         ],
   );
@@ -256,6 +330,7 @@ export function ExamBuilderDrawer({
             questionIds: [...sec.questions]
               .sort((a, b) => a.order - b.order)
               .map((q) => q.question.id),
+            blueprint: normalizeBlueprint(sec.blueprint),
           })),
           batchIds: editing.batches.map((b) => b.batch.id),
         }
@@ -320,7 +395,17 @@ export function ExamBuilderDrawer({
   // callback rather than the effect body itself.
   const [questionCache, setQuestionCache] = useState<
     Map<string, QuestionListItem>
-  >(new Map());
+  >(
+    () =>
+      new Map(
+        (editing?.sections ?? []).flatMap((sec) =>
+          sec.questions.map(
+            (q) =>
+              [q.question.id, savedQuestionAsListItem(q.question)] as const,
+          ),
+        ),
+      ),
+  );
 
   const preview = useQuestionPreview();
 
@@ -406,7 +491,9 @@ export function ExamBuilderDrawer({
     return {
       ...filters,
       subjectId: activeSectionSubject.id,
+      unitId: undefined,
       chapterId: undefined,
+      chapterIds: undefined,
       topicId: undefined,
     };
   }, [filters, activeSectionSubject]);
@@ -472,6 +559,30 @@ export function ExamBuilderDrawer({
       .finally(() => setLoadingMore(false));
   }
 
+  /**
+   * Auto-pick replaces this section's questions wholesale; other sections are
+   * untouched. Rows already cached keep their fuller bank data.
+   */
+  function applyAutoPick(result: BlueprintPickResult) {
+    const subjectId = activeSectionSubject?.id ?? "";
+    setQuestionCache((prev) => {
+      const next = new Map(prev);
+      for (const p of result.picks) {
+        if (!next.has(p.questionId)) {
+          next.set(p.questionId, pickAsListItem(p, subjectId));
+        }
+      }
+      return next;
+    });
+    setSections((prev) =>
+      prev.map((s, idx) =>
+        idx === activeSection
+          ? { ...s, questionIds: result.picks.map((p) => p.questionId) }
+          : s,
+      ),
+    );
+  }
+
   const totalQuestions = useMemo(
     () => sections.reduce((n, s) => n + s.questionIds.length, 0),
     [sections],
@@ -507,10 +618,29 @@ export function ExamBuilderDrawer({
       sections.map((s) => ({
         name: s.name,
         marksWrong: s.marksWrong,
+        blueprint: draftToPayload(s.blueprint),
         questions: s.questionIds
           .map((id) => questionCache.get(id))
           .filter((q): q is QuestionListItem => Boolean(q))
-          .map((q) => ({ id: q.id, topicId: q.topicId, mediaKeys: [] })),
+          .map((q) => ({
+            id: q.id,
+            topicId: q.topicId,
+            mediaKeys: [],
+            chapterId: q.chapterId,
+            chapter: q.chapter,
+          })),
+      })),
+    [sections, questionCache],
+  );
+  const blueprintSummary = useMemo(
+    () =>
+      sections.map((s) => ({
+        name: s.name,
+        marksCorrect: s.marksCorrect,
+        blueprint: draftToPayload(s.blueprint),
+        questions: s.questionIds
+          .map((id) => questionCache.get(id))
+          .filter((q): q is QuestionListItem => Boolean(q)),
       })),
     [sections, questionCache],
   );
@@ -576,8 +706,17 @@ export function ExamBuilderDrawer({
         return "Every section needs a name.";
       return null;
     }
-    if (step === 2)
+    if (step === 2) {
+      for (const sec of sections) {
+        const problem = sec.blueprint
+          ? parseDraft(sec.blueprint).problem
+          : null;
+        if (problem) {
+          return `Chapter weightage for "${sec.name}": ${problem} Or remove it.`;
+        }
+      }
       return totalQuestions > 0 ? null : "Add at least one question.";
+    }
     if (step === 3) {
       if (isTeacher && !isAssessment) {
         return reviewerId !== "" ? null : "Choose who should approve this.";
@@ -620,6 +759,7 @@ export function ExamBuilderDrawer({
         marksCorrect: 4,
         marksWrong: 1,
         questionIds: [],
+        blueprint: null,
       },
     ]);
     setActiveSection(0);
@@ -667,6 +807,7 @@ export function ExamBuilderDrawer({
         marksCorrect: sec.marksCorrect,
         marksWrong: sec.marksWrong,
         questionIds: sec.questionIds,
+        blueprint: draftToPayload(sec.blueprint),
       })),
       batchIds,
     });
@@ -687,6 +828,9 @@ export function ExamBuilderDrawer({
         name: section.name,
         marksCorrect: section.marksCorrect,
         marksWrong: section.marksWrong,
+        ...(section.blueprint !== undefined && {
+          blueprint: section.blueprint,
+        }),
       });
     }
     for (const section of plan.createSections) {
@@ -695,6 +839,7 @@ export function ExamBuilderDrawer({
         name: section.name,
         marksCorrect: section.marksCorrect,
         marksWrong: section.marksWrong,
+        ...(section.blueprint && { blueprint: section.blueprint }),
       });
       for (const questionId of section.questionIds) {
         await addQuestionToSection(examId, made.id, questionId);
@@ -782,10 +927,12 @@ export function ExamBuilderDrawer({
       let done = 0;
       for (const [i, s] of sections.entries()) {
         setProgress(`Adding section ${i + 1} of ${sections.length}…`);
+        const blueprint = draftToPayload(s.blueprint);
         const created = await addSection(exam.id, {
           name: s.name.trim(),
           marksCorrect: s.marksCorrect,
           marksWrong: s.marksWrong,
+          ...(blueprint && { blueprint }),
         });
         for (const qid of s.questionIds) {
           done += 1;
@@ -1131,7 +1278,18 @@ export function ExamBuilderDrawer({
                       onChange={(patch) =>
                         setSections((prev) =>
                           prev.map((x, idx) =>
-                            idx === i ? { ...x, ...patch } : x,
+                            idx === i
+                              ? {
+                                  ...x,
+                                  ...patch,
+                                  // A weightage names chapters of one
+                                  // subject; it does not survive a change.
+                                  ...(patch.name !== undefined &&
+                                    patch.name !== x.name && {
+                                      blueprint: null,
+                                    }),
+                                }
+                              : x,
                           ),
                         )
                       }
@@ -1154,6 +1312,7 @@ export function ExamBuilderDrawer({
                       marksCorrect: 4,
                       marksWrong: 1,
                       questionIds: [],
+                      blueprint: null,
                     },
                   ])
                 }
@@ -1182,6 +1341,30 @@ export function ExamBuilderDrawer({
                   </button>
                 ))}
               </div>
+
+              {activeSectionSubject && sections[activeSection] && (
+                <ExamBlueprintPanel
+                  key={`${sections[activeSection].key}:${activeSectionSubject.id}`}
+                  subject={activeSectionSubject}
+                  blueprint={sections[activeSection].blueprint}
+                  onChange={(next) =>
+                    setSections((prev) =>
+                      prev.map((s, idx) =>
+                        idx === activeSection ? { ...s, blueprint: next } : s,
+                      ),
+                    )
+                  }
+                  marksCorrect={sections[activeSection].marksCorrect}
+                  questions={activeSectionQuestions}
+                  hasManualPicks={
+                    sections[activeSection].questionIds.length > 0
+                  }
+                  excludeQuestionIds={sections
+                    .filter((_, idx) => idx !== activeSection)
+                    .flatMap((s) => s.questionIds)}
+                  onApplyPick={applyAutoPick}
+                />
+              )}
 
               <div className="rounded-xl border border-admin-line/60">
                 <p className="border-b border-admin-line/60 px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-admin-muted">
@@ -1533,6 +1716,7 @@ export function ExamBuilderDrawer({
               )}
 
               <PreFlightPanel stats={stats} preflight={preflight} />
+              <ExamBlueprintSummary sections={blueprintSummary} />
 
               {error && (
                 <p className="mt-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-danger">

@@ -10,7 +10,7 @@ import {
 } from "@/lib/platform";
 
 /**
- * The caller's own institute (§ institute branding) — name, slug, code, and
+ * The caller's own institute (§ institute branding) — name, Institute ID (`slug`), registration prefix (`code`), and
  * its logo if one has been set. `GET /institutes/me` is open to ADMIN,
  * TEACHER and STUDENT alike, so every workspace shell can use this the same
  * way.

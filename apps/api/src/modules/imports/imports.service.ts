@@ -1,9 +1,15 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryImportsDto } from './dto/query-imports.dto';
+import { buildImportWarnings } from './import-warnings';
 
 const DEFAULT_IMPORTS_PAGE_SIZE = 50;
 
@@ -32,7 +38,107 @@ export class ImportsService {
     if (!ctx?.instituteId) {
       throw new ForbiddenException('No institute in the current context');
     }
-    return { instituteId: ctx.instituteId, userId: ctx.userId };
+    return {
+      instituteId: ctx.instituteId,
+      userId: ctx.userId,
+      role: ctx.role,
+    };
+  }
+
+  /**
+   * Open a run BEFORE its rows are written, so each row can point back at it
+   * (the review screen lists a run's questions by that link). Unlike `record`
+   * this throws: an import whose rows cannot be tied to a run could not be
+   * reviewed, so it is better refused than half-linked.
+   */
+  async start(params: {
+    kind: ImportKind;
+    fileName: string;
+    total: number;
+    target?: string | null;
+  }): Promise<string> {
+    const { instituteId, userId } = this.ctx();
+    const run = await this.prisma.importRun.create({
+      data: {
+        instituteId,
+        createdById: userId,
+        kind: params.kind,
+        fileName: params.fileName,
+        totalRows: params.total,
+        importedRows: 0,
+        failedRows: 0,
+        failures: [],
+        target: params.target ?? null,
+      },
+      select: { id: true },
+    });
+    return run.id;
+  }
+
+  /** Record a started run's outcome. Best-effort, like `record`. */
+  async finish(
+    id: string,
+    params: { imported: number; failures: unknown[] },
+  ): Promise<void> {
+    try {
+      await this.prisma.importRun.update({
+        where: { id },
+        data: {
+          importedRows: params.imported,
+          failedRows: params.failures.length,
+          failures: params.failures.slice(
+            0,
+            MAX_STORED_FAILURES,
+          ) as Prisma.InputJsonValue,
+        },
+      });
+    } catch {
+      // Swallowed on purpose — see the class comment.
+    }
+  }
+
+  /**
+   * One run with its numbering warnings, for the post-upload review screen.
+   * A teacher sees only their own runs; another institute's run is a 404.
+   *
+   * Warnings are derived from the stored rows rather than persisted (the
+   * failures column stays a pure list of failures, which the Imports history
+   * screen counts), so they always reflect what is in the bank now.
+   */
+  async get(id: string) {
+    const { instituteId, userId, role } = this.ctx();
+    const run = await this.prisma.importRun.findFirst({
+      where: {
+        id,
+        instituteId,
+        ...(role === Role.TEACHER ? { createdById: userId } : {}),
+      },
+      select: {
+        id: true,
+        kind: true,
+        fileName: true,
+        totalRows: true,
+        importedRows: true,
+        failedRows: true,
+        failures: true,
+        target: true,
+        createdAt: true,
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+    if (!run) throw new NotFoundException('Import not found');
+
+    const rows = await this.prisma.question.findMany({
+      where: { importRunId: id, instituteId },
+      select: { sourceSeq: true, sourceLabel: true },
+    });
+    const failures = Array.isArray(run.failures)
+      ? (run.failures as { sourceSeq?: number; sourceLabel?: string }[])
+      : [];
+    const numbered = [...rows, ...failures]
+      .filter((r) => typeof r.sourceSeq === 'number')
+      .map((r) => ({ seq: r.sourceSeq as number, label: r.sourceLabel }));
+    return { ...run, warnings: buildImportWarnings(numbered) };
   }
 
   /** Persist one import run. Never throws — logging is not worth losing data. */

@@ -16,7 +16,7 @@ One login screen, two doors, and a role model that treats "which console" as
 a server decision — never something the browser gets to assert.
 
 - **Unified login** (`/login`) — Student or Staff/Administration up front.
-  Students enter institute code + registration number + password. No role
+  Students enter Institute ID + registration number + password. No role
   picker — the backend alone decides who you are and where you land.
 - **Platform owner door** (`/platform/login`) — Super Admin signs in
   separately from every institute, since a platform owner belongs to no

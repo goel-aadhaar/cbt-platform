@@ -17,6 +17,7 @@ import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExportFilterDto, ExportFormat } from './dto/export-questions.dto';
+import { chapterIdFilter, unitIdFilter } from './dto/query-questions.dto';
 
 /** Same rows the on-screen bank shows, plus everything needed to typeset a
  * real question paper. */
@@ -95,7 +96,8 @@ export class QuestionExportService {
     const where: Prisma.QuestionWhereInput = {
       instituteId,
       ...(filters?.subjectId ? { subjectId: filters.subjectId } : {}),
-      ...(filters?.chapterId ? { chapterId: filters.chapterId } : {}),
+      ...unitIdFilter(filters?.unitId),
+      ...chapterIdFilter(filters?.chapterId, filters?.chapterIds),
       ...(filters?.topicId ? { topicId: filters.topicId } : {}),
       ...(filters?.difficulty ? { difficulty: filters.difficulty } : {}),
       ...(filters?.type ? { type: filters.type } : {}),
@@ -124,7 +126,12 @@ export class QuestionExportService {
     return this.prisma.question.findMany({
       where,
       select: exportSelect,
-      orderBy: [{ subject: 'asc' }, { chapter: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [
+        { subject: 'asc' },
+        { chapter: 'asc' },
+        { createdAt: 'asc' },
+        { id: 'asc' },
+      ],
     });
   }
 

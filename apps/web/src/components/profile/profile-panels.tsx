@@ -116,7 +116,7 @@ function IdentityCard({ profile }: { profile: MyProfile }) {
         {s && <Row label="Class" value={s.class} />}
         {s && <Row label="Program" value={s.program} />}
         {profile.institute && (
-          <Row label="Institute code" value={profile.institute.slug} />
+          <Row label="Institute ID" value={profile.institute.slug} />
         )}
         <Row
           label={s ? "Enrolled" : "Member since"}

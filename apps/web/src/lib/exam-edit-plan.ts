@@ -14,6 +14,8 @@
  * question from the paper entirely.
  */
 
+import { blueprintsEqual, type SectionBlueprint } from "./exam-blueprint";
+
 export interface PlannedSection {
   /** Present when the section already exists on the server. */
   id?: string;
@@ -21,6 +23,8 @@ export interface PlannedSection {
   marksCorrect: number;
   marksWrong: number;
   questionIds: string[];
+  /** Chapter weightage; null (or absent) when the section has none. */
+  blueprint?: SectionBlueprint | null;
 }
 
 export interface ExamEditPlan {
@@ -34,6 +38,8 @@ export interface ExamEditPlan {
     name: string;
     marksCorrect: number;
     marksWrong: number;
+    /** Only present when the weightage changed; null clears it. */
+    blueprint?: SectionBlueprint | null;
   }[];
   /** Sections that do not exist yet, in the order they should be created. */
   createSections: PlannedSection[];
@@ -45,7 +51,11 @@ export interface ExamEditPlan {
 }
 
 export function planExamEdit(
-  before: { sections: Required<PlannedSection>[]; batchIds: string[] },
+  before: {
+    sections: (Required<Omit<PlannedSection, "blueprint">> &
+      Pick<PlannedSection, "blueprint">)[];
+    batchIds: string[];
+  },
   after: { sections: PlannedSection[]; batchIds: string[] },
 ): ExamEditPlan {
   const keptIds = new Set(
@@ -79,16 +89,19 @@ export function planExamEdit(
       }
     }
 
+    const blueprintChanged = !blueprintsEqual(was.blueprint, section.blueprint);
     if (
       was.name !== section.name ||
       was.marksCorrect !== section.marksCorrect ||
-      was.marksWrong !== section.marksWrong
+      was.marksWrong !== section.marksWrong ||
+      blueprintChanged
     ) {
       updateSections.push({
         id: was.id,
         name: section.name,
         marksCorrect: section.marksCorrect,
         marksWrong: section.marksWrong,
+        ...(blueprintChanged && { blueprint: section.blueprint ?? null }),
       });
     }
 

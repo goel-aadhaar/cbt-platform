@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PaginationBar } from "@/components/pagination-bar";
 import { StatCard } from "@/components/staff/charts";
+import { ImportSourceBadge } from "@/components/admin/import-source-badge";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
 import { QuestionDetailDrawer } from "@/components/admin/question-detail-drawer";
 import { CreateDppModal } from "@/components/admin/create-dpp-modal";
@@ -30,10 +31,14 @@ import {
 } from "@/components/admin/icons";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { QuestionFilterBar } from "@/components/admin/question-filters";
+import {
+  QuestionFilterBar,
+  UnitChip,
+} from "@/components/admin/question-filters";
 import { useBatchOptions } from "@/components/admin/academic-cascade";
 import { listBatches } from "@/lib/admin";
 import {
+  getQuestion,
   listQuestions,
   type QuestionFilters,
   type QuestionListItem,
@@ -72,6 +77,19 @@ export default function QuestionBankPage() {
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | null>(null);
   const [filters, setFilters] = useState<QuestionFilters>({});
+
+  /** Opens the editor straight from a draft row, without the detail drawer. */
+  async function editDraft(id: string) {
+    try {
+      setEditingQuestion(await getQuestion(id));
+      setAuthorOpen(true);
+    } catch (e: unknown) {
+      setNotice(
+        e instanceof Error ? e.message : "Could not open this draft to edit.",
+      );
+    }
+  }
+
   /** Manually ticked rows — export or DPP creation from a specific list. */
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [dppOpen, setDppOpen] = useState(false);
@@ -380,6 +398,7 @@ export default function QuestionBankPage() {
                         setSelectedId(q.id);
                         setDetailOpen(true);
                       }}
+                      onEditDraft={() => void editDraft(q.id)}
                     />
                   ))}
               </tbody>
@@ -470,11 +489,13 @@ export default function QuestionBankPage() {
 function QuestionRow({
   q,
   onOpen,
+  onEditDraft,
   ticked,
   onToggleTick,
 }: {
   q: QuestionListItem;
   onOpen: () => void;
+  onEditDraft: () => void;
   ticked: boolean;
   onToggleTick: () => void;
 }) {
@@ -509,7 +530,11 @@ function QuestionRow({
           <div className="max-w-md">
             <span className="inline-block rounded bg-admin-surface px-1.5 py-0.5 font-mono text-[11px] text-admin-muted">
               ID: {code}
-            </span>
+            </span>{" "}
+            <ImportSourceBadge
+              question={q}
+              reviewBase="/admin/questions/review"
+            />
             <p className="mt-1 line-clamp-2 text-admin-ink">{q.statement}</p>
           </div>
         </div>
@@ -517,6 +542,9 @@ function QuestionRow({
       <td className="px-4 py-4 align-top">
         <p className="font-semibold text-admin-ink">{q.subject}</p>
         <p className="text-xs text-admin-subtle">{q.chapter}</p>
+        <div className="mt-1">
+          <UnitChip question={q} />
+        </div>
       </td>
       <td className="px-4 py-4 align-top text-admin-ink">{diff}</td>
       <td className="px-4 py-4 align-top">
@@ -524,6 +552,18 @@ function QuestionRow({
       </td>
       <td className="px-4 py-4 text-right align-top">
         <div className="flex items-center justify-end gap-2">
+          {(q.status === "DRAFT" || q.status === "REJECTED") && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditDraft();
+              }}
+              title="Edit this draft: question, options, answer, spelling and formulas"
+              className="rounded-lg border border-admin-line px-3 py-1.5 text-xs font-semibold text-admin-ink hover:bg-admin-bg"
+            >
+              Edit draft
+            </button>
+          )}
           {q.status === "REVIEW" ? (
             <button
               onClick={(e) => {

@@ -67,7 +67,7 @@ export class LoginDto {
 export class StudentLoginDto {
   @ApiProperty({
     description: `Shown on the sign-in form as "${STUDENT_LOGIN_FIELD.instituteSlug.label}".`,
-    example: '2601000042',
+    example: 'sunrise-academy',
   })
   @IsFilledIn(STUDENT_LOGIN_FIELD.instituteSlug.label)
   instituteSlug: string;

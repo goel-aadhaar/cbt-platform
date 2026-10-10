@@ -1,15 +1,19 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
   IsEnum,
   IsOptional,
   IsUUID,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
+import { splitIds } from '../../students/dto/query-students.dto';
 import { Difficulty, QuestionStatus, QuestionType } from '../question.types';
+import { CHAPTER_IDS_MAX, UNASSIGNED_UNIT } from './query-questions.dto';
 
 export enum ExportFormat {
   PDF = 'PDF',
@@ -25,8 +29,21 @@ export class ExportFilterDto {
   subjectId?: string;
 
   @IsOptional()
+  @ValidateIf((o: { unitId?: string }) => o.unitId !== UNASSIGNED_UNIT)
+  @IsUUID()
+  unitId?: string;
+
+  @IsOptional()
   @IsUUID()
   chapterId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => splitIds(value))
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(CHAPTER_IDS_MAX)
+  @IsUUID('all', { each: true })
+  chapterIds?: string[];
 
   @IsOptional()
   @IsUUID()

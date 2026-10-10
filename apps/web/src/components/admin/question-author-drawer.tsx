@@ -5,14 +5,18 @@ import { useEffect, useState } from "react";
 import {
   listChapters,
   listTopics,
+  listUnitsCached,
   type ChapterRow,
   type TopicRow,
+  type UnitRow,
 } from "@/lib/admin";
+import { RichText } from "@/components/rich-text";
 import { useAuthUser } from "@/hooks/use-auth";
 import { useQuestionTaxonomyCatalogue } from "@/hooks/use-question-taxonomy-catalogue";
 import { ApiError } from "@/lib/api";
 import {
   createQuestion,
+  hasFormulaPlaceholder,
   updateQuestion,
   usedInExams,
   type AffectedExam,
@@ -73,19 +77,29 @@ export function QuestionAuthorDrawer({
   onClose,
   onCreated,
   editing,
+  closeOnSave,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated?: () => void;
   /** Provide to edit an existing question; omit to author a new one. */
   editing?: QuestionDetail | null;
+  /**
+   * Close straight after a successful save instead of showing the "saved"
+   * panel — for the review screen, where the row refreshing is the confirmation.
+   */
+  closeOnSave?: boolean;
 }) {
   const taxonomy = useQuestionTaxonomyCatalogue();
   const subjects = taxonomy?.subjects ?? null;
   const examCategories = taxonomy?.examCategories ?? null;
   const [chapters, setChapters] = useState<ChapterRow[] | null>(null);
+  const [units, setUnits] = useState<UnitRow[] | null>(null);
   const [topics, setTopics] = useState<TopicRow[] | null>(null);
   const [subjectId, setSubjectId] = useState(editing?.subjectId ?? "");
+  // Only narrows the chapter list: a question stores subject/chapter/topic and
+  // its unit is whatever unit that chapter sits in.
+  const [unitId, setUnitId] = useState(editing?.chapterRef?.unitId ?? "");
   const [chapterId, setChapterId] = useState(editing?.chapterId ?? "");
   const [topicId, setTopicId] = useState(editing?.topicId ?? "");
   const [difficulty, setDifficulty] = useState<Difficulty>(
@@ -138,6 +152,8 @@ export function QuestionAuthorDrawer({
 
   function reset() {
     setSubjectId("");
+    setUnitId("");
+    setUnits(null);
     setChapterId("");
     setTopicId("");
     setChapters(null);
@@ -168,6 +184,9 @@ export function QuestionAuthorDrawer({
     listChapters(subjectId)
       .then(setChapters)
       .catch(() => setChapters([]));
+    listUnitsCached(subjectId)
+      .then(setUnits)
+      .catch(() => setUnits([]));
   }, [subjectId]);
 
   useEffect(() => {
@@ -179,9 +198,18 @@ export function QuestionAuthorDrawer({
 
   function selectSubject(id: string) {
     setSubjectId(id);
+    setUnitId("");
     setChapterId("");
     setTopicId("");
     setChapters(null);
+    setUnits(null);
+    setTopics(null);
+  }
+
+  function selectUnit(id: string) {
+    setUnitId(id);
+    setChapterId("");
+    setTopicId("");
     setTopics(null);
   }
 
@@ -189,7 +217,14 @@ export function QuestionAuthorDrawer({
     setChapterId(id);
     setTopicId("");
     setTopics(null);
+    // Picking a chapter with no unit filter set shows which unit it is in.
+    const picked = chapters?.find((c) => c.id === id);
+    if (picked?.unitId && !unitId) setUnitId(picked.unitId);
   }
+
+  const chapterChoices = (chapters ?? []).filter((c) =>
+    !unitId ? true : unitId === "unassigned" ? !c.unitId : c.unitId === unitId,
+  );
 
   function addOption() {
     setOptions((prev) => {
@@ -256,8 +291,9 @@ export function QuestionAuthorDrawer({
         await createQuestion(input);
       }
       setAffected(null);
-      setDone(true);
       onCreated?.();
+      if (closeOnSave) onClose();
+      else setDone(true);
     } catch (e) {
       // Not an error the author can do anything about by retrying — it is the
       // server asking whether they meant to touch a question that has already
@@ -393,6 +429,36 @@ export function QuestionAuthorDrawer({
                     ))}
                   </select>
                 </Field>
+                <Field label="Unit">
+                  <select
+                    value={unitId}
+                    onChange={(e) => selectUnit(e.target.value)}
+                    disabled={
+                      !subjectId || units === null || units.length === 0
+                    }
+                    className={INPUT_CLS}
+                  >
+                    <option value="">
+                      {!subjectId
+                        ? "Select a subject first"
+                        : units === null
+                          ? "Loading…"
+                          : units.length === 0
+                            ? "No units in this subject"
+                            : "All units"}
+                    </option>
+                    {units
+                      ?.filter((u) => u.isActive || u.id === unitId)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    {units && units.length > 0 && (
+                      <option value="unassigned">Unassigned chapters</option>
+                    )}
+                  </select>
+                </Field>
                 <Field label="Chapter" required>
                   <select
                     value={chapterId}
@@ -407,7 +473,7 @@ export function QuestionAuthorDrawer({
                           ? "Loading…"
                           : "Select a chapter"}
                     </option>
-                    {chapters?.map((c) => (
+                    {chapterChoices.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -632,6 +698,14 @@ export function QuestionAuthorDrawer({
                 />
               </Field>
 
+              <QuestionLivePreview
+                statement={statement}
+                options={needsOptions ? options : []}
+                explanation={explanation}
+                answerKeys={type === "MCQ" ? [mcqAnswer] : msqAnswer}
+                integerAnswer={type === "INTEGER" ? intAnswer : null}
+              />
+
               <section className="rounded-xl border border-admin-line/60 p-4">
                 <MediaPicker selected={mediaKeys} onChange={setMediaKeys} />
               </section>
@@ -675,6 +749,107 @@ export function QuestionAuthorDrawer({
         </footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * What the author's text will look like once typeset, updating as they type.
+ * Formulas are plain text until rendered, so a wrong one (an imported Word
+ * equation, a missing `$`) is only visible here — before approval, not after.
+ */
+function QuestionLivePreview({
+  statement,
+  options,
+  explanation,
+  answerKeys,
+  integerAnswer,
+}: {
+  statement: string;
+  options: OptionRow[];
+  explanation: string;
+  answerKeys: string[];
+  integerAnswer: string | null;
+}) {
+  const unresolved = hasFormulaPlaceholder(
+    statement,
+    explanation,
+    ...options.map((o) => o.text),
+  );
+  return (
+    <section
+      aria-label="Preview"
+      className="rounded-xl border border-admin-line/60 bg-admin-bg/40 p-4"
+    >
+      <p className="text-xs font-bold uppercase tracking-wide text-admin-muted">
+        Preview — as students will see it
+      </p>
+      <p className="mt-1 text-xs text-admin-muted">
+        Write maths between dollar signs, e.g. <code>$x^2 + 3x = 0$</code> or{" "}
+        <code>{"$\\frac{1}{2}mv^2$"}</code>. For small subscripts and powers you
+        can use <code>&lt;sub&gt;</code> and <code>&lt;sup&gt;</code>.
+      </p>
+      {unresolved && (
+        <p
+          role="alert"
+          className="mt-3 rounded-lg border border-warn/60 bg-warn/15 px-3 py-2 text-sm font-semibold text-admin-ink"
+        >
+          A Word equation is still marked <code>[[EQ …]]</code>. Retype it as
+          LaTeX between dollar signs — the question cannot be sent for approval
+          until it is gone.
+        </p>
+      )}
+      <div className="mt-3 rounded-lg bg-white p-4">
+        {statement.trim() ? (
+          <RichText
+            text={statement}
+            className="whitespace-pre-wrap text-admin-ink"
+          />
+        ) : (
+          <p className="text-sm text-admin-muted">
+            The question will appear here.
+          </p>
+        )}
+        {options.filter((o) => o.text.trim()).length > 0 && (
+          <ul className="mt-3 flex flex-col gap-1.5">
+            {options
+              .filter((o) => o.text.trim())
+              .map((o) => (
+                <li
+                  key={o.key}
+                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    answerKeys.includes(o.key)
+                      ? "border-admin/40 bg-admin-mint/15"
+                      : "border-admin-line/60"
+                  }`}
+                >
+                  <span className="font-bold text-admin-muted">{o.key}.</span>
+                  <RichText
+                    text={o.text}
+                    as="span"
+                    className="text-admin-ink"
+                  />
+                </li>
+              ))}
+          </ul>
+        )}
+        {integerAnswer !== null && integerAnswer.trim() !== "" && (
+          <p className="mt-3 text-sm text-admin-muted">
+            Answer: <span className="font-semibold">{integerAnswer}</span>
+          </p>
+        )}
+        {explanation.trim() && (
+          <div className="mt-3 border-t border-admin-line/60 pt-3">
+            <p className="text-xs font-bold uppercase text-admin-muted">
+              Explanation
+            </p>
+            <RichText
+              text={explanation}
+              className="mt-1 whitespace-pre-wrap text-sm text-admin-ink"
+            />
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

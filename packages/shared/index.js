@@ -16,7 +16,7 @@ const STUDENT_LOGIN_FIELDS = Object.freeze([
   Object.freeze({
     key: "instituteSlug",
     label: "Institute ID",
-    placeholder: "e.g. 2601000042",
+    placeholder: "e.g. sunrise-academy",
   }),
   Object.freeze({
     key: "rollNumber",

@@ -1,12 +1,17 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString, MinLength } from 'class-validator';
 
+import { IsInstituteSlug } from './institute-slug';
+
 export class UpdateInstituteDto {
   @ApiPropertyOptional({ example: 'Sunrise Academy (North Campus)' })
   @IsOptional()
   @IsString()
   @MinLength(2)
   name?: string;
+
+  @IsInstituteSlug()
+  slug?: string;
 
   /**
    * Suspends the tenant. Everyone belonging to it is refused at login, and

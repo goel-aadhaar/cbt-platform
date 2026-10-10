@@ -9,9 +9,14 @@ import { Panel, StatusPill } from "@/components/staff/charts";
 import { useMyInstitute } from "@/hooks/use-my-institute";
 import { uploadMedia } from "@/lib/media";
 import {
-  renameMyInstitute,
+  finalizeInstituteId,
+  INSTITUTE_ID_CHANGE_WARNING,
+  INSTITUTE_ID_MAX_LENGTH,
+  INSTITUTE_ID_MIN_LENGTH,
+  normalizeInstituteIdInput,
   setMyInstituteCache,
   setMyInstituteLogo,
+  updateMyInstitute,
 } from "@/lib/platform";
 import {
   archiveBatch,
@@ -60,12 +65,15 @@ export default function OrganizationPage() {
    * The institute identity card — the shared cache (see `useMyInstitute`),
    * not a page-local copy, so a rename/logo change here is reflected in the
    * sidebar rendered by this very page immediately, with no extra fetch.
-   * The four-digit code is shown but never editable — it is embedded in
-   * every student roll number this institute has ever issued, and changing
-   * it retroactively would orphan the roll numbers themselves.
+   * The Institute ID (`slug`) is editable; the four-digit registration
+   * prefix (`code`) is shown but never is — it is embedded in every
+   * registration number this institute has ever issued, and changing it
+   * retroactively would orphan the numbers themselves.
    */
   const { institute } = useMyInstitute();
-  const [renamingInstitute, setRenamingInstitute] = useState(false);
+  const [editingInstitute, setEditingInstitute] = useState<
+    "name" | "id" | null
+  >(null);
   const [savingLogo, setSavingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,18 +177,19 @@ export default function OrganizationPage() {
   }
 
   async function renameInstitute(name: string) {
-    if (!institute) return;
-    setRenamingInstitute(true);
-    setError(null);
-    try {
-      const next = await renameMyInstitute(name.trim());
-      setMyInstituteCache(next);
-      setNotice("Institute renamed.");
-    } catch (e: unknown) {
-      setError(msg(e, "Could not rename the institute."));
-    } finally {
-      setRenamingInstitute(false);
-    }
+    const next = await updateMyInstitute({ name });
+    setMyInstituteCache(next);
+    setNotice("Institute renamed.");
+    setEditingInstitute(null);
+  }
+
+  async function changeInstituteId(slug: string) {
+    const next = await updateMyInstitute({ slug });
+    setMyInstituteCache(next);
+    setNotice(
+      `Institute ID changed to "${next.slug}". Tell your students the new ID — credential emails already sent show the old one.`,
+    );
+    setEditingInstitute(null);
   }
 
   /**
@@ -342,9 +351,15 @@ export default function OrganizationPage() {
               {institute.name}
             </p>
             <p className="text-xs text-admin-subtle">
-              Slug <span className="font-mono">{institute.slug}</span> · Code{" "}
-              <span className="font-mono">{institute.code}</span> · Since{" "}
-              {new Date(institute.createdAt).toLocaleDateString()}
+              Institute ID <span className="font-mono">{institute.slug}</span> ·
+              Registration prefix{" "}
+              <span
+                className="font-mono"
+                title="The prefix of every student registration number this institute issues. It cannot be changed."
+              >
+                {institute.code}
+              </span>{" "}
+              · Since {new Date(institute.createdAt).toLocaleDateString()}
             </p>
           </div>
           <StatusPill tone={institute.isActive ? "good" : "muted"}>
@@ -385,16 +400,17 @@ export default function OrganizationPage() {
           )}
           <button
             type="button"
-            disabled={renamingInstitute}
-            onClick={() => {
-              const next = window.prompt("Rename institute", institute.name);
-              if (next?.trim() && next.trim() !== institute.name) {
-                void renameInstitute(next);
-              }
-            }}
-            className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg disabled:opacity-50"
+            onClick={() => setEditingInstitute("name")}
+            className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg"
           >
             Rename
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditingInstitute("id")}
+            className="rounded-md border border-admin-line px-3 py-1.5 text-xs font-bold text-admin-ink hover:bg-admin-bg"
+          >
+            Edit Institute ID
           </button>
         </section>
       )}
@@ -554,6 +570,24 @@ export default function OrganizationPage() {
           )}
         </Panel>
       </div>
+
+      {institute && editingInstitute === "name" && (
+        <NameModal
+          title="Rename institute"
+          initial={institute.name}
+          submitLabel="Save"
+          onClose={() => setEditingInstitute(null)}
+          onSubmit={renameInstitute}
+        />
+      )}
+
+      {institute && editingInstitute === "id" && (
+        <InstituteIdModal
+          current={institute.slug}
+          onClose={() => setEditingInstitute(null)}
+          onSubmit={changeInstituteId}
+        />
+      )}
 
       {modal && (
         <NameModal
@@ -742,6 +776,111 @@ function NameModal({
               className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
             >
               {saving ? "Saving…" : submitLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function InstituteIdModal({
+  current,
+  onClose,
+  onSubmit,
+}: {
+  current: string;
+  onClose: () => void;
+  onSubmit: (slug: string) => Promise<void>;
+}) {
+  const [value, setValue] = useState(current);
+  const [understood, setUnderstood] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const finalValue = finalizeInstituteId(value);
+  const lengthOk =
+    finalValue.length >= INSTITUTE_ID_MIN_LENGTH &&
+    finalValue.length <= INSTITUTE_ID_MAX_LENGTH;
+  const canSave = !saving && understood && lengthOk && finalValue !== current;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSubmit(finalValue);
+    } catch (err: unknown) {
+      setError(msg(err, "The Institute ID was not saved. Try again."));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-bold text-admin-ink">Edit Institute ID</h2>
+        <form onSubmit={submit} className="mt-5 flex flex-col gap-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-bold uppercase text-admin-muted">
+              Institute ID
+            </span>
+            <input
+              value={value}
+              onChange={(e) =>
+                setValue(normalizeInstituteIdInput(e.target.value))
+              }
+              onBlur={() => setValue(finalizeInstituteId(value))}
+              required
+              autoFocus
+              maxLength={INSTITUTE_ID_MAX_LENGTH}
+              spellCheck={false}
+              autoCapitalize="none"
+              className="rounded-lg border border-admin-line px-3 py-2.5 font-mono text-sm outline-none focus:border-admin"
+            />
+            <span className="text-xs text-admin-muted">
+              Lowercase letters, numbers and hyphens, {INSTITUTE_ID_MIN_LENGTH}
+              {"–"}
+              {INSTITUTE_ID_MAX_LENGTH} characters.
+            </span>
+          </label>
+
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+            <p>{INSTITUTE_ID_CHANGE_WARNING}</p>
+            <label className="flex items-start gap-2 font-semibold">
+              <input
+                type="checkbox"
+                checked={understood}
+                onChange={(e) => setUnderstood(e.target.checked)}
+                className="mt-0.5"
+              />
+              I understand
+            </label>
+          </div>
+
+          {error && (
+            <p
+              role="alert"
+              className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+
+          <div className="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-admin-line px-4 py-2 text-sm font-bold text-admin-ink hover:bg-admin-bg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canSave}
+              className="rounded-lg bg-admin px-4 py-2 text-sm font-bold text-white hover:opacity-95 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save Institute ID"}
             </button>
           </div>
         </form>

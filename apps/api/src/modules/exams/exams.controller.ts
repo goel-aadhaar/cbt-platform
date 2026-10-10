@@ -16,6 +16,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '../auth/auth.types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AdminExamActionDto } from './dto/admin-exam-action.dto';
+import {
+  BlueprintChaptersQueryDto,
+  BlueprintPickDto,
+} from './dto/blueprint.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import {
   AddQuestionDto,
@@ -50,6 +54,22 @@ export class ExamsController {
   @Roles(Role.TEACHER)
   create(@Body() dto: CreateExamDto) {
     return this.exams.create(dto);
+  }
+
+  /**
+   * Chapter-wise weightage. Both routes are declared before any `:id` route
+   * so "blueprint" is never parsed as an exam id (ParseUUIDPipe would 400).
+   * Open to admins as well as teachers: reviewers adjust papers too.
+   */
+  @Get('blueprint/chapters')
+  blueprintChapters(@Query() query: BlueprintChaptersQueryDto) {
+    return this.exams.blueprintChapters(query.subjectId);
+  }
+
+  @Post('blueprint/pick')
+  @HttpCode(HttpStatus.OK)
+  blueprintPick(@Body() dto: BlueprintPickDto) {
+    return this.exams.pickByBlueprint(dto);
   }
 
   @Get()

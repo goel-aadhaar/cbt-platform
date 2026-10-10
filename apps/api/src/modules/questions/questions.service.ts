@@ -13,18 +13,25 @@ import { sanitizeQuestionText } from '../../common/html/sanitize-html';
 import { Role } from '../auth/auth.types';
 import { ResultsService } from '../results/results.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { buildImportWarnings } from '../imports/import-warnings';
 import { ImportsService } from '../imports/imports.service';
 import { buildTemplate } from '../../common/spreadsheet/build-template';
 import { isXlsx } from '../../common/spreadsheet/read-workbook';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
+import { BulkQuestionActionDto } from './dto/bulk-question-action.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
-import { QueryQuestionsDto } from './dto/query-questions.dto';
+import {
+  chapterIdFilter,
+  QueryQuestionsDto,
+  unitIdFilter,
+} from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import {
   ParsedQuestion,
   QuestionImportPort,
 } from './ports/question-import.port';
 import { QuestionSearchPort } from './ports/question-search.port';
+import { assertNoFormulaPlaceholder, reviewFlags } from './review-flags';
 import { Difficulty, QuestionStatus, QuestionType } from './question.types';
 
 /**
@@ -44,6 +51,8 @@ export interface DocxDefaults {
 /** Result of a bulk DOCX question import (§2.4). */
 export interface DocxImportSummary {
   total: number;
+  /** The run the review screen opens: every created question points at it. */
+  importRunId: string;
   imported: {
     index: number;
     id: string;
@@ -51,8 +60,26 @@ export interface DocxImportSummary {
     statement: string;
     /** Diagrams lifted out of the document and attached to this question. */
     images: number;
+    /** Position in the file, and the number the author wrote for it. */
+    sourceSeq: number;
+    sourceLabel: string | null;
   }[];
-  failed: { index: number; statement: string; reason: string }[];
+  failed: {
+    index: number;
+    statement: string;
+    reason: string;
+    sourceSeq: number;
+    sourceLabel: string | null;
+  }[];
+  /** Numbering oddities worth a look: jumps, duplicates, skipped items. */
+  warnings: string[];
+}
+
+/** Where an uploaded question came from; set only by the importer. */
+interface ImportOrigin {
+  importRunId: string;
+  sourceSeq: number;
+  sourceLabel: string | null;
 }
 
 /**
@@ -89,6 +116,13 @@ const listSelect = {
   subjectId: true,
   chapterId: true,
   topicId: true,
+  sourceSeq: true,
+  sourceLabel: true,
+  importRunId: true,
+  // The unit is derived from the chapter (Subject → Unit → Chapter), never stored on the question.
+  chapterRef: {
+    select: { unitId: true, unit: { select: { id: true, name: true } } },
+  },
   difficulty: true,
   type: true,
   language: true,
@@ -103,6 +137,38 @@ const listSelect = {
   createdAt: true,
   createdBy: { select: { id: true, name: true } },
 } satisfies Prisma.QuestionSelect;
+
+/** What the post-upload review screen shows: the whole question, in one list. */
+const reviewSelect = {
+  ...listSelect,
+  options: true,
+  answerKey: true,
+  explanation: true,
+  mediaKeys: true,
+  editedAt: true,
+  approvedAt: true,
+  updatedAt: true,
+} satisfies Prisma.QuestionSelect;
+
+const PAST_TENSE = {
+  submit: 'submitted',
+  approve: 'approved',
+  reject: 'rejected',
+} as const;
+
+function withFlags<
+  T extends {
+    type: string;
+    statement: string;
+    options: unknown;
+    answerKey: unknown;
+    explanation: string | null;
+    sourceSeq: number | null;
+    sourceLabel: string | null;
+  },
+>(q: T) {
+  return { ...q, flags: reviewFlags(q) };
+}
 
 const detailSelect = {
   ...listSelect,
@@ -158,6 +224,17 @@ export class QuestionsService {
   }
 
   async create(dto: CreateQuestionDto) {
+    return this.createWithOrigin(dto);
+  }
+
+  /**
+   * `create` plus the upload provenance. Kept off the public DTO on purpose:
+   * a client must not be able to claim a position in somebody's import run.
+   */
+  private async createWithOrigin(
+    dto: CreateQuestionDto,
+    origin?: ImportOrigin,
+  ) {
     const { userId, role, instituteId } = this.ctx();
     this.validateContent(dto.type, dto.options, dto.answerKey);
     const tax = await this.resolveTaxonomy(instituteId, {
@@ -194,6 +271,11 @@ export class QuestionsService {
         marks: dto.marks ?? 4,
         negativeMarks: dto.negativeMarks ?? 1,
         mediaKeys: dto.mediaKeys ?? [],
+        ...(origin && {
+          importRunId: origin.importRunId,
+          sourceSeq: origin.sourceSeq,
+          sourceLabel: origin.sourceLabel,
+        }),
         /**
          * An administrator's own question skips the queue.
          *
@@ -302,6 +384,7 @@ export class QuestionsService {
     return buildTemplate({
       sheetName: 'Questions',
       headers: [
+        'no',
         'statement',
         'type',
         'optionA',
@@ -317,6 +400,7 @@ export class QuestionsService {
       ],
       examples: [
         [
+          1,
           'A body moves 12 m in 4 s at constant speed. What is its speed?',
           'MCQ',
           '2 m/s',
@@ -331,6 +415,7 @@ export class QuestionsService {
           'kinematics, speed',
         ],
         [
+          2,
           'Which of these are noble gases?',
           'MSQ',
           'Helium',
@@ -345,6 +430,7 @@ export class QuestionsService {
           'periodic-table',
         ],
         [
+          3,
           'How many protons does a carbon atom have?',
           'INTEGER',
           '',
@@ -370,6 +456,10 @@ export class QuestionsService {
         '            commas (A,C). INTEGER: the number (6).',
         '',
         'Optional columns:',
+        'no              Your own question number (also accepted as sr, sr no,',
+        '                serial, s.no, # or q no). Questions are always kept in',
+        '                the order of the rows; if your numbers do not match the',
+        '                row order you are warned after the upload.',
         'type            MCQ, MSQ or INTEGER. Left blank it is inferred — no',
         '                options means INTEGER, several answers means MSQ.',
         'optionA…optionH The choices. Leave blank for INTEGER questions.',
@@ -389,7 +479,9 @@ export class QuestionsService {
         '- Subject and chapter are chosen once in the import dialog, not here.',
         '- Delete the three example rows before uploading.',
         '- Up to 500 questions per file.',
-        '- Every question is created as a DRAFT for approval.',
+        '- Every question is created as a DRAFT, even when an administrator',
+        '  uploads it: you review and fix the questions, answers, spellings',
+        '  and formulas on the review screen, then approve them.',
         '- A row that fails validation is reported with its row number; the rest',
         '  of the file still imports.',
         '- Diagrams cannot travel in a spreadsheet cell. Import a Word (.docx)',
@@ -435,11 +527,40 @@ export class QuestionsService {
     const imported: DocxImportSummary['imported'] = [];
     const failed: DocxImportSummary['failed'] = [];
 
-    let index = 0;
+    // Best-effort target label for the history list; never blocks the import.
+    const [subject, chapter] = await Promise.all([
+      this.prisma.subject.findFirst({
+        where: { id: defaults.subjectId, instituteId },
+        select: { name: true },
+      }),
+      this.prisma.chapter.findFirst({
+        where: { id: defaults.chapterId, instituteId },
+        select: { name: true },
+      }),
+    ]);
+    // The run exists BEFORE any question does, so each question can point at it.
+    const importRunId = await this.imports.start({
+      kind: 'QUESTIONS_DOCX',
+      fileName,
+      total: parsed.length,
+      target: `${subject?.name ?? 'Unknown subject'} · ${chapter?.name ?? 'Unknown chapter'}`,
+    });
+
+    /**
+     * Strictly sequential, in file order. A block that fails keeps its slot
+     * (its `sourceSeq` is reported with the failure) and every later question
+     * keeps ITS number — nothing shifts up to fill the hole.
+     */
+    let position = 0;
     for (const block of parsed) {
-      index++;
+      position++;
+      const sourceSeq = block.sourceSeq ?? position;
+      const sourceLabel = block.sourceLabel ?? null;
       try {
         const dto = resolveDraft(block, defaults);
+        // Every import lands as a DRAFT — an admin's too. The review screen is
+        // where it is checked and approved.
+        dto.publish = false;
         /**
          * Store this question's diagrams and attach them.
          *
@@ -453,7 +574,7 @@ export class QuestionsService {
             const stored = await this.mediaStorage.put({
               instituteId,
               fileName:
-                `${fileName.replace(/\.docx$/i, '')}-q${index}-${i + 1}` +
+                `${fileName.replace(/\.docx$/i, '')}-q${sourceSeq}-${i + 1}` +
                 `.${extensionFor(img.contentType)}`,
               mimeType: img.contentType,
               body: img.buffer,
@@ -463,56 +584,55 @@ export class QuestionsService {
               data: {
                 instituteId,
                 key: stored.key,
-                fileName: `Imported diagram (question ${index})`,
+                fileName: `Imported diagram (question ${sourceSeq})`,
                 mimeType: img.contentType,
                 size: img.buffer.length,
-                altText: `Diagram for imported question ${index}`,
+                altText: `Diagram for imported question ${sourceSeq}`,
                 uploadedById: userId,
               },
             });
           }
           dto.mediaKeys = keys;
         }
-        const created = await this.create(dto);
+        const created = await this.createWithOrigin(dto, {
+          importRunId,
+          sourceSeq,
+          sourceLabel,
+        });
         imported.push({
           // The spreadsheet row when the file had one, so "row 14 failed"
           // matches what the author sees; otherwise the question's position.
-          index: block.sourceRow ?? index,
+          index: block.sourceRow ?? sourceSeq,
           id: created.id,
           type: dto.type,
           statement: block.statement.slice(0, 80),
           images: block.images.length,
+          sourceSeq,
+          sourceLabel,
         });
       } catch (err) {
         failed.push({
-          index: block.sourceRow ?? index,
+          index: block.sourceRow ?? sourceSeq,
           statement: block.statement.slice(0, 80),
           reason: err instanceof Error ? err.message : 'Failed',
+          sourceSeq,
+          sourceLabel,
         });
       }
     }
 
-    // Best-effort history: never let logging fail an import that succeeded.
-    const [subject, chapter] = await Promise.all([
-      this.prisma.subject.findFirst({
-        where: { id: defaults.subjectId, instituteId },
-        select: { name: true },
-      }),
-      this.prisma.chapter.findFirst({
-        where: { id: defaults.chapterId, instituteId },
-        select: { name: true },
-      }),
-    ]);
-    await this.imports.record({
-      kind: 'QUESTIONS_DOCX',
-      fileName,
-      total: parsed.length,
+    await this.imports.finish(importRunId, {
       imported: imported.length,
       failures: failed,
-      target: `${subject?.name ?? 'Unknown subject'} · ${chapter?.name ?? 'Unknown chapter'}`,
     });
 
-    return { total: parsed.length, imported, failed };
+    const warnings = buildImportWarnings(
+      [...imported, ...failed].map((r) => ({
+        seq: r.sourceSeq,
+        label: r.sourceLabel,
+      })),
+    );
+    return { total: parsed.length, importRunId, imported, failed, warnings };
   }
 
   async findAll(query: QueryQuestionsDto) {
@@ -520,7 +640,8 @@ export class QuestionsService {
     const structuralWhere: Prisma.QuestionWhereInput = {
       instituteId,
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
-      ...(query.chapterId ? { chapterId: query.chapterId } : {}),
+      ...unitIdFilter(query.unitId),
+      ...chapterIdFilter(query.chapterId, query.chapterIds),
       ...(query.topicId ? { topicId: query.topicId } : {}),
       ...(query.difficulty ? { difficulty: query.difficulty } : {}),
       ...(query.type ? { type: query.type } : {}),
@@ -529,6 +650,8 @@ export class QuestionsService {
       ...(query.tag ? { tags: { has: query.tag } } : {}),
       ...(query.mine ? { createdById: userId } : {}),
     };
+
+    if (query.importRunId) structuralWhere.importRunId = query.importRunId;
 
     /**
      * ALWAYS paginated, and always an envelope (§2.4). The bank is specified to
@@ -557,14 +680,30 @@ export class QuestionsService {
         tenantSetConfigStatement(this.prisma.raw, this.tenant),
         this.prisma.raw.question.findMany({
           where: structuralWhere,
-          orderBy: { createdAt: 'desc' },
-          select: listSelect,
+          // `id` breaks ties: rows from one upload share a createdAt to the
+          // millisecond, and without a total order Postgres is free to return
+          // them differently from one page (or one request) to the next.
+          // An import run is listed in the order of the source file.
+          orderBy: query.importRunId
+            ? [{ sourceSeq: 'asc' }, { id: 'asc' }]
+            : [{ createdAt: 'desc' }, { id: 'asc' }],
+          select: query.importRunId ? reviewSelect : listSelect,
           take: limit,
           skip: offset,
         }),
         this.prisma.raw.question.count({ where: structuralWhere }),
       ]);
-      return { items, total, limit, offset, counts };
+      return {
+        items: query.importRunId
+          ? (items as unknown as Parameters<typeof withFlags>[0][]).map(
+              withFlags,
+            )
+          : items,
+        total,
+        limit,
+        offset,
+        counts,
+      };
     }
 
     // Search via the Search port (§2.6) — relevance-ranked ids — then hydrate
@@ -736,10 +875,18 @@ export class QuestionsService {
         type: dto.type,
         language: dto.language,
         tags: dto.tags,
-        statement: dto.statement,
-        options: dto.options as unknown as Prisma.InputJsonValue,
+        // Sanitized exactly as `create` does: an edit is the other way markup
+        // reaches the exam screen, and was the one way in that skipped it.
+        statement:
+          dto.statement === undefined
+            ? undefined
+            : sanitizeQuestionText(dto.statement),
+        options: sanitizeOptions(dto.options),
         answerKey: dto.answerKey,
-        explanation: dto.explanation,
+        explanation:
+          dto.explanation === undefined
+            ? undefined
+            : sanitizeQuestionText(dto.explanation),
         marks: dto.marks,
         negativeMarks: dto.negativeMarks,
         mediaKeys: dto.mediaKeys,
@@ -794,6 +941,7 @@ export class QuestionsService {
     if (role !== Role.ADMIN && question.createdById !== userId) {
       throw new ForbiddenException('Only the author can submit this question');
     }
+    assertNoFormulaPlaceholder(question);
     return this.setStatus(id, QuestionStatus.REVIEW);
   }
 
@@ -803,6 +951,7 @@ export class QuestionsService {
     if (question.status !== QuestionStatus.REVIEW) {
       throw new BadRequestException('Only questions in review can be approved');
     }
+    assertNoFormulaPlaceholder(question);
     return this.prisma.question.update({
       where: { id },
       data: {
@@ -820,6 +969,103 @@ export class QuestionsService {
       throw new BadRequestException('Only questions in review can be rejected');
     }
     return this.setStatus(id, QuestionStatus.REJECTED);
+  }
+
+  /**
+   * Submit, approve or reject many questions in one request — the review
+   * screen's "Approve all" and its per-row buttons.
+   *
+   * Targets are either one import run (`importRunId`) or an explicit list
+   * (`ids`). They are processed one at a time, in source order, through the
+   * same `submit`/`approve`/`reject` methods single questions use, so every
+   * check those make (ownership, status, unresolved formulas) applies here
+   * unchanged and one bad question cannot stop the rest: each gets its own
+   * `{ id, ok, error? }`.
+   *
+   * Differences from calling the single endpoints:
+   *  - `approve` also accepts a DRAFT/REJECTED question: it is submitted and
+   *    then approved, so an admin reviewing a fresh upload needs one click, not
+   *    two. (The single `approve` endpoint is unchanged and still requires
+   *    REVIEW.)
+   *  - Given an `importRunId`, questions whose status makes the action
+   *    meaningless (already approved, say) are left alone and counted in
+   *    `skipped` rather than reported as failures. With explicit `ids` they are
+   *    failures, because the caller named them.
+   *  - Teachers may only `submit` (their own questions; `submit` enforces it).
+   */
+  async bulkAction(dto: BulkQuestionActionDto) {
+    const { role, instituteId } = this.ctx();
+    if (role !== Role.ADMIN && dto.action !== 'submit') {
+      throw new ForbiddenException('Only an administrator can do that');
+    }
+    if (!!dto.importRunId === !!dto.ids?.length) {
+      throw new BadRequestException('Send exactly one of importRunId or ids');
+    }
+
+    const targets = await this.prisma.question.findMany({
+      where: {
+        instituteId,
+        ...(dto.importRunId
+          ? { importRunId: dto.importRunId }
+          : { id: { in: dto.ids } }),
+      },
+      select: { id: true, status: true },
+      orderBy: [{ sourceSeq: 'asc' }, { id: 'asc' }],
+    });
+
+    const eligible: Record<BulkQuestionActionDto['action'], QuestionStatus[]> =
+      {
+        submit: AUTHOR_EDITABLE,
+        approve: [...AUTHOR_EDITABLE, QuestionStatus.REVIEW],
+        reject: [QuestionStatus.REVIEW],
+      };
+
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    let skipped = 0;
+    for (const target of targets) {
+      if (!eligible[dto.action].includes(target.status)) {
+        if (dto.importRunId) {
+          skipped++;
+          continue;
+        }
+        results.push({
+          id: target.id,
+          ok: false,
+          error: `A ${target.status.toLowerCase()} question cannot be ${PAST_TENSE[dto.action]}`,
+        });
+        continue;
+      }
+      try {
+        if (dto.action === 'submit') {
+          await this.submit(target.id);
+        } else if (dto.action === 'reject') {
+          await this.reject(target.id);
+        } else {
+          if (target.status !== QuestionStatus.REVIEW) {
+            await this.submit(target.id);
+          }
+          await this.approve(target.id);
+        }
+        results.push({ id: target.id, ok: true });
+      } catch (err) {
+        results.push({
+          id: target.id,
+          ok: false,
+          error: err instanceof Error ? err.message : 'Failed',
+        });
+      }
+    }
+    if (dto.ids) {
+      const found = new Set(targets.map((t) => t.id));
+      for (const id of dto.ids) {
+        if (!found.has(id)) {
+          results.push({ id, ok: false, error: 'Question not found' });
+        }
+      }
+    }
+
+    const ok = results.filter((r) => r.ok).length;
+    return { results, ok, failed: results.length - ok, skipped };
   }
 
   async archive(id: string, confirm?: boolean) {
@@ -926,6 +1172,7 @@ function resolveDraft(
 ): CreateQuestionDto {
   if (!defaults.subjectId) throw new Error('Missing subject');
   if (!defaults.chapterId) throw new Error('Missing chapter');
+  if (!parsed.statement.trim()) throw new Error('Missing question text');
   if (!parsed.answer) throw new Error('Missing answer');
 
   const difficultyRaw = (

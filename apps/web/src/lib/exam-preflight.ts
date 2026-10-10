@@ -18,16 +18,26 @@
  * negative-marking/short-section warnings are real and included below.
  */
 
+import {
+  compareBlueprint,
+  describeDeviations,
+  type SectionBlueprint,
+} from "./exam-blueprint";
+
 export interface PreflightQuestion {
   id: string;
   topicId: string | null;
   mediaKeys: string[];
+  chapterId?: string | null;
+  chapter?: string | null;
 }
 
 export interface PreflightSection {
   name: string;
   marksWrong: number;
   questions: PreflightQuestion[];
+  /** Chapter weightage the author set for this section, if any. */
+  blueprint?: SectionBlueprint | null;
 }
 
 export interface PreflightCheck {
@@ -82,6 +92,24 @@ export function runPreflightChecks(
         message: `"${s.name || "Untitled section"}" has no negative marking configured.`,
       });
     }
+  }
+
+  for (const s of sections) {
+    if (!s.blueprint || s.questions.length === 0) continue;
+    const { deviations, actualTotal, targetTotal } = compareBlueprint(
+      s.blueprint,
+      s.questions,
+    );
+    if (deviations.length === 0 && actualTotal === targetTotal) continue;
+    const countNote =
+      actualTotal !== targetTotal
+        ? ` (${actualTotal} question${actualTotal === 1 ? "" : "s"} against a target of ${targetTotal})`
+        : "";
+    warnings.push({
+      message: `"${s.name || "Untitled section"}" does not match its chapter weightage${countNote}${
+        deviations.length > 0 ? `: ${describeDeviations(deviations)}.` : "."
+      }`,
+    });
   }
 
   const noTopicCount = sections
