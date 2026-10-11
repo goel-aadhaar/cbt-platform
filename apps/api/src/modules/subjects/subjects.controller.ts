@@ -7,6 +7,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -35,8 +36,10 @@ export class SubjectsController {
   }
 
   @Get()
-  findAll() {
-    return this.subjects.findAll();
+  findAll(@Query('withCounts') withCounts?: string) {
+    return withCounts === 'true'
+      ? this.subjects.findAllWithCounts()
+      : this.subjects.findAll();
   }
 
   @Get(':id')

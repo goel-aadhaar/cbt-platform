@@ -61,6 +61,52 @@ export class SubjectsService {
     });
   }
 
+  /** Subjects plus how many ACTIVE units / chapters / topics each one holds. */
+  async findAllWithCounts() {
+    const instituteId = this.instituteId();
+    const subjects = await this.findAll();
+    const [units, chapters, chapterTopics] = await Promise.all([
+      this.prisma.unit.groupBy({
+        by: ['subjectId'],
+        where: { instituteId, isActive: true },
+        _count: { _all: true },
+      }),
+      this.prisma.chapter.groupBy({
+        by: ['subjectId'],
+        where: { instituteId, isActive: true },
+        _count: { _all: true },
+      }),
+      this.prisma.chapter.findMany({
+        where: { instituteId, isActive: true },
+        select: {
+          subjectId: true,
+          _count: { select: { topics: { where: { isActive: true } } } },
+        },
+      }),
+    ]);
+
+    const unitCount = new Map(units.map((r) => [r.subjectId, r._count._all]));
+    const chapterCount = new Map(
+      chapters.map((r) => [r.subjectId, r._count._all]),
+    );
+    const topicCount = new Map<string, number>();
+    for (const c of chapterTopics) {
+      topicCount.set(
+        c.subjectId,
+        (topicCount.get(c.subjectId) ?? 0) + c._count.topics,
+      );
+    }
+
+    return subjects.map((s) => ({
+      ...s,
+      counts: {
+        units: unitCount.get(s.id) ?? 0,
+        chapters: chapterCount.get(s.id) ?? 0,
+        topics: topicCount.get(s.id) ?? 0,
+      },
+    }));
+  }
+
   async findOne(id: string) {
     const subject = await this.prisma.subject.findFirst({
       where: { id, instituteId: this.instituteId() },

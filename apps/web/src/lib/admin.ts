@@ -1139,6 +1139,19 @@ export function listSubjects(): Promise<Subject[]> {
   return apiFetch<Subject[]>(`/subjects`, auth());
 }
 
+/** Active rows under a subject. */
+export interface SubjectCounts {
+  units: number;
+  chapters: number;
+  topics: number;
+}
+export type SubjectWithCounts = Subject & { counts: SubjectCounts };
+
+/** GET /subjects?withCounts=true — each subject plus its active tallies. */
+export function listSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
+  return apiFetch<SubjectWithCounts[]>(`/subjects?withCounts=true`, auth());
+}
+
 /** POST /subjects — ADMIN. Name must be unique within the institute. */
 export function createSubject(name: string): Promise<Subject> {
   return apiFetch(`/subjects`, { method: "POST", body: { name }, ...auth() });
