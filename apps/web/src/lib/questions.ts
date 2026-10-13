@@ -149,9 +149,19 @@ export async function listQuestions(
   return res;
 }
 
+/**
+ * One answer option. `text` may be empty when an image carries the option;
+ * `mediaKey` is omitted (never null) when there is none.
+ */
+export interface QuestionOption {
+  key: string;
+  text: string;
+  mediaKey?: string;
+}
+
 /** A single question with its full detail, including attached media keys. */
 export interface QuestionDetail extends QuestionListItem {
-  options: { key: string; text: string }[] | null;
+  options: QuestionOption[] | null;
   answerKey: string | number | string[];
   explanation: string | null;
   /** Storage keys (§2.7) — resolve to URLs via the media library. */
@@ -176,7 +186,7 @@ export interface CreateQuestionInput {
   tags?: string[];
   statement: string;
   /** Required for MCQ/MSQ (2+ options); omitted for INTEGER. */
-  options?: { key: string; text: string }[];
+  options?: QuestionOption[];
   /** MCQ: one option key. MSQ: option keys. INTEGER: a number. */
   answerKey: string | number | string[];
   explanation?: string;

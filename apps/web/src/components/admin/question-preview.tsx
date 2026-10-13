@@ -1,7 +1,9 @@
 import { AuthedImage } from "@/components/authed-image";
 import { RichText } from "@/components/rich-text";
+import { mediaFileUrl } from "@/lib/media";
 import { sourceNumberText, type QuestionDetail } from "@/lib/questions";
 
+import { ZoomableImage } from "./image-lightbox";
 import { CheckCircleIcon } from "./icons";
 
 /** Which of an INTEGER/MCQ/MSQ answerKey a given option key matches. */
@@ -68,7 +70,7 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
             {question.mediaKeys.map((key) => (
               <AuthedImage
                 key={key}
-                url={`/media/file/${encodeURIComponent(key)}`}
+                url={mediaFileUrl(key)}
                 alt="Question diagram"
                 className="max-h-72 max-w-full rounded border border-admin-line bg-white object-contain"
               />
@@ -114,11 +116,22 @@ export function QuestionPreview({ question }: { question: QuestionDetail }) {
                         {o.key}
                       </span>
                     )}
-                    <RichText
-                      text={o.text}
-                      as="div"
-                      className="font-semibold text-admin-ink"
-                    />
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
+                      {o.text.trim() && (
+                        <RichText
+                          text={o.text}
+                          as="div"
+                          className="font-semibold text-admin-ink"
+                        />
+                      )}
+                      {o.mediaKey && (
+                        <ZoomableImage
+                          mediaKey={o.mediaKey}
+                          alt={`Option ${o.key} image`}
+                          className="max-h-40"
+                        />
+                      )}
+                    </div>
                   </div>
                 );
               })}

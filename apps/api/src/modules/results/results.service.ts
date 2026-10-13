@@ -21,6 +21,8 @@ import { toCsv, withBom } from '../../common/csv/to-csv';
 import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
+import { withOptionMediaUrls } from '../media/media-url';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { QueryResultsDto } from './dto/query-results.dto';
@@ -124,6 +126,8 @@ export class ResultsService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly teacherScope: TeacherScopeService,
+    // Resolves option images to URLs on the student's review screen.
+    private readonly media: MediaStoragePort,
   ) {}
 
   private instituteId(): string {
@@ -1640,7 +1644,7 @@ export class ResultsService {
           section: section.name,
           type: q.type,
           statement: q.statement,
-          options: q.options,
+          options: withOptionMediaUrls(this.media, q.options),
           yourAnswer: given,
           correctAnswer: q.answerKey,
           explanation: q.explanation,

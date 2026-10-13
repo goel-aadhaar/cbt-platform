@@ -8,7 +8,7 @@ import {
 
 import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
-import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
+import { Prisma } from '../../generated/prisma/client';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { MediaStoragePort } from './ports/media-storage.port';
@@ -64,6 +64,11 @@ const LABELS: Record<MediaKind, string> = {
   IMAGE: 'PNG, JPEG, WebP, GIF or SVG',
   DOCUMENT: 'PDF, Word, Excel, PowerPoint, TXT, CSV, PNG or JPEG',
 };
+
+/** Postgres jsonb containment: some option of the question carries this image. */
+function optionUsesKey(key: string): Prisma.QuestionWhereInput {
+  return { options: { array_contains: [{ mediaKey: key }] } };
+}
 
 @Injectable()
 export class MediaService {
@@ -177,6 +182,10 @@ export class MediaService {
    * entitled the same way Resources are: only if it sits in a DPP assigned to
    * the student's OWN batch — DPP is batch-scoped, not open to the institute.
    *
+   * An image on one of a question's OPTIONS follows the same two conditions as
+   * a stem image: it is the same exam-day exposure, and an option image is
+   * often the answer itself, so the entitlement must not be any looser.
+   *
    * A denial is a 404, matching every other not-visible-in-your-scope lookup —
    * it does not confirm that the key exists.
    */
@@ -205,16 +214,20 @@ export class MediaService {
     const entitled = await this.prisma.question.findFirst({
       where: {
         instituteId: ctx.instituteId ?? undefined,
-        mediaKeys: { has: key },
-        OR: [
+        AND: [
+          { OR: [{ mediaKeys: { has: key } }, optionUsesKey(key)] },
           {
-            dppQuestions: {
-              some: {
-                dpp: { batches: { some: { batchId: student.batchId } } },
+            OR: [
+              {
+                dppQuestions: {
+                  some: {
+                    dpp: { batches: { some: { batchId: student.batchId } } },
+                  },
+                },
               },
-            },
+              { responses: { some: { attempt: { studentId: student.id } } } },
+            ],
           },
-          { responses: { some: { attempt: { studentId: student.id } } } },
         ],
       },
       select: { id: true },
@@ -282,54 +295,75 @@ export class MediaService {
     });
     if (!row) throw new NotFoundException('Media not found');
 
-    // mediaKeys is a plain string[] on Question (no FK), so the database
-    // cannot stop this on its own — a diagram question is unanswerable
-    // without its image (§2.7), so deleting one still embedded in a
-    // question would silently break it, live exam or not.
-    if (!confirm) {
-      const usedIn = await this.prisma.question.findMany({
-        where: { instituteId, mediaKeys: { has: row.key } },
-        select: { id: true, statement: true, status: true },
+    // mediaKeys and option mediaKeys are plain values on Question (no FK), so
+    // the database cannot stop this on its own — a diagram question is
+    // unanswerable without its image (§2.7), and an option that is only an
+    // image is blank without it, so deleting one still in use would silently
+    // break the question, live exam or not.
+    const usedIn = await this.prisma.question.findMany({
+      where: {
+        instituteId,
+        OR: [{ mediaKeys: { has: row.key } }, optionUsesKey(row.key)],
+      },
+      select: {
+        id: true,
+        statement: true,
+        status: true,
+        mediaKeys: true,
+        options: true,
+      },
+    });
+
+    if (!confirm && usedIn.length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'MediaUsedInQuestions',
+        message:
+          `This image is still used by ${usedIn.length} question${usedIn.length === 1 ? '' : 's'} ` +
+          '(as a diagram or as an option image). Deleting it will leave ' +
+          'them without it. Re-send with confirm=true to delete anyway.',
+        affectedCount: usedIn.length,
+        affectedQuestions: usedIn.map((q) => ({
+          id: q.id,
+          statement: q.statement.slice(0, 80),
+          status: q.status,
+        })),
       });
-      if (usedIn.length > 0) {
-        throw new ConflictException({
-          statusCode: 409,
-          error: 'MediaUsedInQuestions',
-          message:
-            'This image is still attached to one or more questions. Deleting ' +
-            'it will leave them without their diagram. Re-send with ' +
-            'confirm=true to delete anyway.',
-          affectedQuestions: usedIn.map((q) => ({
-            id: q.id,
-            statement: q.statement.slice(0, 80),
-            status: q.status,
-          })),
-        });
-      }
     }
 
     /**
-     * Detach the key from every question still carrying it.
+     * Detach the key from every question still carrying it — as a diagram and
+     * as an option image.
      *
-     * `mediaKeys` is a plain `String[]` with no foreign key, so nothing in the
-     * database does this. Left behind, the key survives the image: the question
-     * keeps asking the browser for a file that no longer exists and renders
-     * "Image unavailable" forever — on a diagram question, permanently
-     * unanswerable — and the dead key propagates into every exam that reuses it.
+     * Nothing in the database does this (no foreign key). Left behind, the key
+     * survives the image: the question keeps asking the browser for a file that
+     * no longer exists and renders "Image unavailable" forever, and the dead key
+     * propagates into every exam that reuses it.
      *
-     * Raw SQL because Prisma has no "remove one element from a scalar list"
-     * operation: `array_remove` does it in a single statement rather than
-     * read-modify-write per row, which would race a concurrent question edit.
+     * Plain Prisma updates (so the tenant RLS extension scopes them) rather than
+     * one raw statement, because an option lives inside a JSON array. The
+     * read-modify-write window is the width of this loop.
      */
-    // DEF-001: raw $executeRaw isn't intercepted by the tenant RLS extension.
-    const [, detached] = await this.prisma.raw.$transaction([
-      tenantSetConfigStatement(this.prisma.raw, this.tenant),
-      this.prisma.raw.$executeRaw`
-        UPDATE "questions"
-           SET "media_keys" = array_remove("media_keys", ${row.key})
-         WHERE "institute_id" = ${instituteId}::uuid
-           AND ${row.key} = ANY("media_keys")`,
-    ]);
+    for (const q of usedIn) {
+      const options = Array.isArray(q.options)
+        ? (q.options as Record<string, unknown>[]).map((o) => {
+            if (o?.mediaKey !== row.key) return o;
+            const rest = { ...o };
+            delete rest.mediaKey;
+            return rest;
+          })
+        : q.options;
+      await this.prisma.question.update({
+        where: { id: q.id },
+        data: {
+          mediaKeys: q.mediaKeys.filter((k) => k !== row.key),
+          ...(Array.isArray(options)
+            ? { options: options as Prisma.InputJsonValue }
+            : {}),
+        },
+      });
+    }
+    const detached = usedIn.length;
 
     // Remove the record before the object: a stray object is harmless, a record
     // pointing at nothing is not.

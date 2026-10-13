@@ -11,7 +11,12 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { AuthedImage } from "@/components/authed-image";
+import { prefetchAuthedImages } from "@/components/authed-image";
+import {
+  EnlargeableImage,
+  optionImageUrl,
+  optionLetter,
+} from "@/components/option-image";
 import { InstituteLogo } from "@/components/institute-logo";
 import { RichText } from "@/components/rich-text";
 import { AuthGate } from "@/components/auth-gate";
@@ -321,6 +326,7 @@ function ExamRunner({
       stem: string;
       options: string[];
       optionKeys: string[];
+      optionImages: ({ url: string } | null)[];
       positiveMarks: number;
       negativeMarks: number;
       sectionId: string;
@@ -337,6 +343,10 @@ function ExamRunner({
           stem: q.question.statement,
           options: raw.map((o) => o.text),
           optionKeys: raw.map((o) => o.key),
+          optionImages: raw.map((o) => {
+            const url = optionImageUrl(o);
+            return url ? { url } : null;
+          }),
           positiveMarks: q.question.marks,
           negativeMarks: section.marksWrong,
           sectionId: section.id,
@@ -347,6 +357,24 @@ function ExamRunner({
     }
     return out;
   }, [attempt]);
+
+  /**
+   * Warm the image cache for the whole paper (current section first) so that
+   * moving between questions does not hit the network once per image.
+   */
+  useEffect(() => {
+    const urls: string[] = [];
+    const firstSection = questions[0]?.sectionId;
+    const ordered = [
+      ...questions.filter((x) => x.sectionId === firstSection),
+      ...questions.filter((x) => x.sectionId !== firstSection),
+    ];
+    for (const x of ordered) {
+      for (const m of x.media) urls.push(m.url);
+      for (const img of x.optionImages) if (img) urls.push(img.url);
+    }
+    if (urls.length > 0) void prefetchAuthedImages(urls);
+  }, [questions]);
 
   /**
    * Tab labels = the paper's real sections, in order. A Biology-only paper gets
@@ -805,11 +833,14 @@ function ExamRunner({
               {q.media.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3">
                   {q.media.map((m) => (
-                    <AuthedImage
+                    <EnlargeableImage
                       key={m.key}
                       url={m.url}
-                      alt="Question diagram"
-                      className="max-h-80 max-w-full rounded border border-line bg-white object-contain"
+                      alt="Question figure"
+                      caption="Question figure"
+                      enlargeLabel="Enlarge question figure"
+                      imageClassName="max-h-80 max-w-full rounded border border-line bg-white object-contain lg:max-h-96"
+                      placeholderClassName="h-48 w-72 max-w-full rounded border border-line"
                     />
                   ))}
                 </div>
@@ -843,48 +874,83 @@ function ExamRunner({
                     const isPicked = isMulti
                       ? Array.isArray(picked) && picked.includes(key)
                       : picked === key;
+                    const image = q.optionImages[i];
+                    const letter = optionLetter(q.optionKeys[i], i);
+                    const hasText = opt.trim() !== "";
+                    const choose = () =>
+                      isMulti ? toggleOption(i) : selectOption(i);
                     return (
-                      <button
+                      <div
                         key={i}
-                        type="button"
-                        aria-pressed={isPicked}
-                        onClick={() =>
-                          isMulti ? toggleOption(i) : selectOption(i)
-                        }
-                        className={`flex items-center gap-3 border p-4 text-left transition-colors ${
+                        className={`border text-left transition-colors ${
                           isPicked
                             ? "border-2 border-brand bg-brand-soft/20"
                             : "border-line bg-white hover:bg-surface"
                         }`}
                       >
-                        <span
-                          className={`flex size-[18px] shrink-0 items-center justify-center border ${
-                            isMulti ? "rounded-[3px]" : "rounded-full"
-                          } ${
-                            isPicked
-                              ? "border-brand bg-brand"
-                              : "border-subtle bg-surface"
+                        <button
+                          type="button"
+                          aria-pressed={isPicked}
+                          aria-label={hasText ? undefined : `Option ${letter}`}
+                          onClick={choose}
+                          className={`flex w-full items-center gap-3 p-4 text-left ${
+                            image ? "pb-2" : ""
                           }`}
                         >
-                          {isPicked &&
-                            (isMulti ? (
-                              <span className="text-[11px] font-bold leading-none text-white">
-                                ✓
-                              </span>
-                            ) : (
-                              <span className="size-1.5 rounded-full bg-white" />
-                            ))}
-                        </span>
-                        <RichText
-                          as="span"
-                          text={opt}
-                          className={`text-base ${
-                            isPicked
-                              ? "font-semibold text-brand-indigo"
-                              : "text-ink"
-                          }`}
-                        />
-                      </button>
+                          <span
+                            className={`flex size-[18px] shrink-0 items-center justify-center border ${
+                              isMulti ? "rounded-[3px]" : "rounded-full"
+                            } ${
+                              isPicked
+                                ? "border-brand bg-brand"
+                                : "border-subtle bg-surface"
+                            }`}
+                          >
+                            {isPicked &&
+                              (isMulti ? (
+                                <span className="text-[11px] font-bold leading-none text-white">
+                                  ✓
+                                </span>
+                              ) : (
+                                <span className="size-1.5 rounded-full bg-white" />
+                              ))}
+                          </span>
+                          {hasText ? (
+                            <RichText
+                              as="span"
+                              text={opt}
+                              className={`text-base ${
+                                isPicked
+                                  ? "font-semibold text-brand-indigo"
+                                  : "text-ink"
+                              }`}
+                            />
+                          ) : (
+                            <span
+                              className={`text-sm font-semibold ${
+                                isPicked ? "text-brand-indigo" : "text-muted"
+                              }`}
+                            >
+                              Option {letter}
+                            </span>
+                          )}
+                        </button>
+                        {image && (
+                          <div
+                            className="cursor-pointer pb-4 pl-[46px] pr-4"
+                            onClick={choose}
+                          >
+                            <EnlargeableImage
+                              url={image.url}
+                              alt={`Option ${letter} image`}
+                              caption={`Option ${letter}`}
+                              enlargeLabel={`Enlarge image for option ${letter}`}
+                              imageClassName="max-h-56 max-w-full rounded border border-line bg-white object-contain sm:max-h-64 lg:max-h-60"
+                              placeholderClassName="h-40 w-64 max-w-full rounded border border-line"
+                            />
+                          </div>
+                        )}
+                      </div>
                     );
                   })
                 )}

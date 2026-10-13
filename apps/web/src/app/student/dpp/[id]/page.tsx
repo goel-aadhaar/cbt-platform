@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { AuthedImage } from "@/components/authed-image";
+import { EnlargeableImage } from "@/components/option-image";
 import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
@@ -245,11 +245,14 @@ export default function DppAttemptPage() {
           {(q.media ?? []).length > 0 && (
             <div className="mt-4 flex flex-wrap gap-3">
               {(q.media ?? []).map((m) => (
-                <AuthedImage
+                <EnlargeableImage
                   key={m.key}
                   url={m.url}
-                  alt="Question diagram"
-                  className="max-h-72 max-w-full rounded-lg border border-admin-line/60 bg-white object-contain"
+                  alt="Question figure"
+                  caption="Question figure"
+                  enlargeLabel="Enlarge question figure"
+                  imageClassName="max-h-72 max-w-full rounded-lg border border-admin-line/60 bg-white object-contain lg:max-h-96"
+                  placeholderClassName="h-48 w-72 max-w-full rounded-lg border border-admin-line/60"
                 />
               ))}
             </div>

@@ -26,6 +26,7 @@ describe('holding results', () => {
       prisma as never,
       tenant as never,
       teacherScope as never,
+      {} as never, // MediaStoragePort — never called
     );
     return { prisma, service };
   }

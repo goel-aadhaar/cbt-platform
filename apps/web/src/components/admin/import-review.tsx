@@ -21,7 +21,9 @@ import {
   type ReviewFlag,
   type ReviewQuestion,
 } from "@/lib/questions";
+import { mediaFileUrl } from "@/lib/media";
 
+import { ZoomableImage } from "./image-lightbox";
 import { AlertTriangleIcon, CheckCircleIcon, ChevronLeftIcon } from "./icons";
 import { QuestionAuthorDrawer } from "./question-author-drawer";
 
@@ -561,7 +563,7 @@ function ReviewCard({
           {q.mediaKeys.map((key) => (
             <AuthedImage
               key={key}
-              url={`/media/file/${encodeURIComponent(key)}`}
+              url={mediaFileUrl(key)}
               alt="Question diagram"
               className="max-h-48 max-w-full rounded border border-admin-line bg-white object-contain"
             />
@@ -588,11 +590,22 @@ function ReviewCard({
                 }`}
               >
                 <span className="font-bold text-admin-muted">{o.key}.</span>
-                <RichText
-                  text={o.text}
-                  as="span"
-                  className="min-w-0 flex-1 text-admin-ink"
-                />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  {o.text.trim() && (
+                    <RichText
+                      text={o.text}
+                      as="span"
+                      className="text-admin-ink"
+                    />
+                  )}
+                  {o.mediaKey && (
+                    <ZoomableImage
+                      mediaKey={o.mediaKey}
+                      alt={`Option ${o.key} image`}
+                      className="max-h-40"
+                    />
+                  )}
+                </div>
                 {correct && (
                   <span className="shrink-0 text-xs font-bold text-admin">
                     Correct

@@ -82,6 +82,7 @@ describe('QuestionExportService', () => {
     answerKey: 'B',
     explanation: 'SECRETEXPLANATIONTEXT',
     type: 'MCQ',
+    mediaKeys: [] as string[],
     subject: 'Biology',
     chapter: 'Cell Structure',
     topic: null,
@@ -107,7 +108,11 @@ describe('QuestionExportService', () => {
     const tenant = {
       get: jest.fn(() => ({ instituteId: INSTITUTE, userId: 'u-1' })),
     };
-    const service = new QuestionExportService(prisma as never, tenant as never);
+    const service = new QuestionExportService(
+      prisma as never,
+      tenant as never,
+      {} as never,
+    );
     return { service, prisma };
   }
 
@@ -227,5 +232,172 @@ describe('QuestionExportService', () => {
         service.export(ids, undefined, ExportFormat.PDF, false),
       ).rejects.toThrow(BadRequestException);
     });
+  });
+});
+
+/**
+ * Images in the exported paper: stem diagrams and option images are embedded
+ * when the storage port can serve them, and degrade to "[image]" when not.
+ */
+describe('QuestionExportService - embedded images', () => {
+  const PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64',
+  );
+  const SVG = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+
+  const withImages = {
+    id: 'q-img',
+    statement: 'Which waveform is shown?',
+    options: [
+      { key: 'A', text: 'sine wave' },
+      { key: 'B', text: '', mediaKey: 'inst-1/opt-b.png' },
+      { key: 'C', text: 'a drawing', mediaKey: 'inst-1/opt-c.svg' },
+      { key: 'D', text: '', mediaKey: 'inst-1/opt-gone.png' },
+    ],
+    answerKey: 'B',
+    explanation: null,
+    type: 'MCQ',
+    mediaKeys: ['inst-1/stem.png'],
+    subject: 'Physics',
+    chapter: 'Waves',
+    topic: null,
+    difficulty: 'EASY',
+    marks: 4,
+    negativeMarks: 1,
+  };
+
+  function build(files: Record<string, Buffer | Error | null>) {
+    const prisma = {
+      question: {
+        findMany: jest.fn(() => [withImages]),
+        count: jest.fn(() => 1),
+      },
+    };
+    const tenant = {
+      get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u-1' })),
+    };
+    const storage = {
+      get: jest.fn((key: string) => {
+        const f = files[key];
+        if (f instanceof Error) return Promise.reject(f);
+        return Promise.resolve(f ?? null);
+      }),
+    };
+    const service = new QuestionExportService(
+      prisma as never,
+      tenant as never,
+      storage as never,
+    );
+    return { service, prisma, storage };
+  }
+
+  const files = {
+    'inst-1/stem.png': PNG,
+    'inst-1/opt-b.png': PNG,
+    'inst-1/opt-c.svg': SVG,
+    'inst-1/opt-gone.png': null,
+  };
+
+  it('asks the database for stem and option image keys', async () => {
+    const { service, prisma } = build(files);
+    await service.export(['q-img'], undefined, ExportFormat.PDF, false);
+    const call = prisma.question.findMany.mock.calls[0] as unknown as [
+      { select: { mediaKeys: boolean; options: boolean } },
+    ];
+    expect(call[0].select).toMatchObject({ mediaKeys: true, options: true });
+  });
+
+  it('PDF: embeds readable images and prints [image] for the rest', async () => {
+    const { service, storage } = build(files);
+    const { buffer } = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.PDF,
+      false,
+    );
+    // The stem diagram and option B are drawn (an RGBA PNG is two image
+    // objects in PDF: the picture and its alpha mask); the others are not.
+    const drawn = buffer.toString('latin1').match(/\/Subtype \/Image/g) ?? [];
+    expect(drawn.length).toBeGreaterThanOrEqual(2);
+    expect(drawn.length % 2).toBe(0);
+    expect(storage.get).toHaveBeenCalledTimes(4);
+
+    const text = pdfText(buffer);
+    expect(text).toContain('A) sine wave');
+    // B is drawn: just the label. C (SVG) and D (missing) fall back.
+    expect(text).toContain('C) a drawing [image]');
+    expect(text).toContain('D) [image]');
+    expect(text).not.toContain('B) [image]');
+  });
+
+  it('DOCX: embeds readable images and prints [image] for the rest', async () => {
+    const { service } = build(files);
+    const { buffer } = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.DOCX,
+      false,
+    );
+    expect(buffer.toString('latin1')).toContain('word/media/');
+    const xml = docxText(buffer);
+    expect(xml).toContain('A) sine wave');
+    expect(xml).toContain('C) a drawing [image]');
+    expect(xml).toContain('D) [image]');
+    expect(xml).not.toContain('B) [image]');
+    // Exactly the stem diagram and option B.
+    expect(xml.match(/<w:drawing>/g)).toHaveLength(2);
+  });
+
+  it('prints placeholders and still finishes when storage throws or is empty', async () => {
+    const { service } = build({
+      'inst-1/stem.png': new Error('S3 unavailable'),
+      'inst-1/opt-b.png': null,
+      'inst-1/opt-c.svg': SVG,
+      'inst-1/opt-gone.png': null,
+    });
+    const pdf = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.PDF,
+      false,
+    );
+    expect(pdf.buffer.toString('latin1')).not.toContain('/Subtype /Image');
+    const text = pdfText(pdf.buffer);
+    expect(text).toContain('B) [image]');
+    expect(text).toContain('D) [image]');
+
+    const docx = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.DOCX,
+      true,
+    );
+    expect(docxText(docx.buffer)).toContain('B) [image]');
+  });
+
+  it('PDF cannot draw a GIF, DOCX can: the GIF falls back only in the PDF', async () => {
+    const GIF = Buffer.from('R0lGODlhAQABAAAAACw=', 'base64');
+    const only = {
+      'inst-1/stem.png': GIF,
+      'inst-1/opt-b.png': GIF,
+      'inst-1/opt-c.svg': GIF,
+      'inst-1/opt-gone.png': GIF,
+    };
+    const { service } = build(only);
+    const pdf = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.PDF,
+      false,
+    );
+    expect(pdf.buffer.toString('latin1')).not.toContain('/Subtype /Image');
+    const docx = await service.export(
+      ['q-img'],
+      undefined,
+      ExportFormat.DOCX,
+      false,
+    );
+    expect(docxText(docx.buffer)).toContain('<w:drawing>');
   });
 });

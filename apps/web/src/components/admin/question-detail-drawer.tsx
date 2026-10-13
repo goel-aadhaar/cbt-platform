@@ -300,6 +300,13 @@ export function QuestionDetailDrawer({
                 </div>
               )}
 
+              {question.options?.some((o) => o.mediaKey) && (
+                <p className="text-xs text-admin-muted">
+                  Option images are changed from <strong>Edit</strong>; the
+                  images above attach to the question stem.
+                </p>
+              )}
+
               <QuestionPreview question={question} />
             </div>
           )}

@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
@@ -14,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiConsumes, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { Role } from '../auth/auth.types';
 import { MediaKind } from '../../generated/prisma/enums';
@@ -74,6 +76,13 @@ export class MediaController {
    */
   @Get('file/:key')
   @Roles(Role.ADMIN, Role.TEACHER, Role.STUDENT)
+  // A question can carry up to five option images plus its diagrams, and a
+  // whole hall opens the paper at once: a 429 here is a permanently broken
+  // image on exam day. The route is still authenticated and entitlement-checked.
+  @SkipThrottle()
+  // Private: the entitlement check is per student, so a shared cache must never
+  // serve one student's image to another.
+  @Header('Cache-Control', 'private, max-age=3600')
   async file(@Param('key') key: string): Promise<StreamableFile> {
     const row = await this.media.read(decodeURIComponent(key));
     return new StreamableFile(row.body, {
@@ -89,7 +98,9 @@ export class MediaController {
       disposition:
         row.kind === MediaKind.DOCUMENT
           ? `attachment; filename="${row.fileName.replace(/"/g, '')}"`
-          : `inline; filename="${row.fileName.replace(/"/g, '')}"`,
+          : // No filename: a student may be shown an option image, and an upload
+            // named "answer-B.png" must not reach them.
+            'inline',
     });
   }
 

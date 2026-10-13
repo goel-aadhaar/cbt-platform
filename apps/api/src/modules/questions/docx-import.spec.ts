@@ -247,3 +247,144 @@ describe('Word equations', () => {
     expect(qs.map((q) => q.sourceSeq)).toEqual([1, 2]);
   });
 });
+
+/** The minimal JSZip typing only takes strings; the real library takes bytes. */
+function addBinary(zip: object, name: string, data: Buffer) {
+  (zip as { file: (n: string, d: Buffer) => void }).file(name, data);
+}
+
+describe('images inside options', () => {
+  const img = (n: number) => ({
+    token: `[[IMAGE:${n}]]`,
+    contentType: 'image/png',
+    buffer: Buffer.from([n]),
+  });
+
+  it('attaches an image that follows an option line to that option', () => {
+    const [q] = parseQuestions(
+      [
+        'Q: Which circuit?',
+        '[[IMAGE:0]]',
+        'A) first',
+        '[[IMAGE:1]]',
+        'B) second',
+        'Answer: A',
+      ].join('\n'),
+      [img(0), img(1)],
+    );
+    // The image before any option is the stem's; the one after A) is A's.
+    expect(q.images.map((i) => i.token)).toEqual(['[[IMAGE:0]]']);
+    expect(q.options[0].image?.token).toBe('[[IMAGE:1]]');
+    expect(q.options[1].image).toBeUndefined();
+  });
+
+  it('recognises an option that is only an image ("A)" then the picture)', () => {
+    const [q] = parseQuestions(
+      ['Q: Pick', 'A)', '[[IMAGE:0]]', 'B.', '[[IMAGE:1]]', 'Answer: B'].join(
+        '\n',
+      ),
+      [img(0), img(1)],
+    );
+    expect(q.options.map((o) => [o.key, o.text, o.image?.token])).toEqual([
+      ['A', '', '[[IMAGE:0]]'],
+      ['B', '', '[[IMAGE:1]]'],
+    ]);
+    expect(q.images).toEqual([]);
+  });
+
+  it('does not treat a bare "A)" as an option unless an image follows', () => {
+    const [q] = parseQuestions(
+      ['Q: Pick', 'A)', 'B) x', 'Answer: B'].join('\n'),
+    );
+    expect(q.options).toEqual([{ key: 'B', text: 'x' }]);
+    expect(q.statement).toBe('Pick A)');
+  });
+
+  it('sends an image after the Answer line (or metadata) back to the stem', () => {
+    const [q] = parseQuestions(
+      ['Q: Pick', 'A) one', 'Answer: A', '[[IMAGE:0]]'].join('\n'),
+      [img(0)],
+    );
+    expect(q.options[0].image).toBeUndefined();
+    expect(q.images).toHaveLength(1);
+  });
+
+  it('keeps only the first image for an option and never moves it to the stem', () => {
+    const [q] = parseQuestions(
+      ['Q: Pick', 'A) one', '[[IMAGE:0]]', '[[IMAGE:1]]', 'Answer: A'].join(
+        '\n',
+      ),
+      [img(0), img(1)],
+    );
+    expect(q.options[0].image?.token).toBe('[[IMAGE:0]]');
+    expect(q.images).toEqual([]);
+  });
+
+  it('survives a real .docx round trip with a picture in an option', async () => {
+    const JSZip = loadJsZip();
+    const zip = new JSZip();
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    zip.file(
+      '[Content_Types].xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Default Extension="png" ContentType="image/png"/>' +
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+        '</Types>',
+    );
+    zip.file(
+      '_rels/.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+        '</Relationships>',
+    );
+    zip.file(
+      'word/_rels/document.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/a.png"/>' +
+        '<Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/b.png"/>' +
+        '</Relationships>',
+    );
+    addBinary(zip, 'word/media/a.png', png);
+    addBinary(zip, 'word/media/b.png', png);
+    const p = (text: string) =>
+      `<w:p><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+    const drawing = (rid: string) =>
+      '<w:r><w:drawing><wp:inline><wp:extent cx="100" cy="100"/>' +
+      '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+      `<pic:pic><pic:blipFill><a:blip r:embed="${rid}"/></pic:blipFill></pic:pic>` +
+      '</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+    zip.file(
+      'word/document.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
+        'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" ' +
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
+        'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" ' +
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>' +
+        p('1. Which waveform?') +
+        `<w:p><w:r><w:t xml:space="preserve">A) </w:t></w:r>${drawing('rId5')}</w:p>` +
+        `<w:p><w:r><w:t xml:space="preserve">B) square wave</w:t></w:r>${drawing('rId6')}</w:p>` +
+        p('Answer: A') +
+        '</w:body></w:document>',
+    );
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const content = await extractDocxContent(buffer);
+    expect(content.images).toHaveLength(2);
+    const [q] = parseQuestions(content.text, content.images);
+    expect(q.statement).toBe('Which waveform?');
+    expect(q.images).toEqual([]);
+    expect(q.options.map((o) => [o.key, o.text, !!o.image])).toEqual([
+      ['A', '', true],
+      ['B', 'square wave', true],
+    ]);
+  });
+});

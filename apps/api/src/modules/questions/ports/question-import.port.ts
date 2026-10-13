@@ -9,11 +9,17 @@ export interface ParsedImage {
 /** A question block parsed from an imported document, before field resolution. */
 export interface ParsedQuestion {
   statement: string;
-  options: { key: string; text: string }[];
+  options: {
+    key: string;
+    text: string;
+    /** An image that sat right after this option line; becomes its mediaKey. */
+    image?: ParsedImage;
+  }[];
   answer: string | null;
   meta: Record<string, string>;
   /**
-   * Image tokens that appeared inside this question, in document order.
+   * Image tokens that appeared inside this question's stem, in document order.
+   * Images belonging to an option live on that option instead.
    *
    * The importer used to read the file with `extractRawText`, which drops
    * images on the floor — a diagram question imported as unanswerable text with

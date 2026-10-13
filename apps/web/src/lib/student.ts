@@ -33,6 +33,15 @@ export async function fetchStudentMe(): Promise<StudentProfile> {
  * EXAM TAKING — attempts                                              *
  * ------------------------------------------------------------------ */
 
+/** An option as shown to a student; `text` may be empty for an image-only option. */
+export interface StudentOption {
+  key: string;
+  text: string;
+  mediaKey?: string;
+  /** Server-resolved: relative `/media/file/<key>` or an absolute CDN URL. */
+  mediaUrl?: string;
+}
+
 export type QuestionType = "MCQ" | "MSQ" | "INTEGER";
 export type Difficulty = "EASY" | "MEDIUM" | "HARD";
 
@@ -43,7 +52,7 @@ export interface AttemptQuestion {
     id: string;
     type: QuestionType;
     statement: string;
-    options?: { key: string; text: string }[];
+    options?: StudentOption[];
     marks: number;
     /** Diagrams attached to the question (§2.7), already resolved to URLs. */
     media?: { key: string; url: string }[];
@@ -598,7 +607,7 @@ export interface ReviewQuestion {
   section: string;
   type: QuestionType;
   statement: string;
-  options: { key: string; text: string }[] | null;
+  options: StudentOption[] | null;
   yourAnswer: string | number | string[] | null;
   correctAnswer: string | number | string[];
   explanation: string | null;

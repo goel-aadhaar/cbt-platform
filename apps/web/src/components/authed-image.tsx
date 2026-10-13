@@ -6,56 +6,109 @@ import { getToken } from "@/lib/auth";
 import { mediaSrc } from "@/lib/media";
 
 /**
- * Shared, ref-counted object-URL cache (§ rendering-cost fix).
+ * Shared object-URL cache.
  *
- * The media library grid (`MediaPicker`) can render up to 200 of these at
- * once, and the same key often appears twice on one screen (a question's
- * "attached" thumbnail plus its tile in the full library grid). Without a
- * cache, every `<AuthedImage>` mount fired its own independent
- * fetch-then-blob-decode for the same bytes — 200 concurrent authenticated
- * requests with no sharing. One in-flight fetch per resolved URL, keyed by
- * ref count so an object URL is only revoked once nothing on screen still
- * points at it, fixes both the duplicate network traffic and the duplicate
- * decode work.
+ * Two layers:
+ *  1. Ref counting — the media library grid can render up to 200 of these at
+ *     once and the same key often appears twice on one screen, so there is one
+ *     in-flight fetch per resolved URL and the blob is only released once
+ *     nothing on screen points at it.
+ *  2. A module-level LRU of idle entries (refCount 0) — during an exam a
+ *     student moves back and forth between questions; without it every revisit
+ *     re-fetched the same bytes (and a single throttled request left a
+ *     permanent "Image unavailable"). Idle entries are kept up to
+ *     `MAX_IDLE_ENTRIES` / `MAX_CACHE_BYTES` and the oldest are revoked first.
  */
 interface ImageCacheEntry {
   promise: Promise<string>;
   refCount: number;
   objectUrl: string | null;
+  size: number;
 }
 
+const MAX_IDLE_ENTRIES = 80;
+const MAX_CACHE_BYTES = 60 * 1024 * 1024;
+const RETRY_DELAYS_MS = [400, 1200, 3000];
+
+// Map iteration order is insertion order, so re-inserting on use makes the
+// first entry the least recently used.
 const imageCache = new Map<string, ImageCacheEntry>();
+let cachedBytes = 0;
+
+class HttpStatusError extends Error {
+  constructor(readonly status: number) {
+    super(String(status));
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryable(err: unknown): boolean {
+  if (err instanceof HttpStatusError) {
+    return err.status === 429 || err.status >= 500;
+  }
+  return true;
+}
+
+async function fetchBlobWithRetry(resolvedUrl: string): Promise<Blob> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const token = getToken();
+      const res = await fetch(
+        resolvedUrl,
+        token ? { headers: { Authorization: `Bearer ${token}` } } : {},
+      );
+      if (!res.ok) throw new HttpStatusError(res.status);
+      return await res.blob();
+    } catch (err) {
+      if (attempt >= RETRY_DELAYS_MS.length || !isRetryable(err)) throw err;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
+function evictIdle(): void {
+  let idleCount = 0;
+  for (const entry of imageCache.values()) {
+    if (entry.refCount <= 0 && entry.objectUrl) idleCount++;
+  }
+  for (const [url, entry] of imageCache) {
+    if (idleCount <= MAX_IDLE_ENTRIES && cachedBytes <= MAX_CACHE_BYTES) break;
+    if (entry.refCount > 0 || !entry.objectUrl) continue;
+    URL.revokeObjectURL(entry.objectUrl);
+    cachedBytes -= entry.size;
+    imageCache.delete(url);
+    idleCount--;
+  }
+}
 
 function acquireImage(resolvedUrl: string): Promise<string> {
   const existing = imageCache.get(resolvedUrl);
   if (existing) {
     existing.refCount++;
+    imageCache.delete(resolvedUrl);
+    imageCache.set(resolvedUrl, existing);
     return existing.promise;
   }
-  const token = getToken();
   const entry: ImageCacheEntry = {
     refCount: 1,
     objectUrl: null,
-    promise: fetch(
-      resolvedUrl,
-      token ? { headers: { Authorization: `Bearer ${token}` } } : {},
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.blob();
-      })
-      .then((blob) => {
-        const objectUrl = URL.createObjectURL(blob);
-        // Every consumer may have already unmounted and released while this
-        // was in flight — revoke rather than leak in that case.
-        if (entry.refCount <= 0) {
-          URL.revokeObjectURL(objectUrl);
-        } else {
-          entry.objectUrl = objectUrl;
-        }
-        return objectUrl;
-      }),
+    size: 0,
+    promise: fetchBlobWithRetry(resolvedUrl).then((blob) => {
+      const objectUrl = URL.createObjectURL(blob);
+      entry.objectUrl = objectUrl;
+      entry.size = blob.size;
+      cachedBytes += blob.size;
+      evictIdle();
+      return objectUrl;
+    }),
   };
+  entry.promise.catch(() => {
+    // Never cache a failure: a later mount or the Retry button must refetch.
+    if (imageCache.get(resolvedUrl) === entry) imageCache.delete(resolvedUrl);
+  });
   imageCache.set(resolvedUrl, entry);
   return entry.promise;
 }
@@ -64,10 +117,57 @@ function releaseImage(resolvedUrl: string): void {
   const entry = imageCache.get(resolvedUrl);
   if (!entry) return;
   entry.refCount--;
-  if (entry.refCount <= 0) {
-    if (entry.objectUrl) URL.revokeObjectURL(entry.objectUrl);
-    imageCache.delete(resolvedUrl);
+  if (entry.refCount <= 0) evictIdle();
+}
+
+const isAbsolute = (url: string) => /^https?:\/\//i.test(url);
+
+function preloadDirect(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = url;
+  });
+}
+
+function cacheHasRoom(): boolean {
+  let idleCount = 0;
+  for (const entry of imageCache.values()) {
+    if (entry.refCount <= 0 && entry.objectUrl) idleCount++;
   }
+  return (
+    idleCount < MAX_IDLE_ENTRIES - 2 && cachedBytes < MAX_CACHE_BYTES * 0.9
+  );
+}
+
+/**
+ * Warm the cache for images that will be needed soon, three at a time, in the
+ * order given. Failures are ignored (the on-screen component retries itself)
+ * and warming stops once the cache is nearly full, so it can never push out
+ * the images the student is about to see.
+ */
+export function prefetchAuthedImages(urls: string[]): Promise<void> {
+  const queue = Array.from(new Set(urls.filter(Boolean)));
+  let next = 0;
+  const worker = async () => {
+    while (next < queue.length) {
+      const url = queue[next++];
+      if (isAbsolute(url)) {
+        await preloadDirect(url);
+        continue;
+      }
+      if (!cacheHasRoom()) return;
+      const resolved = mediaSrc(url);
+      try {
+        await acquireImage(resolved);
+      } catch {
+        continue;
+      }
+      releaseImage(resolved);
+    }
+  };
+  return Promise.all([worker(), worker(), worker()]).then(() => undefined);
 }
 
 /**
@@ -87,6 +187,8 @@ export function AuthedImage({
   alt,
   className,
   fallback,
+  placeholderClassName,
+  showRetry,
 }: {
   url: string;
   alt: string;
@@ -95,44 +197,70 @@ export function AuthedImage({
    * failure — for a persistent UI element (e.g. a brand mark) where a
    * broken-image box would be worse than quietly falling back. */
   fallback?: ReactNode;
+  /** Classes for the loading / unavailable boxes when they should differ from
+   * `className` (e.g. a reserved height so the layout does not jump when an
+   * image whose `className` only sets a max size finishes loading). */
+  placeholderClassName?: string;
+  /** Offer a Retry button on the unavailable box. */
+  showRetry?: boolean;
 }) {
   const resolved = mediaSrc(url);
-  const isDirect = /^https?:\/\//i.test(url);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const isDirect = isAbsolute(url);
+  const [loaded, setLoaded] = useState<{ url: string; src: string } | null>(
+    null,
+  );
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (isDirect) return;
     let cancelled = false;
     acquireImage(resolved)
       .then((objectUrl) => {
-        if (!cancelled) setObjectUrl(objectUrl);
+        if (!cancelled) setLoaded({ url: resolved, src: objectUrl });
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setFailedUrl(resolved);
       });
     return () => {
       cancelled = true;
       releaseImage(resolved);
     };
-  }, [resolved, isDirect]);
+  }, [resolved, isDirect, attempt]);
 
-  if (failed) {
+  const boxClass = placeholderClassName ?? className ?? "";
+
+  if (!isDirect && failedUrl === resolved) {
     if (fallback !== undefined) return <>{fallback}</>;
     return (
       <div
-        className={`flex items-center justify-center bg-admin-surface text-[10px] text-admin-subtle ${className ?? ""}`}
+        className={`flex flex-col items-center justify-center gap-1 bg-admin-surface text-[10px] text-admin-subtle ${boxClass}`}
       >
-        Image unavailable
+        <span>Image unavailable</span>
+        {showRetry && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setFailedUrl(null);
+              setAttempt((n) => n + 1);
+            }}
+            className="rounded border border-line bg-white px-2 py-1 text-xs font-semibold text-admin-ink hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-indigo"
+          >
+            Retry
+          </button>
+        )}
       </div>
     );
   }
 
-  const src = isDirect ? resolved : objectUrl;
+  const src = isDirect
+    ? resolved
+    : loaded && loaded.url === resolved
+      ? loaded.src
+      : null;
   if (!src) {
-    return (
-      <div className={`animate-pulse bg-admin-line/20 ${className ?? ""}`} />
-    );
+    return <div className={`animate-pulse bg-admin-line/20 ${boxClass}`} />;
   }
 
   // eslint-disable-next-line @next/next/no-img-element

@@ -175,6 +175,7 @@ describe('QuestionExportService filter parity', () => {
       {
         get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u1' })),
       } as never,
+      {} as never,
     );
     await (
       service as unknown as {

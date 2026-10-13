@@ -13,6 +13,7 @@ import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { Role } from '../auth/auth.types';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { ExamKind } from '../exams/exam.types';
+import { mediaUrl, withOptionMediaUrls } from '../media/media-url';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { ResultsService } from '../results/results.service';
 import {
@@ -104,11 +105,7 @@ export class AttemptsService {
    * URL when the backend has one, otherwise the API's own streaming route.
    */
   private mediaUrls(keys: string[]): { key: string; url: string }[] {
-    return keys.map((key) => ({
-      key,
-      url:
-        this.media.publicUrl(key) ?? `/media/file/${encodeURIComponent(key)}`,
-    }));
+    return keys.map((key) => ({ key, url: mediaUrl(this.media, key) }));
   }
 
   private async currentStudent() {
@@ -895,6 +892,7 @@ export class AttemptsService {
             ...q,
             question: {
               ...q.question,
+              options: withOptionMediaUrls(this.media, q.question.options),
               media: this.mediaUrls(q.question.mediaKeys),
             },
           })),

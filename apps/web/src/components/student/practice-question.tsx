@@ -1,5 +1,6 @@
 "use client";
 
+import { EnlargeableImage, optionImageUrl } from "@/components/option-image";
 import { LightbulbIcon } from "@/components/student/icons";
 import type {
   PracticeAnswer,
@@ -21,7 +22,12 @@ export function OptionRow({
   disabled,
   onPick,
 }: {
-  option: { key: string; text: string };
+  option: {
+    key: string;
+    text: string;
+    mediaKey?: string;
+    mediaUrl?: string;
+  };
   type: PracticeQuestion["type"];
   picked: PracticeAnswer | null;
   result: PracticeCheckResult | null;
@@ -61,43 +67,68 @@ export function OptionRow({
   else if (isWrongPick) tone = "border-red-500 bg-red-50";
   else if (selected) tone = "border-admin bg-admin/5";
 
+  const imageUrl = optionImageUrl(option);
+  const hasText = option.text.trim() !== "";
+
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={disabled}
-      aria-pressed={selected}
-      className={`relative flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-colors ${tone} ${
-        disabled ? "cursor-default" : "hover:border-admin"
+    <div
+      className={`relative w-full rounded-xl border-2 text-left transition-colors ${tone} ${
+        disabled ? "" : "hover:border-admin"
       }`}
     >
-      <span
-        className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-          result !== null && isCorrectOption
-            ? "bg-emerald-600 text-white"
-            : isWrongPick
-              ? "bg-red-500 text-white"
-              : selected
-                ? "bg-admin text-white"
-                : "bg-admin-line/30 text-admin-muted"
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={disabled}
+        aria-pressed={selected}
+        aria-label={hasText ? undefined : `Option ${option.key}`}
+        className={`flex w-full items-center gap-3 p-4 text-left disabled:cursor-default ${
+          imageUrl ? "pb-2" : ""
         }`}
       >
-        {option.key}
-      </span>
-      <span className="min-w-0 flex-1 text-sm text-admin-ink">
-        {option.text}
-      </span>
-      {result !== null && isCorrectOption && (
-        <span className="shrink-0 rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-          Correct
+        <span
+          className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+            result !== null && isCorrectOption
+              ? "bg-emerald-600 text-white"
+              : isWrongPick
+                ? "bg-red-500 text-white"
+                : selected
+                  ? "bg-admin text-white"
+                  : "bg-admin-line/30 text-admin-muted"
+          }`}
+        >
+          {option.key}
         </span>
-      )}
-      {isWrongPick && (
-        <span className="shrink-0 rounded bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-          Your answer
+        <span className="min-w-0 flex-1 text-sm text-admin-ink">
+          {option.text}
         </span>
+        {result !== null && isCorrectOption && (
+          <span className="shrink-0 rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+            Correct
+          </span>
+        )}
+        {isWrongPick && (
+          <span className="shrink-0 rounded bg-red-500 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+            Your answer
+          </span>
+        )}
+      </button>
+      {imageUrl && (
+        <div
+          className={`pb-4 pl-[56px] pr-4 ${disabled ? "" : "cursor-pointer"}`}
+          onClick={toggle}
+        >
+          <EnlargeableImage
+            url={imageUrl}
+            alt={`Option ${option.key} image`}
+            caption={`Option ${option.key}`}
+            enlargeLabel={`Enlarge image for option ${option.key}`}
+            imageClassName="max-h-56 max-w-full rounded border border-admin-line bg-white object-contain sm:max-h-64 lg:max-h-60"
+            placeholderClassName="h-40 w-64 max-w-full rounded border border-admin-line"
+          />
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 

@@ -31,6 +31,8 @@ export interface ExamQuestion {
   /** Optional figure shown under the stem. */
   imageUrl?: string;
   options: string[];
+  /** Parallel to `options`; null where the option has no image. */
+  optionImages?: ({ url: string } | null)[];
   positiveMarks: number;
   negativeMarks: number;
 }

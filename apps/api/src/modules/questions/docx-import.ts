@@ -4,6 +4,9 @@ import { injectEquationPlaceholders } from './docx-equations';
 import { ParsedImage, ParsedQuestion } from './ports/question-import.port';
 
 const OPTION_RE = /^\(?([A-Ha-h])[).\]]\s+(.+)$/;
+// An option made only of an image: Word gives "A)" and then the image on the
+// next line. Honoured only when that next line really is an image token.
+const BARE_OPTION_RE = /^\(?([A-Ha-h])[).\]]$/;
 const ANSWER_RE = /^(?:answer|ans|correct answer|correct)\s*[:.-]?\s*(.+)$/i;
 const META_RE =
   /^(subject|chapter|topic|difficulty|type|marks|negative(?:\s*marks)?|tags|explanation|language|exam\s*type)\s*[:.-]?\s*(.+)$/i;
@@ -193,18 +196,30 @@ export function parseQuestions(
     if (hasContent) questions.push(current);
   };
 
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line) continue;
+  // The option an image token would belong to: set by an option line, cleared
+  // by anything else, so only an image sitting right after an option attaches
+  // to it and an image anywhere else stays with the question.
+  let lastOption: ParsedQuestion['options'][number] | null = null;
 
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  for (const [i, line] of lines.entries()) {
     const statementStart = matchStatementStart(line);
     const option = OPTION_RE.exec(line);
+    const bareOption =
+      !option && IMAGE_TOKEN_RE.test(lines[i + 1] ?? '')
+        ? BARE_OPTION_RE.exec(line)
+        : null;
     const answer = ANSWER_RE.exec(line);
     const meta = META_RE.exec(line);
 
     if (statementStart) {
       push();
       seq++;
+      lastOption = null;
       current = {
         statement: statementStart.statement.trim(),
         options: [],
@@ -217,18 +232,21 @@ export function parseQuestions(
     } else if (!current) {
       // Preamble before the first question marker — ignore.
       continue;
-    } else if (option) {
-      current.options.push({
-        key: option[1].toUpperCase(),
-        text: option[2].trim(),
-      });
+    } else if (option || bareOption) {
+      const m = (option ?? bareOption) as RegExpExecArray;
+      lastOption = { key: m[1].toUpperCase(), text: option ? m[2].trim() : '' };
+      current.options.push(lastOption);
     } else if (answer) {
+      lastOption = null;
       current.answer = answer[1].trim();
     } else if (IMAGE_TOKEN_RE.test(line)) {
-      // Belongs to the question currently being built.
       const img = imageByToken.get(line);
-      if (img) current.images.push(img);
+      if (img) {
+        if (lastOption && !lastOption.image) lastOption.image = img;
+        else if (!lastOption) current.images.push(img);
+      }
     } else if (meta) {
+      lastOption = null;
       let key = meta[1].toLowerCase().replace(/\s+/g, '');
       // `Negative: 1` and `Negative Marks: 1` both mean the same thing, but the
       // regex produced two different keys and only one of them was ever read —
@@ -237,6 +255,7 @@ export function parseQuestions(
       current.meta[key] = meta[2].trim();
     } else {
       // Continuation of the statement.
+      lastOption = null;
       current.statement = `${current.statement} ${line}`.trim();
     }
   }

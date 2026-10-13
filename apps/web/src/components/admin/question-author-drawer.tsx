@@ -26,8 +26,10 @@ import {
   type QuestionType,
 } from "@/lib/questions";
 
+import { ZoomableImage } from "./image-lightbox";
 import { PlusIcon, XIcon } from "./icons";
 import { MediaPicker } from "./media-picker";
+import { OptionImageControl } from "./option-image-control";
 
 const DIFFICULTIES: Difficulty[] = ["EASY", "MEDIUM", "HARD"];
 const TYPES: { value: QuestionType; label: string }[] = [
@@ -39,12 +41,21 @@ const TYPES: { value: QuestionType; label: string }[] = [
 interface OptionRow {
   key: string;
   text: string;
+  mediaKey?: string;
 }
+
+/** An option needs words or a picture; one with neither is not shown or saved. */
+const hasContent = (o: OptionRow) => Boolean(o.text.trim() || o.mediaKey);
 
 const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"];
 
 const INPUT_CLS =
   "w-full rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin";
+
+/** Set or clear the option's image, omitting the key entirely when cleared. */
+function withMedia(row: OptionRow, mediaKey: string | undefined): OptionRow {
+  return { key: row.key, text: row.text, ...(mediaKey ? { mediaKey } : {}) };
+}
 
 function emptyOptions(): OptionRow[] {
   return [
@@ -113,7 +124,11 @@ export function QuestionAuthorDrawer({
   const [statement, setStatement] = useState(editing?.statement ?? "");
   const [options, setOptions] = useState<OptionRow[]>(
     editing?.options?.length
-      ? editing.options.map((o) => ({ key: o.key, text: o.text }))
+      ? editing.options.map((o) => ({
+          key: o.key,
+          text: o.text,
+          ...(o.mediaKey ? { mediaKey: o.mediaKey } : {}),
+        }))
       : emptyOptions(),
   );
   const [mcqAnswer, setMcqAnswer] = useState(
@@ -248,7 +263,7 @@ export function QuestionAuthorDrawer({
     (type === "INTEGER"
       ? intAnswer.trim() !== "" && !Number.isNaN(Number(intAnswer))
       : options.length >= 2 &&
-        options.every((o) => o.text.trim()) &&
+        options.every(hasContent) &&
         (type === "MCQ" ? mcqAnswer : msqAnswer.length > 0));
 
   async function save(confirm = false) {
@@ -269,7 +284,11 @@ export function QuestionAuthorDrawer({
           .filter(Boolean),
         statement: statement.trim(),
         options: needsOptions
-          ? options.map((o) => ({ key: o.key, text: o.text.trim() }))
+          ? options.map((o) => ({
+              key: o.key,
+              text: o.text.trim(),
+              ...(o.mediaKey ? { mediaKey: o.mediaKey } : {}),
+            }))
           : undefined,
         answerKey:
           type === "INTEGER"
@@ -611,14 +630,17 @@ export function QuestionAuthorDrawer({
                     Options — mark the correct{" "}
                     {type === "MCQ" ? "one" : "one or more"}
                   </p>
-                  <div className="mt-3 flex flex-col gap-2">
+                  <div className="mt-3 flex flex-col gap-3">
                     {options.map((o) => {
                       const correct =
                         type === "MCQ"
                           ? mcqAnswer === o.key
                           : msqAnswer.includes(o.key);
                       return (
-                        <div key={o.key} className="flex items-center gap-3">
+                        <div
+                          key={o.key}
+                          className="flex flex-wrap items-center gap-x-3 gap-y-2"
+                        >
                           <button
                             type="button"
                             onClick={() =>
@@ -651,8 +673,22 @@ export function QuestionAuthorDrawer({
                                 ),
                               )
                             }
-                            placeholder={`Option ${o.key}`}
-                            className={`${INPUT_CLS} flex-1`}
+                            placeholder={`Option ${o.key} text (optional if you add an image)`}
+                            aria-label={`Option ${o.key} text`}
+                            className={`${INPUT_CLS} min-w-[160px] flex-1`}
+                          />
+                          <OptionImageControl
+                            optionKey={o.key}
+                            mediaKey={o.mediaKey}
+                            onChange={(mediaKey) =>
+                              setOptions((prev) =>
+                                prev.map((row) =>
+                                  row.key === o.key
+                                    ? withMedia(row, mediaKey)
+                                    : row,
+                                ),
+                              )
+                            }
                           />
                           {options.length > 2 && (
                             <button
@@ -809,27 +845,36 @@ function QuestionLivePreview({
             The question will appear here.
           </p>
         )}
-        {options.filter((o) => o.text.trim()).length > 0 && (
+        {options.some(hasContent) && (
           <ul className="mt-3 flex flex-col gap-1.5">
-            {options
-              .filter((o) => o.text.trim())
-              .map((o) => (
-                <li
-                  key={o.key}
-                  className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
-                    answerKeys.includes(o.key)
-                      ? "border-admin/40 bg-admin-mint/15"
-                      : "border-admin-line/60"
-                  }`}
-                >
-                  <span className="font-bold text-admin-muted">{o.key}.</span>
-                  <RichText
-                    text={o.text}
-                    as="span"
-                    className="text-admin-ink"
-                  />
-                </li>
-              ))}
+            {options.filter(hasContent).map((o) => (
+              <li
+                key={o.key}
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                  answerKeys.includes(o.key)
+                    ? "border-admin/40 bg-admin-mint/15"
+                    : "border-admin-line/60"
+                }`}
+              >
+                <span className="font-bold text-admin-muted">{o.key}.</span>
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  {o.text.trim() && (
+                    <RichText
+                      text={o.text}
+                      as="span"
+                      className="text-admin-ink"
+                    />
+                  )}
+                  {o.mediaKey && (
+                    <ZoomableImage
+                      mediaKey={o.mediaKey}
+                      alt={`Option ${o.key} image`}
+                      className="max-h-40"
+                    />
+                  )}
+                </div>
+              </li>
+            ))}
           </ul>
         )}
         {integerAnswer !== null && integerAnswer.trim() !== "" && (

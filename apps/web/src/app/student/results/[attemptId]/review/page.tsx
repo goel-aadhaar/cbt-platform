@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-import { AuthedImage } from "@/components/authed-image";
+import { EnlargeableImage, optionImageUrl } from "@/components/option-image";
 import { RichText } from "@/components/rich-text";
 import {
   BarChartIcon,
@@ -465,11 +465,14 @@ function FocusedView({
         {q.mediaKeys.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-3">
             {q.mediaKeys.map((key) => (
-              <AuthedImage
+              <EnlargeableImage
                 key={key}
                 url={`/media/file/${encodeURIComponent(key)}`}
-                alt="Question diagram"
-                className="max-h-72 max-w-full rounded border border-admin-line bg-white object-contain"
+                alt="Question figure"
+                caption="Question figure"
+                enlargeLabel="Enlarge question figure"
+                imageClassName="max-h-72 max-w-full rounded border border-admin-line bg-white object-contain lg:max-h-96"
+                placeholderClassName="h-48 w-72 max-w-full rounded border border-admin-line"
               />
             ))}
           </div>
@@ -482,6 +485,7 @@ function FocusedView({
               {q.options.map((o) => {
                 const isCorrect = correctKeys.has(o.key);
                 const isYours = yourKeys.has(o.key);
+                const imageUrl = optionImageUrl(o);
                 return (
                   <div
                     key={o.key}
@@ -504,9 +508,27 @@ function FocusedView({
                     >
                       {o.key}
                     </span>
-                    <span className="min-w-0 flex-1 text-sm text-admin-ink">
-                      {o.text}
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      {o.text.trim() !== "" && (
+                        <RichText
+                          as="span"
+                          text={o.text}
+                          className="block text-sm text-admin-ink"
+                        />
+                      )}
+                      {imageUrl && (
+                        <div className={o.text.trim() !== "" ? "mt-2" : ""}>
+                          <EnlargeableImage
+                            url={imageUrl}
+                            alt={`Option ${o.key} image`}
+                            caption={`Option ${o.key}`}
+                            enlargeLabel={`Enlarge image for option ${o.key}`}
+                            imageClassName="max-h-56 max-w-full rounded border border-admin-line bg-white object-contain sm:max-h-64 lg:max-h-60"
+                            placeholderClassName="h-40 w-64 max-w-full rounded border border-admin-line"
+                          />
+                        </div>
+                      )}
+                    </div>
                     <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
                       {isCorrect && (
                         <Chip className="bg-success/10 text-success">

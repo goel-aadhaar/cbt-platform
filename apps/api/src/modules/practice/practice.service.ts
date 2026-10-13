@@ -8,6 +8,7 @@ import {
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { mediaUrl, withOptionMediaUrls } from '../media/media-url';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { isCorrect } from '../results/scoring';
 import {
@@ -54,13 +55,13 @@ export class PracticeService {
   ) {}
 
   /** Stored keys -> loadable URLs (CDN when configured, else the API route). */
-  private withMedia<T extends { mediaKeys: string[] }>(q: T) {
+  private withMedia<T extends { mediaKeys: string[]; options: unknown }>(q: T) {
     return {
       ...q,
+      options: withOptionMediaUrls(this.media, q.options),
       media: q.mediaKeys.map((key) => ({
         key,
-        url:
-          this.media.publicUrl(key) ?? `/media/file/${encodeURIComponent(key)}`,
+        url: mediaUrl(this.media, key),
       })),
     };
   }

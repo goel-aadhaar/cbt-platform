@@ -8,23 +8,58 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
+  MaxLength,
   MinLength,
   ValidateNested,
+  ValidationArguments,
+  registerDecorator,
 } from 'class-validator';
 
 import { Difficulty, QuestionType } from '../question.types';
+
+/** Media keys are `${instituteId}/${uuid}${ext}` — path-safe characters only. */
+export const MEDIA_KEY_PATTERN = /^[A-Za-z0-9._/-]+$/;
+
+/** An option must say something or show something: text, or an image. */
+export function optionHasContent(o: {
+  text?: unknown;
+  mediaKey?: unknown;
+}): boolean {
+  const hasText = typeof o.text === 'string' && o.text.trim().length > 0;
+  const hasImage = typeof o.mediaKey === 'string' && o.mediaKey.length > 0;
+  return hasText || hasImage;
+}
+
+function OptionHasTextOrImage() {
+  return (target: object, propertyName: string) => {
+    registerDecorator({
+      name: 'optionHasTextOrImage',
+      target: target.constructor,
+      propertyName,
+      validator: {
+        validate: (_value: unknown, args: ValidationArguments) =>
+          optionHasContent(args.object),
+        defaultMessage: () => 'Each option needs text or an image',
+      },
+    });
+  };
+}
 
 export class QuestionOptionDto {
   @IsString()
   @MinLength(1)
   key: string;
 
+  /** May be empty when an image carries the option. */
   @IsString()
-  @MinLength(1)
+  @OptionHasTextOrImage()
   text: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
+  @Matches(MEDIA_KEY_PATTERN, { message: 'mediaKey is not a valid media key' })
   mediaKey?: string;
 }
 

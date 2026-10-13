@@ -42,6 +42,43 @@ export function mediaSrc(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `${apiBase()}${url}`;
 }
 
+/** Path of the authenticated streaming route for a media key. */
+export function mediaFileUrl(key: string): string {
+  return `/media/file/${encodeURIComponent(key)}`;
+}
+
+export const IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "image/svg+xml",
+];
+export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+const IMAGE_EXT_TYPE: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  svg: "image/svg+xml",
+};
+
+/** Client-side pre-check for an image upload; returns a message, or null if fine. */
+export function validateImageFile(file: File): string | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const type = file.type || IMAGE_EXT_TYPE[ext] || "";
+  if (!IMAGE_TYPES.includes(type)) {
+    return "Use a PNG, JPEG, WebP, GIF or SVG image.";
+  }
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > IMAGE_MAX_BYTES) {
+    return `That image is ${formatBytes(file.size)}. The limit is 5 MB.`;
+  }
+  return null;
+}
+
 /** GET /media — the tenant's image library. */
 export function listMedia(): Promise<{
   items: MediaItem[];

@@ -27,7 +27,9 @@ export interface PracticeQuestion {
   difficulty: PracticeDifficulty;
   type: PracticeQuestionType;
   statement: string;
-  options: { key: string; text: string }[] | null;
+  options:
+    | { key: string; text: string; mediaKey?: string; mediaUrl?: string }[]
+    | null;
   marks: number;
   negativeMarks: number;
   /** Diagrams attached to the question (§2.7), already resolved to URLs. */

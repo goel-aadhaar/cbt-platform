@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { Prisma } from '../../generated/prisma/client';
+import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
 import { sanitizeQuestionText } from '../../common/html/sanitize-html';
@@ -19,7 +20,7 @@ import { buildTemplate } from '../../common/spreadsheet/build-template';
 import { isXlsx } from '../../common/spreadsheet/read-workbook';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { BulkQuestionActionDto } from './dto/bulk-question-action.dto';
-import { CreateQuestionDto } from './dto/create-question.dto';
+import { CreateQuestionDto, optionHasContent } from './dto/create-question.dto';
 import {
   chapterIdFilter,
   QueryQuestionsDto,
@@ -27,6 +28,7 @@ import {
 } from './dto/query-questions.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import {
+  ParsedImage,
   ParsedQuestion,
   QuestionImportPort,
 } from './ports/question-import.port';
@@ -84,17 +86,45 @@ interface ImportOrigin {
 
 /**
  * Sanitize each option's text, preserving `undefined` so a partial update does
- * not clear the options it did not mention.
+ * not clear the options it did not mention. An option's image is carried as
+ * `mediaKey`, which is omitted (never null) when there is none.
  */
 function sanitizeOptions(
-  options: { key: string; text: string }[] | undefined,
+  options:
+    { key: string; text: string; mediaKey?: string | null }[] | undefined,
 ): Prisma.InputJsonValue | undefined {
   if (options === undefined) return undefined;
   // Already a plain JSON-safe shape, so no cast is needed.
   return options.map((o) => ({
     key: o.key,
     text: sanitizeQuestionText(o.text),
+    ...(o.mediaKey ? { mediaKey: o.mediaKey } : {}),
   }));
+}
+
+/** Every media key a question references: stem images and option images. */
+function referencedMediaKeys(
+  mediaKeys: string[] | undefined,
+  options: unknown,
+): string[] {
+  const keys = [...(mediaKeys ?? [])];
+  if (Array.isArray(options)) {
+    for (const o of options) {
+      const k = (o as { mediaKey?: unknown } | null)?.mediaKey;
+      if (typeof k === 'string' && k) keys.push(k);
+    }
+  }
+  return [...new Set(keys)];
+}
+
+/** The option keys in order — what scoring depends on, not their text or images. */
+function optionKeyList(options: unknown): string[] {
+  return Array.isArray(options)
+    ? options.map((o: unknown) => {
+        const key = (o as { key?: unknown } | null)?.key;
+        return typeof key === 'string' ? key : '';
+      })
+    : [];
 }
 
 /** Filename extension for a stored image, defaulting to png. */
@@ -237,6 +267,10 @@ export class QuestionsService {
   ) {
     const { userId, role, instituteId } = this.ctx();
     this.validateContent(dto.type, dto.options, dto.answerKey);
+    await this.assertMediaUsable(
+      instituteId,
+      referencedMediaKeys(dto.mediaKeys, dto.options),
+    );
     const tax = await this.resolveTaxonomy(instituteId, {
       subjectId: dto.subjectId,
       chapterId: dto.chapterId,
@@ -568,31 +602,46 @@ export class QuestionsService {
          * validation does not leave orphaned objects behind, and so a failure
          * to store one image is reported against the question it belongs to.
          */
+        const storeImage = async (img: ParsedImage, label: string) => {
+          const stored = await this.mediaStorage.put({
+            instituteId,
+            fileName:
+              `${fileName.replace(/\.docx$/i, '')}-q${sourceSeq}-${label}` +
+              `.${extensionFor(img.contentType)}`,
+            mimeType: img.contentType,
+            body: img.buffer,
+          });
+          await this.prisma.media.create({
+            data: {
+              instituteId,
+              key: stored.key,
+              fileName: `Imported diagram (question ${sourceSeq})`,
+              mimeType: img.contentType,
+              size: img.buffer.length,
+              altText: `Diagram for imported question ${sourceSeq}`,
+              uploadedById: userId,
+            },
+          });
+          return stored.key;
+        };
         if (block.images.length > 0) {
           const keys: string[] = [];
           for (const [i, img] of block.images.entries()) {
-            const stored = await this.mediaStorage.put({
-              instituteId,
-              fileName:
-                `${fileName.replace(/\.docx$/i, '')}-q${sourceSeq}-${i + 1}` +
-                `.${extensionFor(img.contentType)}`,
-              mimeType: img.contentType,
-              body: img.buffer,
-            });
-            keys.push(stored.key);
-            await this.prisma.media.create({
-              data: {
-                instituteId,
-                key: stored.key,
-                fileName: `Imported diagram (question ${sourceSeq})`,
-                mimeType: img.contentType,
-                size: img.buffer.length,
-                altText: `Diagram for imported question ${sourceSeq}`,
-                uploadedById: userId,
-              },
-            });
+            keys.push(await storeImage(img, String(i + 1)));
           }
           dto.mediaKeys = keys;
+        }
+        // An image that sat right after an option line belongs to that option.
+        let optionImages = 0;
+        if (dto.options) {
+          for (const [i, parsedOption] of block.options.entries()) {
+            if (!parsedOption.image || !dto.options[i]) continue;
+            dto.options[i].mediaKey = await storeImage(
+              parsedOption.image,
+              `option-${parsedOption.key.toLowerCase()}`,
+            );
+            optionImages++;
+          }
         }
         const created = await this.createWithOrigin(dto, {
           importRunId,
@@ -606,7 +655,7 @@ export class QuestionsService {
           id: created.id,
           type: dto.type,
           statement: block.statement.slice(0, 80),
-          images: block.images.length,
+          images: block.images.length + optionImages,
           sourceSeq,
           sourceLabel,
         });
@@ -812,6 +861,12 @@ export class QuestionsService {
       dto.options ?? existing.options,
       dto.answerKey ?? existing.answerKey,
     );
+    // Only the keys this edit sends are checked; an untouched question keeps
+    // working even if an image it never changed has since been deleted.
+    await this.assertMediaUsable(
+      instituteId,
+      referencedMediaKeys(dto.mediaKeys, dto.options),
+    );
 
     // Only re-resolve the taxonomy if the caller actually touched one of its
     // fields — otherwise leave subject/chapter/topic/examCategory untouched.
@@ -857,7 +912,8 @@ export class QuestionsService {
         JSON.stringify(dto.answerKey) !== JSON.stringify(existing.answerKey)) ||
       (dto.type !== undefined && dto.type !== existing.type) ||
       (dto.options !== undefined &&
-        JSON.stringify(dto.options) !== JSON.stringify(existing.options));
+        JSON.stringify(optionKeyList(dto.options)) !==
+          JSON.stringify(optionKeyList(existing.options)));
 
     const updated = await this.prisma.question.update({
       where: { id },
@@ -1116,6 +1172,30 @@ export class QuestionsService {
     return question;
   }
 
+  /**
+   * Every image a question points at must be an IMAGE in the caller's own media
+   * library. Keys are plain strings with no foreign key, so without this a
+   * client could attach another institute's key, a document, or a typo that
+   * renders as a broken image on exam day.
+   */
+  private async assertMediaUsable(
+    instituteId: string,
+    keys: string[],
+  ): Promise<void> {
+    if (keys.length === 0) return;
+    const found = await this.prisma.media.findMany({
+      where: { instituteId, key: { in: keys }, kind: MediaKind.IMAGE },
+      select: { key: true },
+    });
+    const ok = new Set(found.map((m) => m.key));
+    const bad = keys.filter((k) => !ok.has(k));
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `These images were not found in your media library (or are not images): ${bad.join(', ')}`,
+      );
+    }
+  }
+
   /** Validates options/answerKey shape against the question type. */
   private validateContent(
     type: QuestionType,
@@ -1131,6 +1211,9 @@ export class QuestionsService {
 
     if (!Array.isArray(options) || options.length < 2) {
       throw new BadRequestException('MCQ/MSQ require at least 2 options');
+    }
+    if (!options.every((o: unknown) => o && optionHasContent(o))) {
+      throw new BadRequestException('Each option needs text or an image');
     }
     const keys = new Set(
       options.map((o) => (o as { key?: unknown }).key).filter(Boolean),
@@ -1202,7 +1285,7 @@ function resolveDraft(
   }
 
   let answerKey: string | number | string[];
-  let options: { key: string; text: string }[] | undefined;
+  let options: { key: string; text: string; mediaKey?: string }[] | undefined;
   if (type === QuestionType.INTEGER) {
     const n = Number(parsed.answer.trim());
     if (Number.isNaN(n)) {
@@ -1211,7 +1294,7 @@ function resolveDraft(
     answerKey = n;
     options = undefined;
   } else {
-    options = parsed.options;
+    options = parsed.options.map(({ key, text }) => ({ key, text }));
     /**
      * An MCQ with several answers is a contradiction, not a shrug.
      *

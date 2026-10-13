@@ -7,6 +7,7 @@ import {
   AlignmentType,
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   TextRun,
@@ -16,8 +17,10 @@ import PDFDocument from 'pdfkit';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
+import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { ExportFilterDto, ExportFormat } from './dto/export-questions.dto';
 import { chapterIdFilter, unitIdFilter } from './dto/query-questions.dto';
+import { fitWithin, SniffedImage, sniffImage } from './question-export-images';
 
 /** Same rows the on-screen bank shows, plus everything needed to typeset a
  * real question paper. */
@@ -25,6 +28,8 @@ const exportSelect = {
   id: true,
   statement: true,
   options: true,
+  // Stem images and (inside `options`) option images are embedded when readable.
+  mediaKeys: true,
   answerKey: true,
   explanation: true,
   type: true,
@@ -47,11 +52,29 @@ type ExportRow = Prisma.QuestionGetPayload<{ select: typeof exportSelect }>;
  */
 const MAX_EXPORT_QUESTIONS = 500;
 
+const IMAGE_PLACEHOLDER = '[image]';
+/** Largest a picture is drawn, in points: a stem diagram, an option image. */
+const STEM_BOX = { width: 360, height: 240 };
+const OPTION_BOX = { width: 200, height: 140 };
+/** Images are read in parallel, but never more than this many at once. */
+const IMAGE_READ_CONCURRENCY = 6;
+/** Total bytes of pictures one export will hold in memory. */
+const MAX_EMBED_BYTES = 60 * 1024 * 1024;
+
+type LoadedImage = SniffedImage & { data: Buffer };
+interface OptionView {
+  key: string;
+  text: string;
+  mediaKey?: string;
+}
+
 @Injectable()
 export class QuestionExportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    // Reads the stored bytes of stem and option images for embedding.
+    private readonly storage: MediaStoragePort,
   ) {}
 
   private ctx() {
@@ -169,11 +192,60 @@ export class QuestionExportService {
     };
   }
 
-  /** "A) text" / "B) text" …, or the raw options for a type without keys. */
-  private optionLines(row: ExportRow): string[] {
-    const options = row.options as { key: string; text: string }[] | null;
-    if (!options) return [];
-    return options.map((o) => `${o.key}) ${o.text}`);
+  /**
+   * The words of an option line: "A) text", "A) [image]" for an option that is
+   * only a picture the file could not carry, "A) text [image]" for both, and a
+   * bare "A)" when the picture itself is drawn beneath it.
+   */
+  private optionLine(o: OptionView, drawn: boolean): string {
+    const text = (o.text ?? '').trim();
+    const placeholder = o.mediaKey && !drawn ? IMAGE_PLACEHOLDER : '';
+    return [`${o.key})`, text, placeholder].filter(Boolean).join(' ');
+  }
+
+  private optionsOf(row: ExportRow): OptionView[] {
+    return Array.isArray(row.options)
+      ? (row.options as unknown as OptionView[])
+      : [];
+  }
+
+  /**
+   * Read every image the selected questions point at, through the storage
+   * port, keeping only those the target format can place.
+   *
+   * Anything unreadable, missing, in the wrong format (SVG and WebP cannot be
+   * drawn by either library) or beyond the total-size budget is simply left
+   * out: the exporters print `[image]` there and carry on, so one bad file
+   * never costs the whole paper.
+   */
+  private async loadImages(
+    rows: ExportRow[],
+    formats: SniffedImage['kind'][],
+  ): Promise<Map<string, LoadedImage>> {
+    const keys = new Set<string>();
+    for (const row of rows) {
+      row.mediaKeys.forEach((k) => keys.add(k));
+      for (const o of this.optionsOf(row)) if (o.mediaKey) keys.add(o.mediaKey);
+    }
+    const loaded = new Map<string, LoadedImage>();
+    const queue = [...keys];
+    let budget = MAX_EMBED_BYTES;
+    const worker = async () => {
+      for (let key = queue.shift(); key; key = queue.shift()) {
+        try {
+          const data = await this.storage.get(key);
+          if (!data || data.length > budget) continue;
+          const info = sniffImage(data);
+          if (!info || !formats.includes(info.kind)) continue;
+          budget -= data.length;
+          loaded.set(key, { ...info, data });
+        } catch {
+          // Placeholder instead.
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: IMAGE_READ_CONCURRENCY }, worker));
+    return loaded;
   }
 
   /** Correct-answer line, formatted for whichever question type this is. */
@@ -190,10 +262,11 @@ export class QuestionExportService {
     return 'Answer: (unrecognised answer format)';
   }
 
-  private buildPdf(
+  private async buildPdf(
     rows: ExportRow[],
     includeAnswers: boolean,
   ): Promise<Buffer> {
+    const images = await this.loadImages(rows, ['png', 'jpg']);
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
@@ -201,6 +274,34 @@ export class QuestionExportService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
     });
+
+    /** Draws the picture at the cursor; false when it could not be placed. */
+    const drawImage = (
+      img: LoadedImage,
+      box: { width: number; height: number },
+      indent: number,
+    ): boolean => {
+      const { width, height } = fitWithin(
+        img.width,
+        img.height,
+        box.width,
+        box.height,
+      );
+      if (doc.y + height > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage();
+      }
+      const y = doc.y;
+      try {
+        doc.image(img.data, doc.page.margins.left + indent, y, {
+          width,
+          height,
+        });
+      } catch {
+        return false;
+      }
+      doc.y = y + height + 4;
+      return true;
+    };
 
     doc
       .font('Helvetica-Bold')
@@ -210,7 +311,7 @@ export class QuestionExportService {
       });
     doc.moveDown(1);
 
-    rows.forEach((row, i) => {
+    for (const [i, row] of rows.entries()) {
       if (doc.y > doc.page.height - 150) doc.addPage();
 
       doc
@@ -229,8 +330,19 @@ export class QuestionExportService {
         .fillColor('#000000');
       doc.moveDown(0.3);
 
-      for (const line of this.optionLines(row)) {
-        doc.fontSize(10).text(line, { indent: 15 });
+      for (const key of row.mediaKeys) {
+        const img = images.get(key);
+        if (!img || !drawImage(img, STEM_BOX, 0)) {
+          doc.fontSize(10).text(IMAGE_PLACEHOLDER);
+        }
+      }
+
+      for (const o of this.optionsOf(row)) {
+        const img = o.mediaKey ? images.get(o.mediaKey) : undefined;
+        doc.fontSize(10).text(this.optionLine(o, !!img), { indent: 15 });
+        if (img && !drawImage(img, OPTION_BOX, 15)) {
+          doc.fontSize(10).text(IMAGE_PLACEHOLDER, { indent: 15 });
+        }
       }
 
       if (includeAnswers) {
@@ -247,7 +359,7 @@ export class QuestionExportService {
         }
       }
       doc.moveDown(1);
-    });
+    }
 
     doc.end();
     return done;
@@ -257,6 +369,34 @@ export class QuestionExportService {
     rows: ExportRow[],
     includeAnswers: boolean,
   ): Promise<Buffer> {
+    const images = await this.loadImages(rows, ['png', 'jpg', 'gif']);
+    // docx sizes pictures in pixels (96 per inch); the boxes are in points.
+    const picture = (
+      img: LoadedImage,
+      box: { width: number; height: number },
+      indent: number,
+    ) => {
+      const { width, height } = fitWithin(
+        img.width,
+        img.height,
+        box.width,
+        box.height,
+      );
+      return new Paragraph({
+        indent: { left: indent },
+        children: [
+          new ImageRun({
+            type: img.kind,
+            data: img.data,
+            transformation: {
+              width: Math.round((width * 96) / 72),
+              height: Math.round((height * 96) / 72),
+            },
+          }),
+        ],
+      });
+    };
+
     const children: Paragraph[] = [
       new Paragraph({
         text: includeAnswers ? 'Question Set — With Answers' : 'Question Set',
@@ -286,8 +426,24 @@ export class QuestionExportService {
         }),
       );
 
-      for (const line of this.optionLines(row)) {
-        children.push(new Paragraph({ text: line, indent: { left: 360 } }));
+      for (const key of row.mediaKeys) {
+        const img = images.get(key);
+        children.push(
+          img
+            ? picture(img, STEM_BOX, 0)
+            : new Paragraph({ text: IMAGE_PLACEHOLDER }),
+        );
+      }
+
+      for (const o of this.optionsOf(row)) {
+        const img = o.mediaKey ? images.get(o.mediaKey) : undefined;
+        children.push(
+          new Paragraph({
+            text: this.optionLine(o, !!img),
+            indent: { left: 360 },
+          }),
+        );
+        if (img) children.push(picture(img, OPTION_BOX, 360));
       }
 
       if (includeAnswers) {
