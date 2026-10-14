@@ -164,7 +164,11 @@ export class ResourcesService {
     const [subjects, chapterGroups] = await Promise.all([
       this.prisma.subject.findMany({
         where: { id: { in: ids } },
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+          class: { select: { id: true, name: true } },
+        },
       }),
       // Distinct chapters holding visible material, per subject — "8 chapters"
       // must mean eight chapters with something in them, not every chapter the
@@ -179,12 +183,13 @@ export class ResourcesService {
     for (const g of chapterGroups) {
       chapterCount.set(g.subjectId, (chapterCount.get(g.subjectId) ?? 0) + 1);
     }
-    const nameById = new Map(subjects.map((s) => [s.id, s.name]));
+    const byId = new Map(subjects.map((s) => [s.id, s]));
 
     return grouped
       .map((g) => ({
         id: g.subjectId,
-        name: nameById.get(g.subjectId) ?? 'Unknown subject',
+        name: byId.get(g.subjectId)?.name ?? 'Unknown subject',
+        class: byId.get(g.subjectId)?.class ?? null,
         chapterCount: chapterCount.get(g.subjectId) ?? 0,
         resourceCount: g._count._all,
       }))

@@ -1,4 +1,5 @@
 import { ApiError, apiFetch } from "./api";
+import { NO_CLASS } from "./admin";
 import { getToken } from "./auth";
 import type { Paginated } from "./students";
 
@@ -53,6 +54,8 @@ export interface QuestionListItem {
  */
 export interface QuestionQuery {
   status?: QuestionStatus;
+  /** A class id, or `NO_CLASS` for subjects that have no class. */
+  classId?: string;
   subjectId?: string;
   /** A unit id, or `"unassigned"` for chapters that have no unit. */
   unitId?: string;
@@ -78,6 +81,7 @@ export interface QuestionQuery {
 /** The filter fields a picker UI can set (everything except paging/status). */
 export type QuestionFilters = Pick<
   QuestionQuery,
+  | "classId"
   | "subjectId"
   | "unitId"
   | "chapterId"
@@ -109,6 +113,11 @@ export interface QuestionRoster extends Paginated<QuestionListItem> {
   };
 }
 
+/** The API spells "subjects with no class" as the literal `none`. */
+function wireClassId(classId: string): string {
+  return classId === NO_CLASS ? "none" : classId;
+}
+
 /**
  * GET /questions — teacher/admin, tenant-scoped.
  *
@@ -121,6 +130,7 @@ export async function listQuestions(
 ): Promise<QuestionRoster> {
   const params = new URLSearchParams();
   if (q.status) params.set("status", q.status);
+  if (q.classId) params.set("classId", wireClassId(q.classId));
   if (q.subjectId) params.set("subjectId", q.subjectId);
   if (q.unitId) params.set("unitId", q.unitId);
   if (q.chapterId) params.set("chapterId", q.chapterId);
@@ -384,7 +394,17 @@ export async function exportQuestions(
       "Content-Type": "application/json",
       Authorization: `Bearer ${getToken() ?? ""}`,
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify(
+      input.filters?.classId
+        ? {
+            ...input,
+            filters: {
+              ...input.filters,
+              classId: wireClassId(input.filters.classId),
+            },
+          }
+        : input,
+    ),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

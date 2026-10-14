@@ -23,6 +23,7 @@ import { BulkQuestionActionDto } from './dto/bulk-question-action.dto';
 import { CreateQuestionDto, optionHasContent } from './dto/create-question.dto';
 import {
   chapterIdFilter,
+  classIdFilter,
   QueryQuestionsDto,
   unitIdFilter,
 } from './dto/query-questions.dto';
@@ -149,6 +150,10 @@ const listSelect = {
   sourceSeq: true,
   sourceLabel: true,
   importRunId: true,
+  // The class is derived from the subject (Class → Subject), never stored on the question.
+  subjectRef: {
+    select: { classId: true, class: { select: { id: true, name: true } } },
+  },
   // The unit is derived from the chapter (Subject → Unit → Chapter), never stored on the question.
   chapterRef: {
     select: { unitId: true, unit: { select: { id: true, name: true } } },
@@ -565,7 +570,7 @@ export class QuestionsService {
     const [subject, chapter] = await Promise.all([
       this.prisma.subject.findFirst({
         where: { id: defaults.subjectId, instituteId },
-        select: { name: true },
+        select: { name: true, class: { select: { name: true } } },
       }),
       this.prisma.chapter.findFirst({
         where: { id: defaults.chapterId, instituteId },
@@ -577,7 +582,7 @@ export class QuestionsService {
       kind: 'QUESTIONS_DOCX',
       fileName,
       total: parsed.length,
-      target: `${subject?.name ?? 'Unknown subject'} · ${chapter?.name ?? 'Unknown chapter'}`,
+      target: `${subject?.class?.name ? `${subject.class.name} · ` : ''}${subject?.name ?? 'Unknown subject'} · ${chapter?.name ?? 'Unknown chapter'}`,
     });
 
     /**
@@ -689,6 +694,7 @@ export class QuestionsService {
     const structuralWhere: Prisma.QuestionWhereInput = {
       instituteId,
       ...(query.subjectId ? { subjectId: query.subjectId } : {}),
+      ...classIdFilter(query.classId),
       ...unitIdFilter(query.unitId),
       ...chapterIdFilter(query.chapterId, query.chapterIds),
       ...(query.topicId ? { topicId: query.topicId } : {}),

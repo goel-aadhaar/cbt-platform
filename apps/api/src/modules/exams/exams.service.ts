@@ -109,6 +109,7 @@ const examDetailSelect = {
             select: {
               id: true,
               subject: true,
+              subjectId: true,
               chapterId: true,
               chapter: true,
               type: true,
@@ -523,7 +524,9 @@ export class ExamsService {
         'One or more chapters in the weightage do not exist in your institute',
       );
     }
-    const subject = await this.prisma.subject.findFirst({
+    // The same subject name can exist under several classes, so the section
+    // name may match more than one subject; the chapters pick which.
+    const matches = await this.prisma.subject.findMany({
       where: {
         instituteId,
         name: { equals: sectionName.trim(), mode: 'insensitive' },
@@ -531,9 +534,10 @@ export class ExamsService {
       select: { id: true },
     });
     const subjects = new Set(chapters.map((c) => c.subjectId));
-    const consistent = subject
-      ? subjects.size === 1 && subjects.has(subject.id)
-      : subjects.size <= 1;
+    const consistent =
+      matches.length > 0
+        ? subjects.size === 1 && matches.some((m) => subjects.has(m.id))
+        : subjects.size <= 1;
     if (!consistent) {
       throw new BadRequestException(
         "The weightage can only use chapters from the section's own subject",

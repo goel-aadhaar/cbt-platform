@@ -5,6 +5,7 @@ import { ExportFilterDto } from './dto/export-questions.dto';
 import {
   CHAPTER_IDS_MAX,
   chapterIdFilter,
+  classIdFilter,
   QueryQuestionsDto,
 } from './dto/query-questions.dto';
 import { QuestionExportService } from './question-export.service';
@@ -74,6 +75,34 @@ describe('chapterIds / unitId on QueryQuestionsDto', () => {
     });
     expect(await validate(dto)).toHaveLength(0);
     expect(dto.chapterIds).toEqual([A, B]);
+  });
+});
+
+describe('classId on the question filters', () => {
+  it('validates classId as a uuid and accepts the literal "none"', async () => {
+    expect(await validate(parse(QueryQuestionsDto, { classId: A }))).toEqual(
+      [],
+    );
+    expect(
+      await validate(parse(QueryQuestionsDto, { classId: 'none' })),
+    ).toEqual([]);
+    const errors = await validate(parse(QueryQuestionsDto, { classId: 'x' }));
+    expect(errors.map((e) => e.property)).toContain('classId');
+  });
+
+  it('mirrors classId on the export filter', async () => {
+    expect(await validate(parse(ExportFilterDto, { classId: 'none' }))).toEqual(
+      [],
+    );
+    expect(await validate(parse(ExportFilterDto, { classId: A }))).toEqual([]);
+    const errors = await validate(parse(ExportFilterDto, { classId: 'x' }));
+    expect(errors.map((e) => e.property)).toContain('classId');
+  });
+
+  it('builds the subject-class fragment', () => {
+    expect(classIdFilter()).toEqual({});
+    expect(classIdFilter(A)).toEqual({ subjectRef: { classId: A } });
+    expect(classIdFilter('none')).toEqual({ subjectRef: { classId: null } });
   });
 });
 
@@ -154,6 +183,31 @@ describe('QuestionsService.findAll taxonomy filters', () => {
     );
   });
 
+  it('applies classId through the subject, ANDed with the other filters', async () => {
+    const { service, findMany } = build();
+    await service.findAll({ classId: A, subjectId: B, unitId: UNIT });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          instituteId: 'inst-1',
+          subjectId: B,
+          subjectRef: { classId: A },
+          chapterRef: { unitId: UNIT },
+        },
+      }),
+    );
+  });
+
+  it('filters to subjects with no class for classId=none', async () => {
+    const { service, findMany } = build();
+    await service.findAll({ classId: 'none' });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { instituteId: 'inst-1', subjectRef: { classId: null } },
+      }),
+    );
+  });
+
   it('selects the derived unit with each question', async () => {
     const { service, findMany } = build();
     await service.findAll({});
@@ -167,6 +221,35 @@ describe('QuestionsService.findAll taxonomy filters', () => {
 });
 
 describe('QuestionExportService filter parity', () => {
+  it('applies classId like the list endpoint', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(1);
+    const service = new QuestionExportService(
+      { question: { findMany, count } } as never,
+      {
+        get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u1' })),
+      } as never,
+      {} as never,
+    );
+    const resolve = (f: ExportFilterDto) =>
+      (
+        service as unknown as {
+          resolveQuestions: (
+            ids: undefined,
+            f: ExportFilterDto,
+          ) => Promise<unknown>;
+        }
+      ).resolveQuestions(undefined, f);
+    await resolve({ classId: A });
+    await resolve({ classId: 'none' });
+    expect(count).toHaveBeenNthCalledWith(1, {
+      where: { instituteId: 'inst-1', subjectRef: { classId: A } },
+    });
+    expect(count).toHaveBeenNthCalledWith(2, {
+      where: { instituteId: 'inst-1', subjectRef: { classId: null } },
+    });
+  });
+
   it('applies unitId and chapterIds like the list endpoint', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const count = jest.fn().mockResolvedValue(1);

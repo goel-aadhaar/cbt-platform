@@ -92,6 +92,7 @@ export interface ExamDetail {
       question: {
         id: string;
         subject: string;
+        subjectId?: string;
         chapterId: string;
         chapter: string;
         type: string;
@@ -1104,10 +1105,59 @@ export function refreshOrgCatalogue(): void {
  * QUESTION TAXONOMY — subject → unit → chapter → topic (§2.4)        *
  * ------------------------------------------------------------------ */
 
+/** The academic class a subject belongs to, as embedded in subject payloads. */
+export interface SubjectClass {
+  id: string;
+  name: string;
+  isActive: boolean;
+  programId: string;
+  programName: string;
+}
 export interface Subject {
   id: string;
   name: string;
   isActive: boolean;
+  /** null = "No class" (subjects created before classes were linked). */
+  classId?: string | null;
+  class?: SubjectClass | null;
+}
+
+/** Sentinel for "subjects with no class" in class pickers and filters. */
+export const NO_CLASS = "__none__";
+
+/**
+ * A class name for pickers. Class names repeat across programs ("Class 11" in
+ * NEET and JEE), so the program is appended only when the visible list holds
+ * two classes with the same name.
+ */
+export function classLabel(
+  c: Pick<SubjectClass, "id" | "name" | "programName">,
+  all: readonly Pick<SubjectClass, "id" | "name">[],
+): string {
+  const clash = all.some((o) => o.id !== c.id && o.name === c.name);
+  return clash && c.programName ? `${c.name} (${c.programName})` : c.name;
+}
+
+/**
+ * A subject name for pickers and labels. The class is appended only when
+ * another subject in the list shares the name ("Physics · Class 11"), so
+ * unambiguous subjects, and anything students already see, keep the plain name.
+ */
+export function subjectLabel(
+  s: Pick<Subject, "id" | "name" | "class">,
+  all: readonly Pick<Subject, "id" | "name">[],
+): string {
+  const clash = all.some((o) => o.id !== s.id && o.name === s.name);
+  return clash && s.class ? `${s.name} · ${s.class.name}` : s.name;
+}
+
+/** The distinct classes present in a list of subjects, in name order. */
+export function classesOfSubjects(
+  subjects: readonly Subject[],
+): SubjectClass[] {
+  const seen = new Map<string, SubjectClass>();
+  for (const s of subjects) if (s.class) seen.set(s.class.id, s.class);
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 /** Optional level between a subject and its chapters. */
 export interface UnitRow {
@@ -1135,8 +1185,14 @@ export interface TopicRow {
 }
 
 /** GET /subjects — ADMIN or TEACHER (populates the authoring dropdowns). */
-export function listSubjects(): Promise<Subject[]> {
-  return apiFetch<Subject[]>(`/subjects`, auth());
+export function listSubjects(
+  opts: { classId?: string; noClass?: boolean } = {},
+): Promise<Subject[]> {
+  const q = new URLSearchParams();
+  if (opts.classId) q.set("classId", opts.classId);
+  if (opts.noClass) q.set("noClass", "true");
+  const qs = q.toString();
+  return apiFetch<Subject[]>(`/subjects${qs ? `?${qs}` : ""}`, auth());
 }
 
 /** Active rows under a subject. */
@@ -1152,9 +1208,31 @@ export function listSubjectsWithCounts(): Promise<SubjectWithCounts[]> {
   return apiFetch<SubjectWithCounts[]>(`/subjects?withCounts=true`, auth());
 }
 
-/** POST /subjects — ADMIN. Name must be unique within the institute. */
-export function createSubject(name: string): Promise<Subject> {
-  return apiFetch(`/subjects`, { method: "POST", body: { name }, ...auth() });
+/**
+ * POST /subjects — ADMIN. The name must be unique within its class. The admin
+ * UI always passes a class; the API keeps it optional for older callers.
+ */
+export function createSubject(
+  name: string,
+  classId?: string | null,
+): Promise<Subject> {
+  return apiFetch(`/subjects`, {
+    method: "POST",
+    body: classId ? { name, classId } : { name },
+    ...auth(),
+  });
+}
+
+/** PATCH /subjects/:id — move a subject to a class (null = no class). */
+export function moveSubjectToClass(
+  id: string,
+  classId: string | null,
+): Promise<Subject> {
+  return apiFetch(`/subjects/${id}`, {
+    method: "PATCH",
+    body: { classId },
+    ...auth(),
+  });
 }
 
 /** PATCH /subjects/:id — rename. */

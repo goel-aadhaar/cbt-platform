@@ -130,6 +130,15 @@ export class ClassesService {
         `This class still has ${batches} batch(es). Delete or move them first, or archive the class instead.`,
       );
     }
+    // Subjects (active or archived) would silently fall back to "no class".
+    const subjects = await this.prisma.subject.count({
+      where: { classId: id },
+    });
+    if (subjects > 0) {
+      throw new BadRequestException(
+        `This class still has ${subjects} subject(s) under it. Move them to another class first, or archive the class instead.`,
+      );
+    }
     await this.prisma.class.delete({ where: { id } });
     return { id, deleted: true };
   }

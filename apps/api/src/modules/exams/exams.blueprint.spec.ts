@@ -21,6 +21,9 @@ describe('ExamsService - chapter weightage', () => {
     { id: BP_CH2, name: 'Genetics', subjectId: SUBJECT },
     { id: BP_CH3, name: 'Ecology', subjectId: SUBJECT },
     { id: 'ch-chem', name: 'Acids', subjectId: OTHER_SUBJECT },
+    { id: 'ch-phy-11', name: 'Kinematics', subjectId: 'subj-phy-11' },
+    { id: 'ch-phy-12', name: 'Optics', subjectId: 'subj-phy-12' },
+    { id: 'ch-phy-other', name: 'Optics', subjectId: 'subj-phy-other' },
   ];
 
   function build() {
@@ -46,11 +49,13 @@ describe('ExamsService - chapter weightage', () => {
         ),
       },
       subject: {
-        findFirst: jest.fn(({ where }) =>
-          String(where.name.equals).toLowerCase() === 'biology'
-            ? { id: SUBJECT }
-            : null,
-        ),
+        findMany: jest.fn(({ where }) => {
+          const name = String(where.name.equals).toLowerCase();
+          if (name === 'biology') return [{ id: SUBJECT }];
+          if (name === 'physics')
+            return [{ id: 'subj-phy-11' }, { id: 'subj-phy-12' }];
+          return [];
+        }),
       },
       question: {
         groupBy: jest.fn(() => [
@@ -305,6 +310,38 @@ describe('ExamsService - chapter weightage', () => {
             total: 4,
             items: [item(BP_CH1, 50, 2), item('ch-chem', 50, 2)],
           },
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a section name shared by two subjects when the chapters sit in one of them', async () => {
+      const { service, prisma } = build();
+      await service.addSection('exam-1', {
+        name: 'Physics',
+        blueprint: { total: 4, items: [item('ch-phy-12', 100, 4)] },
+      });
+      expect(prisma.examSection.create).toHaveBeenCalled();
+    });
+
+    it('rejects same-name subjects when the chapters span both of them', async () => {
+      const { service } = build();
+      await expect(
+        service.addSection('exam-1', {
+          name: 'Physics',
+          blueprint: {
+            total: 4,
+            items: [item('ch-phy-11', 50, 2), item('ch-phy-12', 50, 2)],
+          },
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects same-name subjects when the chapters belong to neither', async () => {
+      const { service } = build();
+      await expect(
+        service.addSection('exam-1', {
+          name: 'Physics',
+          blueprint: { total: 4, items: [item('ch-phy-other', 100, 4)] },
         }),
       ).rejects.toThrow(BadRequestException);
     });

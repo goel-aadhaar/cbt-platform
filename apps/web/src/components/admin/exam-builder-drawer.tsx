@@ -22,6 +22,7 @@ import {
   addQuestionToSection,
   addSection,
   listSubjects,
+  subjectLabel,
   removeQuestionFromSection,
   removeSection,
   unassignBatch,
@@ -145,13 +146,67 @@ interface DraftSection {
    * that has vanished from this array is deleted.
    */
   id?: string;
+  /** The subject's label ("Physics", or "Physics · Class 11" when ambiguous). */
   name: string;
+  /**
+   * The subject the author picked. Unset on a saved section until they change
+   * it: `resolveSectionSubject` works it out from the stored name and questions.
+   */
+  subjectId?: string;
+  /** For a saved section: the subject most of its questions belong to. */
+  subjectHint?: string;
   marksCorrect: number;
   marksWrong: number;
   /** Question ids chosen for this section (APPROVED only). */
   questionIds: string[];
   /** Chapter-wise weightage being edited; null when the section has none. */
   blueprint: DraftBlueprint | null;
+}
+
+/** The subject most of a saved section's questions belong to, if the API said. */
+function majoritySubjectId(
+  questions: { question: { subjectId?: string } }[],
+): string | undefined {
+  const tally = new Map<string, number>();
+  for (const q of questions) {
+    const id = q.question.subjectId;
+    if (id) tally.set(id, (tally.get(id) ?? 0) + 1);
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [id, n] of tally) {
+    if (n > bestCount) {
+      best = id;
+      bestCount = n;
+    }
+  }
+  return best;
+}
+
+/**
+ * The subject a section stands for. A section stores only a label, and two
+ * subjects can share a name, so a saved one is matched in order: the exact
+ * label, then the subject most of its questions belong to, then a plain name
+ * that only one subject has. A choice made in this session wins outright.
+ */
+function resolveSectionSubject(
+  section: Pick<DraftSection, "name" | "subjectId" | "subjectHint">,
+  subjects: Subject[],
+): Subject | null {
+  if (section.subjectId) {
+    return subjects.find((s) => s.id === section.subjectId) ?? null;
+  }
+  if (!section.name) return null;
+  const byLabel = subjects.filter(
+    (s) => subjectLabel(s, subjects) === section.name,
+  );
+  if (byLabel.length === 1) return byLabel[0];
+  const byHint = section.subjectHint
+    ? subjects.find((s) => s.id === section.subjectHint)
+    : undefined;
+  if (byHint) return byHint;
+  const byName = subjects.filter((s) => s.name === section.name);
+  return byName.length === 1 ? byName[0] : null;
 }
 
 type ExamDetailQuestion =
@@ -168,7 +223,7 @@ function savedQuestionAsListItem(q: ExamDetailQuestion): QuestionListItem {
     subject: q.subject,
     chapter: q.chapter,
     topic: null,
-    subjectId: "",
+    subjectId: q.subjectId ?? "",
     chapterId: q.chapterId,
     topicId: q.topicId,
     difficulty: q.difficulty,
@@ -300,6 +355,7 @@ export function ExamBuilderDrawer({
             key: nextDraftKey(),
             id: sec.id,
             name: sec.name,
+            subjectHint: majoritySubjectId(sec.questions),
             marksCorrect: sec.marksCorrect,
             marksWrong: sec.marksWrong,
             questionIds: [...sec.questions]
@@ -469,15 +525,17 @@ export function ExamBuilderDrawer({
   /**
    * A section *is* a subject (see the "Section" select above) — so the
    * question picker below has no business offering questions from any
-   * other one. `section.name` stores the subject's NAME, not its id, so
-   * this resolves it against the loaded taxonomy the same way the section
-   * row's own dropdown does. Derived at render time rather than synced into
+   * other one. `section.name` stores only the subject's label, so this
+   * resolves it against the loaded taxonomy the same way the section row's
+   * own dropdown does (see `resolveSectionSubject`). Derived at render time rather than synced into
    * `filters` state via an effect — switching sections needs no state
    * write of its own, just a different value flowing into the same query.
    */
   const activeSectionSubject = useMemo(
     () =>
-      subjects.find((s) => s.name === sections[activeSection]?.name) ?? null,
+      sections[activeSection]
+        ? resolveSectionSubject(sections[activeSection], subjects)
+        : null,
     [subjects, sections, activeSection],
   );
 
@@ -490,6 +548,7 @@ export function ExamBuilderDrawer({
     if (filters.subjectId === activeSectionSubject.id) return filters;
     return {
       ...filters,
+      classId: undefined,
       subjectId: activeSectionSubject.id,
       unitId: undefined,
       chapterId: undefined,
@@ -1284,8 +1343,10 @@ export function ExamBuilderDrawer({
                                   ...patch,
                                   // A weightage names chapters of one
                                   // subject; it does not survive a change.
-                                  ...(patch.name !== undefined &&
-                                    patch.name !== x.name && {
+                                  ...("subjectId" in patch &&
+                                    patch.subjectId !==
+                                      resolveSectionSubject(x, subjects)
+                                        ?.id && {
                                       blueprint: null,
                                     }),
                                 }
@@ -1345,7 +1406,10 @@ export function ExamBuilderDrawer({
               {activeSectionSubject && sections[activeSection] && (
                 <ExamBlueprintPanel
                   key={`${sections[activeSection].key}:${activeSectionSubject.id}`}
-                  subject={activeSectionSubject}
+                  subject={{
+                    id: activeSectionSubject.id,
+                    name: subjectLabel(activeSectionSubject, subjects),
+                  }}
                   blueprint={sections[activeSection].blueprint}
                   onChange={(next) =>
                     setSections((prev) =>
@@ -1421,8 +1485,8 @@ export function ExamBuilderDrawer({
               ) : (
                 <>
                   <p className="text-sm text-admin-muted">
-                    Only APPROVED {activeSectionSubject.name} questions from the
-                    curated bank can be added.
+                    Only APPROVED {subjectLabel(activeSectionSubject, subjects)}{" "}
+                    questions from the curated bank can be added.
                   </p>
                   <QuestionFilterBar
                     value={effectiveFilters}
@@ -1524,7 +1588,7 @@ export function ExamBuilderDrawer({
                           ([k, v]) => Boolean(v) && k !== "subjectId",
                         )
                           ? "No approved questions match these filters."
-                          : `No approved ${activeSectionSubject.name} questions yet. Approve some in the Question Bank first.`}
+                          : `No approved ${subjectLabel(activeSectionSubject, subjects)} questions yet. Approve some in the Question Bank first.`}
                       </p>
                     )}
                   </div>
@@ -1825,6 +1889,9 @@ export function ExamBuilderDrawer({
   );
 }
 
+/** Select value for a section whose stored name matches no subject. */
+const LEGACY_SECTION = "__legacy__";
+
 /** One draggable row in the Sections step — its own component because
  * `useSortable` is a hook and can't be called from inside `.map()`. */
 function SortableSectionRow({
@@ -1848,6 +1915,7 @@ function SortableSectionRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+  const resolved = resolveSectionSubject(section, subjects);
 
   return (
     <div
@@ -1866,8 +1934,19 @@ function SortableSectionRow({
       </button>
       <Field label="Section">
         <select
-          value={section.name}
-          onChange={(e) => onChange({ name: e.target.value })}
+          value={resolved?.id ?? (section.name ? LEGACY_SECTION : "")}
+          onChange={(e) => {
+            if (e.target.value === LEGACY_SECTION) return;
+            const picked = subjects.find((x) => x.id === e.target.value);
+            onChange(
+              picked
+                ? {
+                    subjectId: picked.id,
+                    name: subjectLabel(picked, subjects),
+                  }
+                : { subjectId: undefined, name: "" },
+            );
+          }}
           className={inputCls}
         >
           <option value="">
@@ -1875,22 +1954,25 @@ function SortableSectionRow({
               ? "No subjects in the taxonomy yet"
               : "Select a subject"}
           </option>
-          {subjects.map((subject) => (
-            <option key={subject.id} value={subject.name}>
-              {subject.name}
-            </option>
-          ))}
+          {subjects
+            .filter(
+              (subject) => subject.isActive || subject.id === resolved?.id,
+            )
+            .map((subject) => (
+              <option key={subject.id} value={subject.id}>
+                {subjectLabel(subject, subjects)}
+              </option>
+            ))}
           {/*
             A section already named something outside the taxonomy — an older
             exam, or a subject since renamed — keeps its value instead of being
             silently blanked into "Select a subject" the moment it is opened.
           */}
-          {section.name &&
-            !subjects.some((subject) => subject.name === section.name) && (
-              <option value={section.name}>
-                {section.name} (not in taxonomy)
-              </option>
-            )}
+          {section.name && !resolved && (
+            <option value={LEGACY_SECTION}>
+              {section.name} (not in taxonomy)
+            </option>
+          )}
         </select>
       </Field>
       <Field label="Correct (+)">

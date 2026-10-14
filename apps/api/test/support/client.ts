@@ -381,25 +381,30 @@ const chapterIdBySubject = new Map<string, string>();
 export async function ensureSubjectId(
   tenant: TenantFixture,
   name: string,
+  classId?: string,
 ): Promise<string> {
-  const key = `${tenant.instituteId}:${name}`;
+  const key = `${tenant.instituteId}:${classId ?? ''}:${name}`;
   const cached = subjectIdByInstitute.get(key);
   if (cached) return cached;
 
   const created = await api<{ id: string }>('/subjects', {
     method: 'POST',
     token: tenant.adminToken,
-    body: { name },
+    body: classId ? { name, classId } : { name },
   });
   if (created.status === 201) {
     subjectIdByInstitute.set(key, created.body.id);
     return created.body.id;
   }
 
-  const list = await api<{ id: string; name: string }[]>('/subjects', {
+  const list = await api<
+    { id: string; name: string; classId?: string | null }[]
+  >('/subjects', {
     token: tenant.adminToken,
   });
-  const found = list.body.find((s) => s.name === name);
+  const found = list.body.find(
+    (s) => s.name === name && (s.classId ?? null) === (classId ?? null),
+  );
   if (!found) throw new Error(`Could not create or find subject '${name}'`);
   subjectIdByInstitute.set(key, found.id);
   return found.id;

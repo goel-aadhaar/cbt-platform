@@ -8,6 +8,7 @@ import { useAsyncAction } from "@/hooks/use-async-action";
 import {
   listChapters,
   listSubjects,
+  subjectLabel,
   type ChapterRow,
   type Subject,
 } from "@/lib/admin";
@@ -183,7 +184,7 @@ export function CreateDppModal({
                 <option value="">Unfiled</option>
                 {subjects.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {subjectLabel(s, subjects)}
                   </option>
                 ))}
               </select>

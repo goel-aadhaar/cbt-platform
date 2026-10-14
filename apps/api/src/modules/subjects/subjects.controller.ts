@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseBoolPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -36,10 +37,17 @@ export class SubjectsController {
   }
 
   @Get()
-  findAll(@Query('withCounts') withCounts?: string) {
+  findAll(
+    @Query('withCounts') withCounts?: string,
+    @Query('classId', new ParseUUIDPipe({ optional: true }))
+    classId?: string,
+    @Query('noClass', new ParseBoolPipe({ optional: true }))
+    noClass?: boolean,
+  ) {
+    const filters = { classId, noClass };
     return withCounts === 'true'
-      ? this.subjects.findAllWithCounts()
-      : this.subjects.findAll();
+      ? this.subjects.findAllWithCounts(filters)
+      : this.subjects.findAll(filters);
   }
 
   @Get(':id')

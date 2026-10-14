@@ -10,6 +10,7 @@ import {
 } from "@/components/student/icons";
 import { EmptyPractice } from "@/components/student/practice-bits";
 import { useMyDpps } from "@/hooks/use-practice";
+import { subjectNamer, type SubjectRef } from "@/lib/subject-title";
 
 /**
  * DPP — Daily Practice Paper (§ Product Structure).
@@ -22,6 +23,9 @@ import { useMyDpps } from "@/hooks/use-practice";
  */
 export default function StudentDppPage() {
   const { data: dpps, loading, error } = useMyDpps();
+  const subjectName = subjectNamer(
+    (dpps ?? []).map((d) => d.subject as SubjectRef | null),
+  );
 
   return (
     <StudentShell breadcrumb={["DPP"]}>
@@ -88,7 +92,7 @@ export default function StudentDppPage() {
                 </div>
                 <p className="mt-3 font-semibold text-admin-ink">{d.title}</p>
                 <p className="mt-1 text-xs text-admin-muted">
-                  {[d.subject?.name, d.chapter?.name]
+                  {[subjectName(d.subject), d.chapter?.name]
                     .filter(Boolean)
                     .join(" · ") || "Unfiled"}{" "}
                   · {d.questionCount} question{d.questionCount === 1 ? "" : "s"}

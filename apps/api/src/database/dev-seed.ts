@@ -301,7 +301,7 @@ async function devSeed(): Promise<void> {
   const chapterIdByName: Record<string, Record<string, string>> = {};
   for (const subject of SUBJECTS) {
     const subjectRow = await prisma.subject.create({
-      data: { instituteId: iid, name: subject },
+      data: { instituteId: iid, classId: class12.id, name: subject },
     });
     subjectIdByName[subject] = subjectRow.id;
     chapterIdByName[subject] = {};
@@ -323,6 +323,25 @@ async function devSeed(): Promise<void> {
       });
       chapterIdByName[subject][chapter] = chapterRow.id;
     }
+  }
+
+  // Class → Subject: the same subject name lives under another class as a
+  // separate tree (no questions seeded, so every question count stays put).
+  const physics11 = await prisma.subject.create({
+    data: { instituteId: iid, classId: class11.id, name: 'Physics' },
+  });
+  const physics11Unit = await prisma.unit.create({
+    data: { instituteId: iid, subjectId: physics11.id, name: 'Foundations' },
+  });
+  for (const chapter of ['Units & Measurements', 'Motion in a Straight Line']) {
+    await prisma.chapter.create({
+      data: {
+        instituteId: iid,
+        subjectId: physics11.id,
+        unitId: physics11Unit.id,
+        name: chapter,
+      },
+    });
   }
 
   let qSeq = 0;

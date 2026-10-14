@@ -4,9 +4,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  NO_CLASS,
+  classLabel,
+  classesOfSubjects,
   listChapters,
   listSubjects,
   listUnitsCached,
+  subjectLabel,
   type ChapterRow,
   type Subject,
   type UnitRow,
@@ -118,6 +122,8 @@ export function QuestionImportModal({
     null,
   );
   const [subjectId, setSubjectId] = useState("");
+  // Only narrows the subject list; null = follow the chosen subject's class.
+  const [classPick, setClassPick] = useState<string | null>(null);
   // Optional: only narrows the chapter list; the import stores no unit.
   const [unitId, setUnitId] = useState("");
   const [chapterId, setChapterId] = useState("");
@@ -154,7 +160,28 @@ export function QuestionImportModal({
       .catch(() => setUnits([]));
   }, [subjectId]);
 
-  function selectSubject(id: string) {
+  const classes = classesOfSubjects(subjects ?? []);
+  const classOptions = [
+    ...classes.map((c) => ({ id: c.id, name: classLabel(c, classes) })),
+    ...(classes.length > 0 && subjects?.some((s) => !s.classId)
+      ? [{ id: NO_CLASS, name: "No class" }]
+      : []),
+  ];
+  const pickedSubject = subjects?.find((s) => s.id === subjectId);
+  const classId =
+    classPick ?? (pickedSubject ? (pickedSubject.classId ?? NO_CLASS) : "");
+  const subjectChoices = (subjects ?? []).filter((s) =>
+    !classId ? true : classId === NO_CLASS ? !s.classId : s.classId === classId,
+  );
+
+  function selectClass(id: string) {
+    if (pickedSubject && id && (pickedSubject.classId ?? NO_CLASS) !== id)
+      selectSubject("", id);
+    else setClassPick(id);
+  }
+
+  function selectSubject(id: string, keepClass: string | null = null) {
+    setClassPick(keepClass);
     setSubjectId(id);
     setUnitId("");
     setChapterId("");
@@ -215,6 +242,7 @@ export function QuestionImportModal({
     setSummary(null);
     setError(null);
     setSubjectId("");
+    setClassPick(null);
     setUnitId("");
     setChapterId("");
     setChapters(null);
@@ -354,6 +382,21 @@ export function QuestionImportModal({
             type and exam type are fallbacks for rows that omit them.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {classOptions.length > 0 && (
+              <select
+                value={classId}
+                onChange={(e) => selectClass(e.target.value)}
+                aria-label="Class (optional, narrows the subject list)"
+                className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm outline-none focus:border-admin"
+              >
+                <option value="">Class (optional)</option>
+                {classOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               value={subjectId}
               onChange={(e) => selectSubject(e.target.value)}
@@ -363,9 +406,9 @@ export function QuestionImportModal({
               <option value="">
                 {subjects === null ? "Loading…" : "Subject *"}
               </option>
-              {subjects?.map((s) => (
+              {subjectChoices.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {subjectLabel(s, subjects ?? [])}
                 </option>
               ))}
             </select>

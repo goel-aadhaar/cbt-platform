@@ -8,6 +8,7 @@ import { TeacherShell } from "@/components/staff/teacher-shell";
 import { useAdminData } from "@/hooks/use-admin-data";
 import { getMyBatches } from "@/lib/admin";
 import { listDpps, removeDpp, type DppItem } from "@/lib/dpp";
+import { subjectNamer, type SubjectRef } from "@/lib/subject-title";
 
 /**
  * DPP management (§ Product Structure) — the teacher/admin side of "what have
@@ -26,6 +27,9 @@ export default function TeacherDppPage() {
     error,
     reload,
   } = useAdminData(() => listDpps(), []);
+  const subjectName = subjectNamer(
+    (dpps ?? []).map((d) => d.subject as SubjectRef | null),
+  );
   const { data: myBatches } = useAdminData(() => getMyBatches(), []);
 
   const handleDelete = useCallback(
@@ -105,7 +109,7 @@ export default function TeacherDppPage() {
             >
               <p className="font-semibold text-admin-ink">{d.title}</p>
               <p className="mt-1 text-xs text-admin-muted">
-                {[d.subject?.name, d.chapter?.name]
+                {[subjectName(d.subject), d.chapter?.name]
                   .filter(Boolean)
                   .join(" · ") || "Unfiled"}{" "}
                 · {d._count.questions} question

@@ -6,7 +6,12 @@ import { ActionButton } from "@/components/action-button";
 import { BatchPicker, type BatchOption } from "@/components/batch-picker";
 import { XIcon } from "@/components/admin/icons";
 import { LoadingSpinner } from "@/components/loading-spinner";
-import { listChapters, type ChapterRow } from "@/lib/admin";
+import {
+  listChapters,
+  subjectLabel,
+  type ChapterRow,
+  type Subject,
+} from "@/lib/admin";
 import { formatBytes, uploadMedia } from "@/lib/media";
 import {
   createResource,
@@ -16,11 +21,6 @@ import {
   type ResourceItem,
   type ResourceType,
 } from "@/lib/resources";
-
-interface Option {
-  id: string;
-  name: string;
-}
 
 /**
  * Share or edit one piece of study material.
@@ -47,7 +47,7 @@ export function ShareResourceDrawer({
   open: boolean;
   /** Null to share something new. */
   editing: ResourceItem | null;
-  subjects: Option[];
+  subjects: Subject[];
   /**
    * Only batches this teacher may publish to — the server checks again.
    * Null while still loading, so "none yet" is never claimed prematurely.
@@ -405,11 +405,13 @@ export function ShareResourceDrawer({
                 className="mt-1 w-full rounded-lg border border-admin-line px-3 py-2 text-sm outline-none focus:border-admin"
               >
                 <option value="">Select…</option>
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+                {subjects
+                  .filter((s) => s.isActive || s.id === subjectId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {subjectLabel(s, subjects)}
+                    </option>
+                  ))}
               </select>
             </label>
 

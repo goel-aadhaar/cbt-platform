@@ -13,7 +13,11 @@ import {
 
 import { splitIds } from '../../students/dto/query-students.dto';
 import { Difficulty, QuestionStatus, QuestionType } from '../question.types';
-import { CHAPTER_IDS_MAX, UNASSIGNED_UNIT } from './query-questions.dto';
+import {
+  CHAPTER_IDS_MAX,
+  NO_CLASS,
+  UNASSIGNED_UNIT,
+} from './query-questions.dto';
 
 export enum ExportFormat {
   PDF = 'PDF',
@@ -24,6 +28,11 @@ export enum ExportFormat {
  * currently matching the Question Bank's filters" for a "select all
  * filtered" export. */
 export class ExportFilterDto {
+  @IsOptional()
+  @ValidateIf((o: { classId?: string }) => o.classId !== NO_CLASS)
+  @IsUUID()
+  classId?: string;
+
   @IsOptional()
   @IsUUID()
   subjectId?: string;

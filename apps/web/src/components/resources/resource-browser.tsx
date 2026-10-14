@@ -17,6 +17,7 @@ import {
   type ResourceSubject,
   type ResourceType,
 } from "@/lib/resources";
+import { subjectNamer, type SubjectRef } from "@/lib/subject-title";
 
 /**
  * Subject > Chapter > Resource, shared by both portals.
@@ -33,12 +34,15 @@ import {
 
 type Level =
   | { at: "subjects" }
-  | { at: "chapters"; subject: ResourceSubject }
+  | { at: "chapters"; subject: ShelfSubject }
   | {
       at: "resources";
-      subject: ResourceSubject;
+      subject: ShelfSubject;
       chapter: ResourceChapter;
     };
+
+/** A shelf subject; the API also sends its class (name only). */
+type ShelfSubject = ResourceSubject & Pick<SubjectRef, "class">;
 
 export function ResourceBrowser({
   emptyMessage,
@@ -52,7 +56,8 @@ export function ResourceBrowser({
   const [typeFilter, setTypeFilter] = useState<ResourceType | "">("");
   const [preview, setPreview] = useState<ResourceItem | null>(null);
 
-  const [subjects, setSubjects] = useState<ResourceSubject[] | null>(null);
+  const [subjects, setSubjects] = useState<ShelfSubject[] | null>(null);
+  const subjectName = subjectNamer(subjects ?? []);
   const [error, setError] = useState<string | null>(null);
 
   /**
@@ -196,7 +201,7 @@ export function ResourceBrowser({
               /
             </span>
             <Crumb
-              label={level.subject.name}
+              label={subjectName(level.subject) ?? level.subject.name}
               onClick={() =>
                 setLevel({ at: "chapters", subject: level.subject })
               }
@@ -259,7 +264,7 @@ export function ResourceBrowser({
           {(subjects ?? []).map((s) => (
             <Tile
               key={s.id}
-              title={s.name}
+              title={subjectName(s) ?? s.name}
               subtitle={`${s.chapterCount} chapter${s.chapterCount === 1 ? "" : "s"} · ${s.resourceCount} resource${s.resourceCount === 1 ? "" : "s"}`}
               onClick={() => setLevel({ at: "chapters", subject: s })}
             />

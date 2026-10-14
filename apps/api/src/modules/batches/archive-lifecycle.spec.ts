@@ -156,6 +156,7 @@ describe('archive lifecycle', () => {
           delete: jest.fn(() => ({ id: 'c1' })),
         },
         batch: { count: jest.fn(() => 0) },
+        subject: { count: jest.fn(() => 0) },
       };
       const service = new ClassesService(
         prisma as never,

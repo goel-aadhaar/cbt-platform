@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useQuestionTaxonomyCatalogue } from "@/hooks/use-question-taxonomy-catalogue";
 import {
+  NO_CLASS,
+  classLabel,
+  classesOfSubjects,
   listChaptersCached,
   listTopics,
   listUnitsCached,
+  subjectLabel,
   type ChapterRow,
   type TopicRow,
   type UnitRow,
@@ -43,8 +47,8 @@ export function selectedChapterIds(filters: QuestionFilters): string[] {
  * Shared question-bank filter bar (§2.4). Used by the Question Bank page and by
  * the exam builder's question picker so both filter the same way.
  *
- * Filters are applied SERVER-side (the bank is paginated). Subject, Unit,
- * Chapter and Topic cascade: each level narrows the next, and changing one
+ * Filters are applied SERVER-side (the bank is paginated). Class, Subject,
+ * Unit, Chapter and Topic cascade (a class narrows the subject list): each level narrows the next, and changing one
  * clears everything below it. Chapter is a multi-select (`chapterIds`); Topic
  * needs exactly one chapter. Subject/Unit/Chapter/Topic/Exam options come from the real taxonomy catalogues (§2.4) rather than
  * being sampled off `facetSource`, so the dropdowns always match what admins
@@ -87,7 +91,7 @@ export function QuestionFilterBar({
   showSearch?: boolean;
 }) {
   const taxonomy = useQuestionTaxonomyCatalogue();
-  const subjects = taxonomy?.subjects ?? [];
+  const subjects = useMemo(() => taxonomy?.subjects ?? [], [taxonomy]);
   const examCategories = taxonomy?.examCategories ?? [];
   // Each list remembers which parent it was loaded for, so rows from a
   // previous selection are ignored instead of cleared via an effect (which
@@ -104,6 +108,24 @@ export function QuestionFilterBar({
     chapterId: string;
     rows: TopicRow[];
   } | null>(null);
+
+  const classes = useMemo(() => classesOfSubjects(subjects), [subjects]);
+  const hasClasslessSubject = subjects.some((s) => !s.classId);
+  const classOptions = [
+    ...classes.map((c) => ({ id: c.id, name: classLabel(c, classes) })),
+    ...(hasClasslessSubject && classes.length > 0
+      ? [{ id: NO_CLASS, name: "No class" }]
+      : []),
+  ];
+  const subjectOptions = subjects
+    .filter((s) =>
+      !value.classId
+        ? true
+        : value.classId === NO_CLASS
+          ? !s.classId
+          : s.classId === value.classId,
+    )
+    .map((s) => ({ id: s.id, name: subjectLabel(s, subjects) }));
 
   const chapterIds = selectedChapterIds(value);
   // Topics belong to one chapter, so the Topic control needs exactly one.
@@ -184,7 +206,7 @@ export function QuestionFilterBar({
   const activeCount = Object.entries(value).filter(
     ([key, v]) =>
       (Array.isArray(v) ? v.length > 0 : Boolean(v)) &&
-      !(subjectLocked && key === "subjectId"),
+      !(subjectLocked && (key === "subjectId" || key === "classId")),
   ).length;
 
   return (
@@ -208,11 +230,29 @@ export function QuestionFilterBar({
           </div>
         )}
 
+        {!subjectLocked && classOptions.length > 0 && (
+          <IdSelect
+            label="Class"
+            value={value.classId}
+            options={classOptions}
+            // A class narrows the subject list, so everything below it goes.
+            onChange={(v) =>
+              set({
+                classId: v,
+                subjectId: undefined,
+                unitId: undefined,
+                chapterId: undefined,
+                chapterIds: undefined,
+                topicId: undefined,
+              })
+            }
+          />
+        )}
         {!subjectLocked && (
           <IdSelect
             label="Subject"
             value={value.subjectId}
-            options={subjects}
+            options={subjectOptions}
             // Changing subject invalidates the narrower selections.
             onChange={(v) =>
               set({

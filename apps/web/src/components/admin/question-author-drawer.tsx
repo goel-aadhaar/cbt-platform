@@ -3,9 +3,13 @@
 import { useEffect, useState } from "react";
 
 import {
+  NO_CLASS,
+  classLabel,
+  classesOfSubjects,
   listChapters,
   listTopics,
   listUnitsCached,
+  subjectLabel,
   type ChapterRow,
   type TopicRow,
   type UnitRow,
@@ -108,6 +112,9 @@ export function QuestionAuthorDrawer({
   const [units, setUnits] = useState<UnitRow[] | null>(null);
   const [topics, setTopics] = useState<TopicRow[] | null>(null);
   const [subjectId, setSubjectId] = useState(editing?.subjectId ?? "");
+  // The class is only a way to narrow the subject list (a question stores no
+  // class of its own). null = follow the chosen subject's class.
+  const [classPick, setClassPick] = useState<string | null>(null);
   // Only narrows the chapter list: a question stores subject/chapter/topic and
   // its unit is whatever unit that chapter sits in.
   const [unitId, setUnitId] = useState(editing?.chapterRef?.unitId ?? "");
@@ -167,6 +174,7 @@ export function QuestionAuthorDrawer({
 
   function reset() {
     setSubjectId("");
+    setClassPick(null);
     setUnitId("");
     setUnits(null);
     setChapterId("");
@@ -211,7 +219,28 @@ export function QuestionAuthorDrawer({
       .catch(() => setTopics([]));
   }, [chapterId]);
 
-  function selectSubject(id: string) {
+  const classes = classesOfSubjects(subjects ?? []);
+  const classOptions = [
+    ...classes.map((c) => ({ id: c.id, name: classLabel(c, classes) })),
+    ...(classes.length > 0 && subjects?.some((s) => !s.classId)
+      ? [{ id: NO_CLASS, name: "No class" }]
+      : []),
+  ];
+  const pickedSubject = subjects?.find((s) => s.id === subjectId);
+  const classId =
+    classPick ?? (pickedSubject ? (pickedSubject.classId ?? NO_CLASS) : "");
+  const subjectChoices = (subjects ?? []).filter((s) =>
+    !classId ? true : classId === NO_CLASS ? !s.classId : s.classId === classId,
+  );
+
+  function selectClass(id: string) {
+    setClassPick(id);
+    if (pickedSubject && id && (pickedSubject.classId ?? NO_CLASS) !== id)
+      selectSubject("", id);
+  }
+
+  function selectSubject(id: string, keepClass: string | null = null) {
+    setClassPick(keepClass);
     setSubjectId(id);
     setUnitId("");
     setChapterId("");
@@ -431,6 +460,23 @@ export function QuestionAuthorDrawer({
           ) : (
             <div className="flex flex-col gap-6">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {classOptions.length > 0 && (
+                  <Field label="Class">
+                    <select
+                      value={classId}
+                      onChange={(e) => selectClass(e.target.value)}
+                      disabled={subjects === null}
+                      className={INPUT_CLS}
+                    >
+                      <option value="">All classes</option>
+                      {classOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
                 <Field label="Subject" required>
                   <select
                     value={subjectId}
@@ -441,9 +487,9 @@ export function QuestionAuthorDrawer({
                     <option value="">
                       {subjects === null ? "Loading…" : "Select a subject"}
                     </option>
-                    {subjects?.map((s) => (
+                    {subjectChoices.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name}
+                        {subjectLabel(s, subjects ?? [])}
                       </option>
                     ))}
                   </select>

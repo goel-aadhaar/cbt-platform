@@ -19,7 +19,11 @@ import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
 import { MediaStoragePort } from '../media/ports/media-storage.port';
 import { ExportFilterDto, ExportFormat } from './dto/export-questions.dto';
-import { chapterIdFilter, unitIdFilter } from './dto/query-questions.dto';
+import {
+  chapterIdFilter,
+  classIdFilter,
+  unitIdFilter,
+} from './dto/query-questions.dto';
 import { fitWithin, SniffedImage, sniffImage } from './question-export-images';
 
 /** Same rows the on-screen bank shows, plus everything needed to typeset a
@@ -119,6 +123,7 @@ export class QuestionExportService {
     const where: Prisma.QuestionWhereInput = {
       instituteId,
       ...(filters?.subjectId ? { subjectId: filters.subjectId } : {}),
+      ...classIdFilter(filters?.classId),
       ...unitIdFilter(filters?.unitId),
       ...chapterIdFilter(filters?.chapterId, filters?.chapterIds),
       ...(filters?.topicId ? { topicId: filters.topicId } : {}),

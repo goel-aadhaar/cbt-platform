@@ -25,7 +25,13 @@ const dppSelect = {
   description: true,
   isActive: true,
   createdAt: true,
-  subject: { select: { id: true, name: true } },
+  subject: {
+    select: {
+      id: true,
+      name: true,
+      class: { select: { id: true, name: true } },
+    },
+  },
   chapter: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true } },
   batches: { select: { batch: { select: { id: true, name: true } } } },
@@ -321,7 +327,13 @@ export class DppService {
         title: true,
         description: true,
         createdAt: true,
-        subject: { select: { id: true, name: true } },
+        subject: {
+          select: {
+            id: true,
+            name: true,
+            class: { select: { id: true, name: true } },
+          },
+        },
         chapter: { select: { id: true, name: true } },
         _count: { select: { questions: true } },
         sessions: {

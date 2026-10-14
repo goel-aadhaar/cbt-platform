@@ -31,18 +31,24 @@ enum QuestionStatus {
 model Subject {
   id          String   @id @default(uuid()) @db.Uuid
   instituteId String   @map("institute_id") @db.Uuid
+  /// The class this subject is taught in (Class -> Subject -> Unit -> Chapter ->
+  /// Topic). Optional so subjects created before classes were linked stay valid
+  /// ("No class"); the same name may exist under different classes.
+  classId     String?  @map("class_id") @db.Uuid
   name        String
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   institute Institute  @relation(fields: [instituteId], references: [id], onDelete: Cascade)
+  class     Class?     @relation(fields: [classId], references: [id], onDelete: SetNull)
   units     Unit[]
   chapters  Chapter[]
   questions Question[]
 
-  @@unique([instituteId, name])
+  @@unique([instituteId, classId, name])
   @@index([instituteId])
+  @@index([classId])
   @@map("subjects")
   resources Resource[]
   dpps      Dpp[]

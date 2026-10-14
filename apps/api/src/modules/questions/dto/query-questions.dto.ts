@@ -23,6 +23,17 @@ export const CHAPTER_IDS_MAX = 50;
 /** `unitId` value meaning "chapters that have no unit". */
 export const UNASSIGNED_UNIT = 'unassigned';
 
+/** `classId` value meaning "subjects that have no class". */
+export const NO_CLASS = 'none';
+
+/** The class where-fragment: a class is derived through the question's subject. */
+export function classIdFilter(classId?: string): {
+  subjectRef?: { classId: string | null };
+} {
+  if (!classId) return {};
+  return { subjectRef: { classId: classId === NO_CLASS ? null : classId } };
+}
+
 /** The unit where-fragment: a unit is derived through the question's chapter. */
 export function unitIdFilter(unitId?: string): {
   chapterRef?: { unitId: string | null };
@@ -54,6 +65,15 @@ export function chapterIdFilter(
 
 /** Question bank filters (§2.4). */
 export class QueryQuestionsDto {
+  /**
+   * Questions whose subject sits in this class (Class → Subject), or the
+   * literal `none` for subjects that have no class.
+   */
+  @IsOptional()
+  @ValidateIf((o: { classId?: string }) => o.classId !== NO_CLASS)
+  @IsUUID()
+  classId?: string;
+
   @IsOptional()
   @IsUUID()
   subjectId?: string;

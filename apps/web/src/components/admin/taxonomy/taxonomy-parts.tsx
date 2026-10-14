@@ -9,6 +9,7 @@ import {
   CheckIcon,
   FileIcon,
   FlaskIcon,
+  GraduationCapIcon,
   HierarchyIcon,
   InfoIcon,
   LeafIcon,
@@ -19,11 +20,12 @@ import {
 } from "../icons";
 import { RowActionsMenu, type RowAction } from "../row-actions-menu";
 
-export type Level = "subject" | "unit" | "chapter" | "topic";
+export type Level = "class" | "subject" | "unit" | "chapter" | "topic";
 
-export const LEVELS: Level[] = ["subject", "unit", "chapter", "topic"];
+export const LEVELS: Level[] = ["class", "subject", "unit", "chapter", "topic"];
 
 export const LEVEL_LABEL: Record<Level, string> = {
+  class: "Class",
   subject: "Subject",
   unit: "Unit",
   chapter: "Chapter",
@@ -31,13 +33,15 @@ export const LEVEL_LABEL: Record<Level, string> = {
 };
 
 const STEP_CAPTION: Record<Level, string> = {
-  subject: "Select or create a subject",
+  class: "Select the class",
+  subject: "Add subjects under the class",
   unit: "Add units under the subject",
   chapter: "Add chapters under a unit",
   topic: "Add topics under a chapter",
 };
 
 const STRUCTURE_EXAMPLE: Record<Level, string> = {
+  class: "Class 11",
   subject: "Biology",
   unit: "Human Physiology",
   chapter: "Respiratory System",
@@ -51,6 +55,7 @@ export function LevelIcon({
   level: Level;
   className?: string;
 }) {
+  if (level === "class") return <GraduationCapIcon className={className} />;
   if (level === "subject") return <BookOpenIcon className={className} />;
   if (level === "unit") return <FileIcon className={className} />;
   if (level === "chapter") return <FileIcon className={className} />;
@@ -87,7 +92,7 @@ export function Stepper({
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-admin-line/60 bg-white px-5 py-4">
-      <ol className="flex min-w-[44rem] items-center gap-3">
+      <ol className="flex min-w-[58rem] items-center gap-3">
         {LEVELS.map((level, i) => {
           const n = i + 1;
           const done = n < current;
@@ -396,7 +401,7 @@ export function StructureCard({
           Your questions will be organized in this hierarchy.
         </p>
       </div>
-      <ol className="mt-4 grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
+      <ol className="mt-4 grid grid-cols-1 items-center gap-2 sm:grid-cols-2 xl:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr]">
         {LEVELS.map((level, i) => {
           const n = i + 1;
           const picked = names[level] !== "";
@@ -447,7 +452,7 @@ export function StructureCard({
               {n < LEVELS.length && (
                 <ArrowRightIcon
                   aria-hidden
-                  className="mx-auto hidden size-5 text-admin-subtle sm:block"
+                  className="mx-auto hidden size-5 text-admin-subtle xl:block"
                 />
               )}
             </li>
@@ -518,6 +523,7 @@ export function NameModal({
   label,
   placeholder,
   initial = "",
+  context,
   submitLabel,
   onClose,
   onSubmit,
@@ -527,6 +533,8 @@ export function NameModal({
   label: string;
   placeholder?: string;
   initial?: string;
+  /** A fixed, read-only line shown above the field, e.g. the parent class. */
+  context?: { label: string; value: string };
   submitLabel: string;
   onClose: () => void;
   onSubmit: (name: string) => Promise<void>;
@@ -560,6 +568,16 @@ export function NameModal({
       onClose={busy ? () => {} : onClose}
     >
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
+        {context && (
+          <p className="flex items-baseline gap-2 rounded-lg bg-admin-surface px-3 py-2.5 text-sm">
+            <span className="text-xs font-bold text-admin-muted">
+              {context.label}
+            </span>
+            <span className="min-w-0 truncate font-semibold text-admin-ink">
+              {context.value}
+            </span>
+          </p>
+        )}
         <label className="flex flex-col gap-1.5 text-xs font-bold text-admin-muted">
           {label}
           <input
@@ -598,24 +616,37 @@ export function NameModal({
   );
 }
 
-export interface UnitChoice {
+export interface MoveChoice {
   id: string;
-  name: string;
+  label: string;
 }
 
-/** "Move to unit…" picker for a chapter; `""` means "No unit". */
+/**
+ * Generic "Move to ..." picker. `noneLabel` adds a "no parent" option (shown
+ * only while the item currently has a parent) that submits `null`.
+ */
 export function MoveModal({
-  chapterName,
-  currentUnitId,
-  units,
+  title,
+  subtitle,
+  selectLabel,
+  placeholder,
+  noneLabel,
+  currentId,
+  options,
+  errorFallback,
   onClose,
   onSubmit,
 }: {
-  chapterName: string;
-  currentUnitId: string | null;
-  units: UnitChoice[];
+  title: string;
+  subtitle: string;
+  selectLabel: string;
+  placeholder: string;
+  noneLabel: string;
+  currentId: string | null;
+  options: MoveChoice[];
+  errorFallback: string;
   onClose: () => void;
-  onSubmit: (unitId: string | null) => Promise<void>;
+  onSubmit: (targetId: string | null) => Promise<void>;
 }) {
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
@@ -627,34 +658,34 @@ export function MoveModal({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(target === NO_UNIT ? null : target);
+      await onSubmit(target === NO_PARENT ? null : target);
     } catch (err) {
-      setError(errorText(err, "Could not move that chapter."));
+      setError(errorText(err, errorFallback));
       setBusy(false);
     }
   }
 
   return (
     <Modal
-      title="Move to unit"
-      subtitle={`Choose where '${chapterName}' should live.`}
+      title={title}
+      subtitle={subtitle}
       onClose={busy ? () => {} : onClose}
     >
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
         <select
           autoFocus
-          aria-label="Unit"
+          aria-label={selectLabel}
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           className="rounded-lg border border-admin-line bg-white px-3 py-2.5 text-sm text-admin-ink outline-none focus:border-admin"
         >
-          <option value="">Move to unit…</option>
-          {currentUnitId && <option value={NO_UNIT}>No unit</option>}
-          {units
-            .filter((u) => u.id !== currentUnitId)
-            .map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
+          <option value="">{placeholder}</option>
+          {currentId && <option value={NO_PARENT}>{noneLabel}</option>}
+          {options
+            .filter((o) => o.id !== currentId)
+            .map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
               </option>
             ))}
         </select>
@@ -685,4 +716,4 @@ export function MoveModal({
   );
 }
 
-const NO_UNIT = "__none__";
+const NO_PARENT = "__none__";
