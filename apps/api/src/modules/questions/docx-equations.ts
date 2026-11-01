@@ -2,24 +2,35 @@ import { createRequire } from 'module';
 
 import { symbolFontChar } from '@drsk/shared';
 
+import { ommlToLatex } from './omml-to-latex';
+
 /**
- * Word equations (OMML) survive import as visible placeholders.
+ * Word equations (OMML) survive import as LaTeX or as visible placeholders.
  *
  * mammoth silently drops every `<m:oMath>` element, so an imported question
  * that said "Solve x² + 3x = 0" arrived reading "Solve" — a question that looks
  * complete and is not. Before mammoth runs, each equation is replaced in
- * `word/document.xml` by an ordinary text run reading `[[EQ: <linear text>]]`,
- * which keeps both its position in the sentence and a readable approximation of
- * its content. The admin then retypes it as LaTeX (`$x^2 + 3x = 0$`) in the
- * review screen; a question still carrying a placeholder cannot be submitted or
- * approved (see `assertNoFormulaPlaceholder`).
+ * `word/document.xml` by an ordinary text run, which keeps its position in the
+ * sentence. An equation `ommlToLatex` understands becomes a formula; any other
+ * reads `[[EQ: <linear text>]]`, a readable approximation that the admin retypes
+ * as LaTeX (`$x^2 + 3x = 0$`) in the review screen. A question still carrying a
+ * placeholder cannot be submitted or approved (see `assertNoFormulaPlaceholder`).
  *
- * Equations are flagged and fixed by a person, never auto-converted: a wrong
- * silent conversion is worse than a visible gap.
+ * The placeholder stays for everything else because a wrong silent conversion
+ * is worse than a visible gap.
  */
 
 /** Matches a leftover equation placeholder in any question text. */
 export const FORMULA_PLACEHOLDER_RE = /\[\[EQ\b/;
+
+/**
+ * A converted equation on its way through mammoth and the line parser, kept
+ * apart from text until {@link settleFormulas} can see the whole field. Sits
+ * after the private-use range `docx-import.ts` uses for formatting marks.
+ */
+const FORMULA_OPEN = '';
+const FORMULA_CLOSE = '';
+const FORMULA_RE = /([^]*)/g;
 
 export function hasFormulaPlaceholder(...texts: unknown[]): boolean {
   return texts.some(
@@ -88,9 +99,31 @@ export function linearizeOmml(omml: string): string {
   return out.trim();
 }
 
-function placeholderRun(omml: string): string {
-  const text = linearizeOmml(omml).replace(/\]\]/g, '] ]');
-  return `<w:r><w:t xml:space="preserve">[[EQ: ${text}]]</w:t></w:r>`;
+function placeholder(text: string): string {
+  return `[[EQ: ${text.replace(/\]\]/g, '] ]')}]]`;
+}
+
+function equationRun(omml: string): string {
+  const latex = ommlToLatex(omml);
+  const text =
+    latex === null
+      ? placeholder(linearizeOmml(omml))
+      : `${FORMULA_OPEN}${latex.replace(/&/g, '&amp;')}${FORMULA_CLOSE}`;
+  return `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
+}
+
+/**
+ * Give each converted equation in one finished field its final form. A dollar
+ * sign elsewhere in the field would pair with the formula's own, on this line
+ * or across a `<br>`, and turn the text between them into maths: "Rs $5 and
+ * $x^2$". Such a formula goes back to being a placeholder, with its LaTeX ready
+ * to reuse.
+ */
+export function settleFormulas(text: string): string {
+  const hasDollar = text.replace(FORMULA_RE, '').includes('$');
+  return text.replace(FORMULA_RE, (_m, latex: string) =>
+    hasDollar ? placeholder(latex) : `$${latex}$`,
+  );
 }
 
 const OMATH_RE = /<m:oMath(?:\s[^>]*)?>[\s\S]*?<\/m:oMath>/g;
@@ -102,7 +135,7 @@ export function replaceEquations(xml: string): { xml: string; count: number } {
   let count = 0;
   const swap = (omml: string) => {
     count++;
-    return placeholderRun(omml);
+    return equationRun(omml);
   };
   const out = xml
     .replace(OMATH_PARA_RE, (_all, inner: string) => {
@@ -153,9 +186,9 @@ export function replaceSymbolRuns(xml: string): { xml: string; count: number } {
 }
 
 /**
- * Return the .docx with each equation swapped for a placeholder run and its
- * Symbol-font text made real. A document with neither is returned untouched
- * (same buffer).
+ * Return the .docx with each equation swapped for a formula or placeholder run
+ * and its Symbol-font text made real. A document with neither is returned
+ * untouched (same buffer).
  */
 export async function injectEquationPlaceholders(
   buffer: Buffer,

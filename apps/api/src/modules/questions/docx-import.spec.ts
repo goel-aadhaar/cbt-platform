@@ -5,8 +5,10 @@ import {
   loadJsZip,
   replaceEquations,
   replaceSymbolRuns,
+  settleFormulas,
 } from './docx-equations';
 import { extractDocxContent, htmlToLines, parseQuestions } from './docx-import';
+import { ommlToLatex } from './omml-to-latex';
 
 /** The smallest .docx mammoth will open, with `body` as its document body. */
 async function minimalDocx(body: string): Promise<Buffer> {
@@ -83,11 +85,36 @@ describe('parseQuestions (DOCX import, §2.4)', () => {
     expect(qs.map((q) => q.statement)).toEqual(['First?', 'Second?']);
   });
 
-  it('joins continuation lines into the statement', () => {
+  it('keeps the line breaks of a multi-line statement', () => {
     const [q] = parseQuestions(
-      'Q: A long question\nthat wraps across lines\nAnswer: A',
+      'Q: Assertion: a is true\nReason: b is true\nAnswer: A',
     );
-    expect(q.statement).toBe('A long question that wraps across lines');
+    expect(q.statement).toBe('Assertion: a is true\nReason: b is true');
+    expect(sanitizeQuestionText(q.statement)).toBe(
+      'Assertion: a is true<br>Reason: b is true',
+    );
+  });
+
+  it('does not break a paragraph that merely wraps in Word', async () => {
+    const buffer = await minimalDocx(
+      `<w:p><w:r><w:t>1. ${'long words '.repeat(40)}</w:t></w:r></w:p>` +
+        '<w:p><w:r><w:t>Answer: A</w:t></w:r></w:p>',
+    );
+    const content = await extractDocxContent(buffer);
+    const [q] = parseQuestions(content.text);
+    expect(q.statement).not.toContain('\n');
+  });
+
+  it('keeps a Word line break inside a statement paragraph', () => {
+    const [q] = parseQuestions(
+      htmlToLines('<p>1. First line<br />Second line</p><p>Answer: A</p>'),
+    );
+    expect(sanitizeQuestionText(q.statement)).toBe('First line<br>Second line');
+  });
+
+  it('starts the statement on the line after a bare marker', () => {
+    const [q] = parseQuestions('Q1.\nThe real text\nAnswer: A');
+    expect(q.statement).toBe('The real text');
   });
 
   it('ignores preamble before the first question marker', () => {
@@ -118,6 +145,134 @@ describe('parseQuestions (DOCX import, §2.4)', () => {
 
   it('returns [] for a document with no question markers', () => {
     expect(parseQuestions('Just a heading\nand some prose')).toEqual([]);
+  });
+});
+
+describe('match-the-following', () => {
+  const PAPER = [
+    '1. Match List I with List II:',
+    'List I, List II',
+    '(a) Mitosis (i) Two cells',
+    '(b) Meiosis (ii) Four cells',
+    '(c) Budding (iii) Yeast',
+    '(d) Fission (iv) Amoeba',
+    'Choose the correct code:',
+    '(A) a-i, b-ii, c-iii, d-iv',
+    '(B) a-ii, b-i, c-iii, d-iv',
+    '(C) a-i, b-ii, c-iv, d-iii',
+    '(D) a-ii, b-i, c-iv, d-iii',
+    'Answer: A',
+  ].join('\n');
+
+  it('keeps the list in the statement, in order, and the real options as options', () => {
+    const [q] = parseQuestions(PAPER);
+    expect(q.statement.split('\n')).toEqual([
+      'Match List I with List II:',
+      'List I, List II',
+      '(a) Mitosis (i) Two cells',
+      '(b) Meiosis (ii) Four cells',
+      '(c) Budding (iii) Yeast',
+      '(d) Fission (iv) Amoeba',
+      'Choose the correct code:',
+    ]);
+    expect(q.options.map((o) => o.key)).toEqual(['A', 'B', 'C', 'D']);
+    expect(q.options[0].text).toBe('a-i, b-ii, c-iii, d-iv');
+    expect(q.answer).toBe('A');
+  });
+
+  it('copes with a list longer than the options', () => {
+    const [q] = parseQuestions(
+      '1. Match\na) one\nb) two\nc) three\nd) four\ne) five\nA) x\nB) y\nAnswer: B',
+    );
+    expect(q.statement).toContain('e) five');
+    expect(q.options.map((o) => o.key)).toEqual(['A', 'B']);
+  });
+
+  it('treats the list per question, so the next one is not affected', () => {
+    const qs = parseQuestions(`${PAPER}\n2. Plain?\nA) x\nB) y\nAnswer: A`);
+    expect(qs).toHaveLength(2);
+    expect(qs[1].statement).toBe('Plain?');
+    expect(qs[1].options.map((o) => o.key)).toEqual(['A', 'B']);
+  });
+
+  it('leaves options alone when one key is merely repeated or out of order', () => {
+    const [q] = parseQuestions('1. Pick\nB) x\nA) y\nB) z\nAnswer: A');
+    expect(q.options.map((o) => o.key)).toEqual(['B', 'A', 'B']);
+    expect(q.statement).toBe('Pick');
+  });
+
+  it('does not let a lettered list in the explanation take the options', () => {
+    const [q] = parseQuestions(
+      [
+        '1. Pick',
+        'A) x',
+        'B) y',
+        'Answer: A',
+        'Explanation: two reasons',
+        '(a) first',
+        '(b) second',
+      ].join('\n'),
+    );
+    expect(q.statement).toBe('Pick');
+    expect(q.options.map((o) => o.key)).toEqual(['A', 'B']);
+    expect(q.meta.explanation).toBe('two reasons\n(a) first\n(b) second');
+  });
+});
+
+describe('multi-line explanations', () => {
+  it('keeps later lines in the explanation and out of the statement', () => {
+    const [q] = parseQuestions(
+      'Q: Pick\nA) x\nAnswer: A\nExplanation: Step one\nStep two\nStep three\nQ: Next\nAnswer: B',
+    );
+    expect(q.statement).toBe('Pick');
+    expect(sanitizeQuestionText(q.meta.explanation)).toBe(
+      'Step one<br>Step two<br>Step three',
+    );
+  });
+
+  it('takes the explanation from the lines after a bare heading', () => {
+    for (const heading of ['Explanation:', 'Explanation', 'EXPLANATION -']) {
+      const [q] = parseQuestions(
+        `Q: Pick\nA) x\nAnswer: A\n${heading}\nStep one\nStep two`,
+      );
+      expect(q.statement).toBe('Pick');
+      expect(q.meta.explanation).toBe('Step one\nStep two');
+    }
+  });
+
+  it('keeps formatting on every line of an explanation', () => {
+    const [q] = parseQuestions(
+      htmlToLines(
+        '<p>1. Pick</p><p>A) x</p><p>Answer: A</p>' +
+          '<p><strong>Explanation:</strong></p>' +
+          '<p>H<sub>2</sub>O is <strong>water</strong></p><p>x<sup>2</sup> grows</p>',
+      ),
+    );
+    expect(sanitizeQuestionText(q.meta.explanation)).toBe(
+      'H<sub>2</sub>O is <strong>water</strong><br>x<sup>2</sup> grows',
+    );
+  });
+
+  it('does not take the answer from a sentence in the explanation', () => {
+    const [q] = parseQuestions(
+      'Q: Pick\nA) x\nB) y\nAnswer: A\nExplanation: Why\nCorrect option is B in the old key',
+    );
+    expect(q.answer).toBe('A');
+    expect(q.meta.explanation).toContain('Correct option is B');
+  });
+
+  it('still reads an answer and metadata that come after the explanation', () => {
+    const [q] = parseQuestions(
+      'Q: Pick\nA) x\nExplanation: Why\nmore\nAnswer: A\nDifficulty: HARD',
+    );
+    expect(q.answer).toBe('A');
+    expect(q.meta).toEqual({ explanation: 'Why\nmore', difficulty: 'HARD' });
+  });
+
+  it('still reads options that come after the explanation', () => {
+    const [q] = parseQuestions('Q: Pick\nExplanation: Why\nA) x\nAnswer: A');
+    expect(q.options).toEqual([{ key: 'A', text: 'x' }]);
+    expect(q.meta.explanation).toBe('Why');
   });
 });
 
@@ -226,14 +381,29 @@ describe('Word equations', () => {
     ).toBe('(1)/(2)');
   });
 
-  it('replaces inline and display equations with placeholder runs', () => {
+  // A matrix: not converted, so the placeholder path stays exercised.
+  const FLAGGED =
+    '<m:oMath><m:r><m:t>A=</m:t></m:r><m:m><m:mr><m:e><m:r><m:t>y</m:t></m:r></m:e></m:mr></m:m></m:oMath>';
+
+  it('replaces inline and display equations it cannot convert with placeholder runs', () => {
+    const { xml, count } = replaceEquations(
+      `<w:p><w:r><w:t>Solve </w:t></w:r>${FLAGGED}</w:p>` +
+        `<w:p><m:oMathPara>${FLAGGED}</m:oMathPara></w:p>`,
+    );
+    expect(count).toBe(2);
+    expect(xml).not.toContain('m:oMath');
+    expect(xml.match(/\[\[EQ: A=y\]\]/g)).toHaveLength(2);
+  });
+
+  it('turns inline and display equations it can convert into formulas', () => {
     const { xml, count } = replaceEquations(
       `<w:p><w:r><w:t>Solve </w:t></w:r>${OMML}</w:p>` +
         `<w:p><m:oMathPara>${OMML}</m:oMathPara></w:p>`,
     );
     expect(count).toBe(2);
     expect(xml).not.toContain('m:oMath');
-    expect(xml.match(/\[\[EQ: xy\^\(2\)\]\]/g)).toHaveLength(2);
+    expect(xml).not.toContain('[[EQ');
+    expect(settleFormulas(xml).match(/\$xy\^\{2\}\$/g)).toHaveLength(2);
   });
 
   it('survives a real .docx round trip through mammoth and the parser', async () => {
@@ -278,10 +448,392 @@ describe('Word equations', () => {
     expect(content.equations).toBe(1);
     const qs = parseQuestions(content.text, content.images);
     expect(qs).toHaveLength(2);
-    expect(qs[0].statement).toBe('Evaluate [[EQ: xy^(2)]]');
+    expect(qs[0].statement).toBe('Evaluate $xy^{2}$');
     expect(qs[0].sourceLabel).toBe('1');
     expect(qs[1].statement).toBe('Plain question?');
     expect(qs.map((q) => q.sourceSeq)).toEqual([1, 2]);
+  });
+
+  describe('through a real .docx', () => {
+    const NS =
+      'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"';
+    const math = (inner: string) => `<m:oMath ${NS}>${inner}</m:oMath>`;
+    const t = (text: string) => `<m:r><m:t>${text}</m:t></m:r>`;
+    const r = (text: string) =>
+      `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
+    const p = (...runs: string[]) => `<w:p>${runs.join('')}</w:p>`;
+    const parse = async (body: string) => {
+      const content = await extractDocxContent(await minimalDocx(body));
+      return parseQuestions(content.text, content.images);
+    };
+
+    it('puts formulas in the statement, options and explanation', async () => {
+      const [q] = await parse(
+        p(r('1. If '), math(t('a&lt;b')), r(' then?')) +
+          p(r('A) '), math(t('b&gt;a'))) +
+          p(r('B) none')) +
+          p(r('Answer: A')) +
+          p(r('Explanation: since '), math(t('a≤b'))),
+      );
+      expect(q.statement).toBe('If $a\\lt b$ then?');
+      expect(q.options[0].text).toBe('$b\\gt a$');
+      expect(q.meta.explanation).toBe('since $a\\le b$');
+    });
+
+    it('keeps an equation that is a whole line, on its own line', async () => {
+      const [q] = await parse(
+        p(r('1. Solve')) + p(math(t('x=2'))) + p(r('Answer: A')),
+      );
+      expect(sanitizeQuestionText(q.statement)).toBe('Solve<br>$x=2$');
+    });
+
+    it('stays the same formula through the sanitizer, however often', async () => {
+      const [q] = await parse(
+        p(r('1. Find '), math(t('a&amp;b&lt;c&gt;d')), r(' &amp; go')) +
+          p(r('Answer: A')),
+      );
+      expect(q.statement).toBe('Find $a\\&b\\lt c\\gt d$ & go');
+      const once = sanitizeQuestionText(q.statement);
+      expect(once).toBe('Find $a\\&amp;b\\lt c\\gt d$ &amp; go');
+      expect(sanitizeQuestionText(once)).toBe(once);
+    });
+
+    it('does not lose letters that look like a tag between < and >', async () => {
+      const [q] = await parse(p(r('1. '), math(t('a&lt;b&gt;c'))));
+      expect(sanitizeQuestionText(q.statement)).toBe('$a\\lt b\\gt c$');
+    });
+
+    it('keeps two neighbouring equations apart', async () => {
+      const [q] = await parse(p(r('1. '), math(t('a')), math(t('b'))));
+      const once = sanitizeQuestionText(q.statement);
+      expect(once).toBe('$a$$b$');
+      expect(sanitizeQuestionText(once)).toBe(once);
+    });
+
+    it('flags a formula sharing its field with a dollar sign', async () => {
+      const [q] = await parse(
+        p(r('1. It costs $5 for '), math(t('x'))) +
+          p(r('A) '), math(t('y'))) +
+          p(r('Answer: A')),
+      );
+      expect(q.statement).toBe('It costs $5 for [[EQ: x]]');
+      // The option is a field of its own and has no dollar sign.
+      expect(q.options[0].text).toBe('$y$');
+    });
+
+    it('sees a dollar sign on another line of the same field', async () => {
+      const [q] = await parse(
+        p(r('1. It costs $5')) + p(r('Find '), math(t('x'))),
+      );
+      expect(q.statement).toBe('It costs $5\nFind [[EQ: x]]');
+    });
+
+    it('leaves LaTeX the author typed as text alone', async () => {
+      const [q] = await parse(p(r('1. Find $x^2$')));
+      expect(q.statement).toBe('Find $x^2$');
+    });
+
+    it('keeps an equation it cannot convert flagged, among ones it can', async () => {
+      const [q] = await parse(
+        p(
+          r('1. '),
+          math(t('a')),
+          r(' and '),
+          math('<m:m><m:mr><m:e>' + t('b') + '</m:e></m:mr></m:m>'),
+        ),
+      );
+      expect(q.statement).toBe('$a$ and [[EQ: b]]');
+    });
+
+    it('does not leave its private characters in any field', async () => {
+      const qs = await parse(
+        p(r('1. '), math(t('a'))) +
+          p(r('A) '), math(t('b'))) +
+          p(r('Answer: '), math(t('c'))) +
+          p(r('Topic: '), math(t('d'))) +
+          p(r('Explanation: '), math(t('e'))),
+      );
+      expect(JSON.stringify(qs)).not.toMatch(/[-]/);
+    });
+  });
+});
+
+describe('ommlToLatex', () => {
+  const t = (text: string, props = '') =>
+    `<m:r>${props ? `<m:rPr>${props}</m:rPr>` : ''}<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr><m:t>${text}</m:t></m:r>`;
+  const arg = (name: string, text: string) => `<${name}>${t(text)}</${name}>`;
+  const e = (text: string) => arg('m:e', text);
+  const ctrl = '<m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr>';
+  const math = (inner: string) => `<m:oMath>${inner}</m:oMath>`;
+
+  it.each([
+    ['a plain run', t('x+y=2'), 'x+y=2'],
+    ['spaces', t('x + y'), 'x + y'],
+    ['several runs', t('a') + t('b'), 'ab'],
+    [
+      'a superscript',
+      `<m:sSup><m:sSupPr>${ctrl}</m:sSupPr>${e('x')}${arg('m:sup', '2')}</m:sSup>`,
+      'x^{2}',
+    ],
+    ['a subscript', `<m:sSub>${e('v')}${arg('m:sub', '0')}</m:sSub>`, 'v_{0}'],
+    [
+      'both scripts',
+      `<m:sSubSup>${e('x')}${arg('m:sub', 'i')}${arg('m:sup', '2')}</m:sSubSup>`,
+      'x_{i}^{2}',
+    ],
+    [
+      'a script over a long base',
+      `<m:sSup>${e('ab')}${arg('m:sup', '2')}</m:sSup>`,
+      '{ab}^{2}',
+    ],
+    [
+      'scripts in scripts',
+      `<m:sSup><m:e><m:sSup>${e('x')}${arg('m:sup', '2')}</m:sSup></m:e>${arg('m:sup', '3')}</m:sSup>`,
+      '{x^{2}}^{3}',
+    ],
+    [
+      'a fraction',
+      `<m:f><m:fPr><m:type m:val="bar"/>${ctrl}</m:fPr>${arg('m:num', '1')}${arg('m:den', '2')}</m:f>`,
+      '\\frac{1}{2}',
+    ],
+    [
+      'a fraction with no properties',
+      `<m:f>${arg('m:num', 'a')}${arg('m:den', 'b')}</m:f>`,
+      '\\frac{a}{b}',
+    ],
+    [
+      'a linear fraction',
+      `<m:f><m:fPr><m:type m:val="lin"/></m:fPr>${arg('m:num', 'a')}${arg('m:den', 'b')}</m:f>`,
+      '\\frac{a}{b}',
+    ],
+    [
+      'a square root',
+      `<m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/>${e('x')}</m:rad>`,
+      '\\sqrt{x}',
+    ],
+    [
+      'a root with no degree given',
+      `<m:rad><m:deg/>${e('x')}</m:rad>`,
+      '\\sqrt{x}',
+    ],
+    [
+      'a cube root',
+      `<m:rad>${arg('m:deg', '3')}${e('x')}</m:rad>`,
+      '\\sqrt[3]{x}',
+    ],
+    [
+      'a degree that is shown even with degHide off',
+      `<m:rad><m:radPr><m:degHide m:val="0"/></m:radPr>${arg('m:deg', 'n')}${e('x')}</m:rad>`,
+      '\\sqrt[n]{x}',
+    ],
+    ['round brackets', `<m:d>${e('x')}</m:d>`, '\\left(x\\right)'],
+    [
+      'square brackets',
+      `<m:d><m:dPr><m:begChr m:val="["/><m:endChr m:val="]"/></m:dPr>${e('x')}</m:d>`,
+      '\\left[x\\right]',
+    ],
+    [
+      'curly brackets',
+      `<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val="}"/></m:dPr>${e('x')}</m:d>`,
+      '\\left\\{x\\right\\}',
+    ],
+    [
+      'modulus',
+      `<m:d><m:dPr><m:begChr m:val="|"/><m:endChr m:val="|"/></m:dPr>${e('x')}</m:d>`,
+      '\\left|x\\right|',
+    ],
+    [
+      'one side only',
+      `<m:d><m:dPr><m:begChr m:val="{"/><m:endChr m:val=""/></m:dPr>${e('x')}</m:d>`,
+      '\\left\\{x\\right.',
+    ],
+    [
+      'an angle bracket before a letter',
+      `<m:d><m:dPr><m:begChr m:val="⟨"/><m:endChr m:val="⟩"/></m:dPr>${e('x')}</m:d>`,
+      '\\left\\langle x\\right\\rangle',
+    ],
+    [
+      'brackets with several parts',
+      `<m:d><m:dPr><m:sepChr m:val=","/></m:dPr>${e('x')}${e('y')}</m:d>`,
+      '\\left(x,y\\right)',
+    ],
+    [
+      'a sum with limits',
+      `<m:nary><m:naryPr><m:chr m:val="∑"/><m:limLoc m:val="undOvr"/></m:naryPr>${arg('m:sub', 'i=1')}${arg('m:sup', 'n')}${e('i')}</m:nary>`,
+      '\\sum_{i=1}^{n} i',
+    ],
+    [
+      'an integral, which Word leaves unnamed',
+      `<m:nary><m:naryPr><m:limLoc m:val="subSup"/></m:naryPr>${arg('m:sub', '0')}${arg('m:sup', '1')}${e('x')}</m:nary>`,
+      '\\int_{0}^{1} x',
+    ],
+    [
+      'an operator with hidden limits',
+      `<m:nary><m:naryPr><m:chr m:val="∏"/><m:subHide m:val="1"/><m:supHide m:val="1"/></m:naryPr><m:sub/><m:sup/>${e('x')}</m:nary>`,
+      '\\prod x',
+    ],
+    ['Greek before a letter', t('αx'), '\\alpha x'],
+    [
+      'Greek before a script',
+      `<m:sSup>${e('θ')}${arg('m:sup', '2')}</m:sSup>`,
+      '\\theta^{2}',
+    ],
+    ['capital Greek', t('ΔΣΩ'), '\\Delta\\Sigma\\Omega'],
+    ["Word's increment sign", t('∆x'), '\\Delta x'],
+    ['less and greater than', t('a&lt;b&gt;c'), 'a\\lt b\\gt c'],
+    ['an ampersand', t('a&amp;b'), 'a\\&b'],
+    ['percent and hash', t('5%#'), '5\\%\\#'],
+    ['underscore and braces', t('a_{b}'), 'a\\_\\{b\\}'],
+    ['operators', t('a×b÷c±d'), 'a\\times b\\div c\\pm d'],
+    ['relations', t('a≤b≥c≠d≈e'), 'a\\le b\\ge c\\ne d\\approx e'],
+    ['arrows', t('A→B⇌C'), 'A\\rightarrow B\\rightleftharpoons C'],
+    ['Unicode minus', t('a−b'), 'a-b'],
+    ['degrees', t('30°'), '30\\degree'],
+    ['primes', t('f′'), "f'"],
+    ['invisible operators', t('a⁢b⁡c'), 'abc'],
+    ['upright text', t('km', '<m:sty m:val="p"/>'), '\\mathrm{km}'],
+    ['bold text', t('F', '<m:sty m:val="b"/>'), '\\mathbf{F}'],
+    ['bold italic', t('v', '<m:sty m:val="bi"/>'), '\\boldsymbol{v}'],
+    ['italic, the default', t('x', '<m:sty m:val="i"/>'), 'x'],
+    ['normal text', t('in metres', '<m:nor/>'), '\\text{in metres}'],
+    [
+      'an overbar',
+      `<m:bar><m:barPr><m:pos m:val="top"/></m:barPr>${e('x')}</m:bar>`,
+      '\\overline{x}',
+    ],
+    [
+      'an underbar',
+      `<m:bar><m:barPr><m:pos m:val="bot"/></m:barPr>${e('x')}</m:bar>`,
+      '\\underline{x}',
+    ],
+    [
+      'a vector accent',
+      `<m:acc><m:accPr><m:chr m:val="⃗"/></m:accPr>${e('v')}</m:acc>`,
+      '\\vec{v}',
+    ],
+    [
+      'a dot accent',
+      `<m:acc><m:accPr><m:chr m:val="̇"/></m:accPr>${e('x')}</m:acc>`,
+      '\\dot{x}',
+    ],
+    [
+      'a hat, which Word leaves unnamed',
+      `<m:acc>${e('x')}</m:acc>`,
+      '\\hat{x}',
+    ],
+    [
+      'a function',
+      `<m:func><m:fName>${t('sin', '<m:sty m:val="p"/>')}</m:fName>${e('θ')}</m:func>`,
+      '\\sin \\theta',
+    ],
+    [
+      'a function with a power',
+      `<m:func><m:fName><m:sSup><m:e>${t('cos', '<m:sty m:val="p"/>')}</m:e>${arg('m:sup', '2')}</m:sSup></m:fName>${e('x')}</m:func>`,
+      '\\cos^{2} x',
+    ],
+    [
+      'a function LaTeX has no command for',
+      `<m:func><m:fName>${t('cosec', '<m:sty m:val="p"/>')}</m:fName>${e('x')}</m:func>`,
+      '\\mathrm{cosec} x',
+    ],
+    [
+      'structures inside structures',
+      `<m:f><m:num><m:rad><m:deg/>${e('b')}</m:rad></m:num>${arg('m:den', '2a')}</m:f>`,
+      '\\frac{\\sqrt{b}}{2a}',
+    ],
+    [
+      'a bookmark, which says nothing',
+      `<w:bookmarkStart w:id="1" w:name="x"/>${t('x')}<w:bookmarkEnd w:id="1"/>`,
+      'x',
+    ],
+  ])('converts %s', (_name, inner, latex) => {
+    expect(ommlToLatex(math(inner))).toBe(latex);
+  });
+
+  it('copes with XML that is laid out over several lines', () => {
+    expect(
+      ommlToLatex(
+        `<m:oMath>\n  <m:sSup>\n    ${e('x')}\n    ${arg('m:sup', '2')}\n  </m:sSup>\n</m:oMath>`,
+      ),
+    ).toBe('x^{2}');
+  });
+
+  it.each([
+    ['a matrix', `<m:m><m:mr>${e('x')}</m:mr></m:m>`],
+    ['an equation array', `<m:eqArr>${e('x')}</m:eqArr>`],
+    ['a limit', `<m:limLow>${e('lim')}${arg('m:lim', 'x')}</m:limLow>`],
+    [
+      'a pre-script',
+      `<m:sPre>${arg('m:sub', '2')}${arg('m:sup', '3')}${e('x')}</m:sPre>`,
+    ],
+    ['a stacked brace', `<m:groupChr>${e('x')}</m:groupChr>`],
+    ['a box', `<m:borderBox>${e('x')}</m:borderBox>`],
+    [
+      'an unknown element deep inside',
+      `<m:f><m:num><m:rad><m:deg/><m:e><m:mystery/></m:e></m:rad></m:num>${arg('m:den', '2')}</m:f>`,
+    ],
+    [
+      'an unknown element next to a part',
+      `<m:sSup>${e('x')}${arg('m:sup', '2')}<m:mystery/></m:sSup>`,
+    ],
+    [
+      'a fraction with no bar',
+      `<m:f><m:fPr><m:type m:val="noBar"/></m:fPr>${arg('m:num', 'n')}${arg('m:den', 'r')}</m:f>`,
+    ],
+    [
+      'a fraction type it does not know',
+      `<m:f><m:fPr><m:type m:val="odd"/></m:fPr>${arg('m:num', 'n')}${arg('m:den', 'r')}</m:f>`,
+    ],
+    ['a missing denominator', `<m:f>${arg('m:num', '1')}</m:f>`],
+    ['a superscript with no exponent', `<m:sSup>${e('x')}</m:sSup>`],
+    ['a bar with no position', `<m:bar>${e('x')}</m:bar>`],
+    [
+      'an unknown bracket',
+      `<m:d><m:dPr><m:begChr m:val="⟦"/></m:dPr>${e('x')}</m:d>`,
+    ],
+    [
+      'an unknown operator',
+      `<m:nary><m:naryPr><m:chr m:val="⨁"/></m:naryPr><m:sub/><m:sup/>${e('x')}</m:nary>`,
+    ],
+    [
+      'an unknown accent',
+      `<m:acc><m:accPr><m:chr m:val="⃡"/></m:accPr>${e('x')}</m:acc>`,
+    ],
+    ['an unknown run style', t('x', '<m:sty m:val="zz"/>')],
+    ['script letters', t('L', '<m:scr m:val="script"/>')],
+    ['a character it does not know', t('x⊕y')],
+    ['a Hindi letter', t('क')],
+    ['a mathematical italic letter', t('\u{1d465}')],
+    ['a dollar sign', t('$5')],
+    ['a backslash', t('\\alpha')],
+    ['a caret', t('x^2')],
+    ['normal text with a symbol', t('α rays', '<m:nor/>')],
+    ['a line break in a run', '<m:r><w:br/><m:t>x</m:t></m:r>'],
+    ['a tracked change', `<w:ins w:id="1">${t('x')}</w:ins>`],
+    [
+      'a Symbol-font run',
+      '<m:r><w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/></w:rPr><m:t>a</m:t></m:r>',
+    ],
+    ['stray text', `<m:sSup>oops${e('x')}${arg('m:sup', '2')}</m:sSup>`],
+    ['nothing at all', ''],
+    ['only spaces', t('   ')],
+  ])('leaves %s flagged', (_name, inner) => {
+    expect(ommlToLatex(math(inner))).toBeNull();
+  });
+
+  it('refuses XML it cannot read', () => {
+    expect(ommlToLatex('')).toBeNull();
+    expect(ommlToLatex('<m:oMath><m:r>')).toBeNull();
+    expect(ommlToLatex('<m:oMath></m:r></m:oMath>')).toBeNull();
+    expect(ommlToLatex('<m:oMath>< bad</m:oMath>')).toBeNull();
+  });
+
+  it('flags the whole equation when one part is unknown', () => {
+    const { xml } = replaceEquations(
+      math(`${t('x=')}<m:m><m:mr>${e('y')}</m:mr></m:m>`),
+    );
+    expect(settleFormulas(xml)).toContain('[[EQ: x=y]]');
+    expect(settleFormulas(xml)).not.toContain('$');
   });
 });
 
@@ -334,7 +886,7 @@ describe('images inside options', () => {
       ['Q: Pick', 'A)', 'B) x', 'Answer: B'].join('\n'),
     );
     expect(q.options).toEqual([{ key: 'B', text: 'x' }]);
-    expect(q.statement).toBe('Pick A)');
+    expect(q.statement).toBe('Pick\nA)');
   });
 
   it('sends an image after the Answer line (or metadata) back to the stem', () => {

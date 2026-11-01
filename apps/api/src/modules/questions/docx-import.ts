@@ -1,6 +1,6 @@
 import mammoth from 'mammoth';
 
-import { injectEquationPlaceholders } from './docx-equations';
+import { injectEquationPlaceholders, settleFormulas } from './docx-equations';
 import { ParsedImage, ParsedQuestion } from './ports/question-import.port';
 
 const OPTION_RE = /^\(?([A-Ha-h])[).\]]\s+(.+)$/;
@@ -10,6 +10,9 @@ const BARE_OPTION_RE = /^\(?([A-Ha-h])[).\]]$/;
 const ANSWER_RE = /^(?:answer|ans|correct answer|correct)\s*[:.-]?\s*(.+)$/i;
 const META_RE =
   /^(subject|chapter|topic|difficulty|type|marks|negative(?:\s*marks)?|tags|explanation|language|exam\s*type)\s*[:.-]?\s*(.+)$/i;
+const EXPLANATION_RE = /^explanation\b/i;
+// "Explanation:" on a line of its own, with the text on the lines after it.
+const EXPLANATION_HEADING_RE = /^explanation\s*[:.-]?$/i;
 // A new question starts with "Q:", "Q1.", "Question 5.", "1.", "1)" etc.
 // The marker number is captured (it becomes the question's source label).
 const Q_MARKER_RE = /^Q(?:uestion)?\s*(\d+)?\s*[:.)]\s*(.*)$/i;
@@ -110,7 +113,7 @@ function balanceMarks(lines: string[]): string[] {
 export interface DocxContent {
   text: string;
   images: ParsedImage[];
-  /** Word equations replaced by `[[EQ: …]]` placeholders. */
+  /** Word equations replaced by a formula or a `[[EQ: …]]` placeholder. */
   equations: number;
 }
 
@@ -123,6 +126,47 @@ function matchStatementStart(
   const n = NUM_MARKER_RE.exec(line);
   if (n) return { label: n[1], statement: n[2] };
   return null;
+}
+
+/** The option line starting at `i`: `A) text`, or a bare `A)` before an image. */
+function matchOption(lines: string[], i: number): RegExpExecArray | null {
+  const plain = plainOf(lines[i]).trim();
+  return (
+    OPTION_RE.exec(plain) ??
+    (IMAGE_TOKEN_RE.test(plainOf(lines[i + 1] ?? '').trim())
+      ? BARE_OPTION_RE.exec(plain)
+      : null)
+  );
+}
+
+/**
+ * Lettered lines that belong to the statement. A match-the-following question
+ * lists (a), (b)… in its stem and letters its real options from A again, so only
+ * the last run from A in a question is options. A list after the answer or the
+ * explanation has no say in that.
+ */
+function stemListLines(lines: string[]): Set<number> {
+  const stem = new Set<number>();
+  let lettered: number[] = [];
+  let closed = false;
+  for (const i of lines.keys()) {
+    const plain = plainOf(lines[i]).trim();
+    if (matchStatementStart(plain)) {
+      lettered = [];
+      closed = false;
+    } else if (ANSWER_RE.test(plain) || EXPLANATION_RE.test(plain)) {
+      closed = true;
+    } else if (!closed) {
+      const letter = matchOption(lines, i)?.[1].toUpperCase();
+      if (letter === 'A') {
+        lettered.forEach((line) => stem.add(line));
+        lettered = [i];
+      } else if (letter && lettered.length > 0) {
+        lettered.push(i);
+      }
+    }
+  }
+  return stem;
 }
 
 /**
@@ -274,10 +318,14 @@ export async function extractDocxText(buffer: Buffer): Promise<string> {
  * Parse a plain-text question paper (§2.4) into question blocks. Each question
  * begins with a `Q:`/`Q1.`/`1.` marker; option lines are `A) …`, the correct
  * choice is `Answer: …`, and any `Key: value` line (Subject, Chapter, Type, …)
- * sets per-question metadata. Lines that match nothing extend the statement.
+ * sets per-question metadata. Lines that match nothing extend the statement, or
+ * the explanation once one has started, and keep their line break: a Word
+ * paragraph is already one line however it wraps, so a new line here was meant.
  *
  * Statement, option and explanation text keep their Word formatting as tags;
- * everything else is plain. `sanitizeQuestionText` has the last word on all of it.
+ * everything else is plain. `sanitizeQuestionText` has the last word on all of it,
+ * and turns each `\n` into `<br>`. A `\n` rather than a `<br>` here, because a
+ * dollar sign cannot pair with another across it on the way through.
  */
 export function parseQuestions(
   text: string,
@@ -297,13 +345,17 @@ export function parseQuestions(
       current.options.length > 0 ||
       current.images.length > 0;
     if (!hasContent) return;
-    current.statement = marksToHtml(current.statement);
+    current.statement = settleFormulas(marksToHtml(current.statement));
     for (const option of current.options) {
-      option.text = marksToHtml(option.text);
+      option.text = settleFormulas(marksToHtml(option.text));
     }
     if (current.meta.explanation) {
       current.meta.explanation = marksToHtml(current.meta.explanation);
     }
+    for (const key of Object.keys(current.meta)) {
+      current.meta[key] = settleFormulas(current.meta[key]);
+    }
+    if (current.answer) current.answer = settleFormulas(current.answer);
     questions.push(current);
   };
 
@@ -311,27 +363,34 @@ export function parseQuestions(
   // by anything else, so only an image sitting right after an option attaches
   // to it and an image anywhere else stays with the question.
   let lastOption: ParsedQuestion['options'][number] | null = null;
+  // Set by an explanation line: what follows is more of it, not the statement,
+  // which students read before they answer.
+  let inExplanation = false;
 
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => plainOf(l).trim());
+  const stemLines = stemListLines(lines);
 
   for (const [i, line] of lines.entries()) {
     const plain = plainOf(line).trim();
     const statementStart = matchStatementStart(plain);
-    const option = OPTION_RE.exec(plain);
-    const bareOption =
-      !option && IMAGE_TOKEN_RE.test(plainOf(lines[i + 1] ?? '').trim())
-        ? BARE_OPTION_RE.exec(plain)
-        : null;
-    const answer = ANSWER_RE.exec(plain);
+    // A list or a "Correct option is B" inside a finished question's explanation
+    // is part of the explanation.
+    const option =
+      stemLines.has(i) || (inExplanation && current?.options.length)
+        ? null
+        : matchOption(lines, i);
+    const answer =
+      inExplanation && current?.answer ? null : ANSWER_RE.exec(plain);
     const meta = META_RE.exec(plain);
 
     if (statementStart) {
       push();
       seq++;
       lastOption = null;
+      inExplanation = false;
       current = {
         statement: tailOf(line, statementStart.statement).trim(),
         options: [],
@@ -344,15 +403,16 @@ export function parseQuestions(
     } else if (!current) {
       // Preamble before the first question marker — ignore.
       continue;
-    } else if (option || bareOption) {
-      const m = (option ?? bareOption) as RegExpExecArray;
+    } else if (option) {
+      inExplanation = false;
       lastOption = {
-        key: m[1].toUpperCase(),
-        text: option ? tailOf(line, m[2]).trim() : '',
+        key: option[1].toUpperCase(),
+        text: option[2] ? tailOf(line, option[2]).trim() : '',
       };
       current.options.push(lastOption);
     } else if (answer) {
       lastOption = null;
+      inExplanation = false;
       current.answer = answer[1].trim();
     } else if (IMAGE_TOKEN_RE.test(plain)) {
       const img = imageByToken.get(plain);
@@ -360,6 +420,9 @@ export function parseQuestions(
         if (lastOption && !lastOption.image) lastOption.image = img;
         else if (!lastOption) current.images.push(img);
       }
+    } else if (EXPLANATION_HEADING_RE.test(plain)) {
+      lastOption = null;
+      inExplanation = true;
     } else if (meta) {
       lastOption = null;
       let key = meta[1].toLowerCase().replace(/\s+/g, '');
@@ -367,12 +430,18 @@ export function parseQuestions(
       // regex produced two different keys and only one of them was ever read —
       // so the shorter spelling parsed successfully and was then ignored.
       if (key === 'negative') key = 'negativemarks';
-      current.meta[key] =
-        key === 'explanation' ? tailOf(line, meta[2]).trim() : meta[2].trim();
+      inExplanation = key === 'explanation';
+      current.meta[key] = inExplanation
+        ? tailOf(line, meta[2]).trim()
+        : meta[2].trim();
+    } else if (inExplanation) {
+      current.meta.explanation = current.meta.explanation
+        ? `${current.meta.explanation}\n${line}`
+        : line;
     } else {
       // Continuation of the statement.
       lastOption = null;
-      current.statement = `${current.statement} ${line}`.trim();
+      current.statement = `${current.statement}\n${line}`.trim();
     }
   }
   push();
