@@ -114,6 +114,29 @@ describe('sanitizeQuestionText', () => {
     expect(sanitizeQuestionText('$x<strong>2</strong>$')).toBe('$x2$');
   });
 
+  it('reads two prices as text, keeping the formatting between them', () => {
+    const stored = sanitizeQuestionText(
+      'A pen costs $5 and <strong>a book</strong> costs $10',
+    );
+    expect(stored).toBe('A pen costs $5 and <strong>a book</strong> costs $10');
+    expect(sanitizeQuestionText(stored)).toBe(stored);
+  });
+
+  it('still keeps a formula next to a price, and an escaped dollar', () => {
+    expect(sanitizeQuestionText('Rs $5 for $x<sup>2</sup>$')).toBe(
+      'Rs $5 for $x2$',
+    );
+    expect(sanitizeQuestionText('costs \\$5 and <em>\\$10</em>')).toBe(
+      'costs \\$5 and <em>\\$10</em>',
+    );
+  });
+
+  it('does not run a formula across a line break', () => {
+    expect(sanitizeQuestionText('Pay $5<br><strong>then</strong> $x$')).toBe(
+      'Pay $5<br><strong>then</strong> $x$',
+    );
+  });
+
   it('collapses paragraphs and newlines into line breaks', () => {
     expect(sanitizeQuestionText('<p>one</p><p>two</p>')).toBe('one<br>two');
     expect(sanitizeQuestionText('one\ntwo')).toBe('one<br>two');
@@ -146,6 +169,10 @@ describe('questionPlainText', () => {
       'CO2 & H2O',
     );
     expect(questionPlainText('one<br>two')).toBe('one\ntwo');
+  });
+
+  it('shows an escaped dollar as a dollar', () => {
+    expect(questionPlainText('costs \\$5')).toBe('costs $5');
   });
 });
 

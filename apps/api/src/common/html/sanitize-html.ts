@@ -2,7 +2,7 @@
 // htmlparser2 dependency to a pure-ESM build ("type": "module", no CJS
 // export), which Jest's default CJS transform can't load. Bump this pin only
 // alongside a matching Jest ESM-transform fix.
-import { normalizeSymbols } from '@drsk/shared';
+import { MATH_PATTERN, normalizeSymbols } from '@drsk/shared';
 import sanitizeHtmlLib from 'sanitize-html';
 
 /**
@@ -52,9 +52,8 @@ export function sanitizeRichText(html: string): string {
   });
 }
 
-/** Same delimiters the web renderer splits on (`components/rich-text.tsx`). */
-const MATH_SPLIT =
-  /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/g;
+/** Same pattern the web renderer splits on (`components/rich-text.tsx`). */
+const MATH_SPLIT = new RegExp(`(${MATH_PATTERN})`, 'g');
 
 const NAMED_ENTITIES: Record<string, string> = {
   amp: '&',
@@ -160,12 +159,15 @@ export function questionPlainText(html: string): string {
   return decodeEntities(
     html.replace(/<br\s*\/?>|<\/(?:p|li|div)>/gi, '\n').replace(/<[^>]*>/g, ''),
   )
+    .replace(/\\\$/g, '$')
     .replace(/[ \t]+\n/g, '\n')
     .trim();
 }
 
-const PREVIEW_TOKEN =
-  /<[^>]*>|&(?:[a-z]+|#\d+|#x[0-9a-f]+);|\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]|[\s\S]/gi;
+const PREVIEW_TOKEN = new RegExp(
+  `<[^>]*>|&(?:[a-z]+|#\\d+|#x[0-9a-f]+);|${MATH_PATTERN}|[\\s\\S]`,
+  'gi',
+);
 
 /**
  * The start of stored question text, for a short row. A plain `.slice` can stop

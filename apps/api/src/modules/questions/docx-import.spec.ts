@@ -510,22 +510,28 @@ describe('Word equations', () => {
       expect(sanitizeQuestionText(once)).toBe(once);
     });
 
-    it('flags a formula sharing its field with a dollar sign', async () => {
+    it('keeps a formula next to a price', async () => {
       const [q] = await parse(
         p(r('1. It costs $5 for '), math(t('x'))) +
           p(r('A) '), math(t('y'))) +
           p(r('Answer: A')),
       );
-      expect(q.statement).toBe('It costs $5 for [[EQ: x]]');
-      // The option is a field of its own and has no dollar sign.
+      expect(q.statement).toBe('It costs $5 for $x$');
       expect(q.options[0].text).toBe('$y$');
     });
 
-    it('sees a dollar sign on another line of the same field', async () => {
+    it('keeps a formula below a line with a price', async () => {
       const [q] = await parse(
         p(r('1. It costs $5')) + p(r('Find '), math(t('x'))),
       );
-      expect(q.statement).toBe('It costs $5\nFind [[EQ: x]]');
+      expect(q.statement).toBe('It costs $5\nFind $x$');
+      expect(sanitizeQuestionText(q.statement)).toBe('It costs $5<br>Find $x$');
+    });
+
+    it('flags a formula a dollar sign in the text would pair with', async () => {
+      // "Find $y" + "$x$" reads as the formula `$y$` and a stray `x$`.
+      const [q] = await parse(p(r('1. Find $y'), math(t('x'))));
+      expect(q.statement).toBe('Find $y[[EQ: x]]');
     });
 
     it('leaves LaTeX the author typed as text alone', async () => {

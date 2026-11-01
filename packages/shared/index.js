@@ -192,7 +192,30 @@ function normalizeSymbols(text) {
     .normalize("NFC");
 }
 
+/**
+ * Where maths sits in question text, as a RegExp source: `$$…$$`, `\(…\)`,
+ * `\[…\]` and `$…$`, plus `\$` for a dollar the author wants shown as one.
+ *
+ * An inline `$…$` follows Pandoc's rule, so prices stay prices: the opening `$`
+ * is followed by a non-space, the closing one follows a non-space other than a
+ * backslash, and no digit comes straight after it. "A pen costs $5 and a book
+ * costs $10" is text; `$x^2$` is still maths. Nor does it run across a line,
+ * whether the break is still `\n` or already stored as `<br>`.
+ *
+ * The server stores and the browser renders by this one pattern: if they
+ * disagreed, the sanitizer would strip formatting from text the renderer then
+ * shows as text.
+ */
+const MATH_PATTERN = [
+  String.raw`\\\$`,
+  String.raw`\$\$[\s\S]+?\$\$`,
+  String.raw`\\\([\s\S]+?\\\)`,
+  String.raw`\\\[[\s\S]+?\\\]`,
+  String.raw`\$(?!\s)(?:(?!<br)[^$\n])*?[^\s$\\]\$(?!\d)`,
+].join("|");
+
 module.exports = {
+  MATH_PATTERN,
   REGISTRATION_NUMBER_LABEL,
   STUDENT_LOGIN_FIELDS,
   STUDENT_LOGIN_FIELD,

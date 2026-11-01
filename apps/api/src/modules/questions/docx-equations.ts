@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 
-import { symbolFontChar } from '@drsk/shared';
+import { MATH_PATTERN, symbolFontChar } from '@drsk/shared';
 
 import { ommlToLatex } from './omml-to-latex';
 
@@ -112,18 +112,35 @@ function equationRun(omml: string): string {
   return `<w:r><w:t xml:space="preserve">${text}</w:t></w:r>`;
 }
 
+const MATH_RE = new RegExp(MATH_PATTERN, 'g');
+
 /**
  * Give each converted equation in one finished field its final form. A dollar
- * sign elsewhere in the field would pair with the formula's own, on this line
- * or across a `<br>`, and turn the text between them into maths: "Rs $5 and
- * $x^2$". Such a formula goes back to being a placeholder, with its LaTeX ready
- * to reuse.
+ * sign elsewhere in the field can pair with the formula's own and turn the text
+ * between them into maths: "Find $y" before an equation `x` reads as `$y$`
+ * followed by a stray `x$`. Prices are safe ("Rs $5 and $x^2$" is fine), so the
+ * check is exact: every formula must read back as maths on its own, by the
+ * renderer's own pattern. Otherwise they all go back to being placeholders, with
+ * their LaTeX ready to reuse.
  */
 export function settleFormulas(text: string): string {
-  const hasDollar = text.replace(FORMULA_RE, '').includes('$');
-  return text.replace(FORMULA_RE, (_m, latex: string) =>
-    hasDollar ? placeholder(latex) : `$${latex}$`,
-  );
+  const spans = new Set<string>();
+  let out = '';
+  let last = 0;
+  for (const m of text.matchAll(FORMULA_RE)) {
+    out += text.slice(last, m.index);
+    const formula = `$${m[1]}$`;
+    spans.add(`${out.length}:${out.length + formula.length}`);
+    out += formula;
+    last = m.index + m[0].length;
+  }
+  out += text.slice(last);
+  const intact = [...out.matchAll(MATH_RE)].filter((m) =>
+    spans.has(`${m.index}:${m.index + m[0].length}`),
+  ).length;
+  return intact === spans.size
+    ? out
+    : text.replace(FORMULA_RE, (_m, latex: string) => placeholder(latex));
 }
 
 const OMATH_RE = /<m:oMath(?:\s[^>]*)?>[\s\S]*?<\/m:oMath>/g;

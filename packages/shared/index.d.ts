@@ -33,3 +33,9 @@ export declare function symbolFontChar(byte: number): string | undefined;
 
 /** Repair Symbol-font glyphs and drop invisible characters; NFC-normalised. */
 export declare function normalizeSymbols(text: string): string;
+
+/**
+ * RegExp source matching maths in question text (`$$…$$`, `\(…\)`, `\[…\]`,
+ * `$…$` by Pandoc's rule, so "$5 and $10" stays text) and an escaped `\$`.
+ */
+export declare const MATH_PATTERN: string;

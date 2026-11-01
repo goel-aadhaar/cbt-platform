@@ -1,5 +1,6 @@
 "use client";
 
+import { MATH_PATTERN } from "@drsk/shared";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { useMemo } from "react";
@@ -45,8 +46,11 @@ import { decodeEntities, restoreFormatTags } from "@/lib/rich-text";
  * escaped, so escaping it again here used to put a literal `&amp;` on screen.
  */
 
-const MATH_SPLIT =
-  /(\$\$[\s\S]+?\$\$|\$[^$\n]+?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\])/g;
+/**
+ * The server's sanitizer splits on the same pattern, so a dollar amount is text
+ * on both sides: "costs $5 and $10" is not a formula.
+ */
+const MATH_SPLIT = new RegExp(`(${MATH_PATTERN})`, "g");
 
 /**
  * Tags the renderer deals with. Attributes have to look like `name=value`, so
@@ -133,6 +137,7 @@ export function toRichHtml(text: string): string {
       if (!part) return "";
       // `split` with a capture group puts every match at an odd index.
       if (i % 2 === 0) return renderFormattedText(part);
+      if (part === "\\$") return "$";
       if (part.startsWith("$$") || part.startsWith("\\[")) {
         return renderMath(part.slice(2, -2), true);
       }

@@ -53,6 +53,7 @@ export function questionPlainText(html: string): string {
   return decodeEntities(
     html.replace(/<br\s*\/?>|<\/(?:p|li|div)>/gi, " ").replace(/<[^>]*>/g, ""),
   )
+    .replace(/\\\$/g, "$")
     .replace(/\s+/g, " ")
     .trim();
 }
