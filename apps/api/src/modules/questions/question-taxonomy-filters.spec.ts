@@ -230,6 +230,7 @@ describe('QuestionExportService filter parity', () => {
         get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u1' })),
       } as never,
       {} as never,
+      {} as never,
     );
     const resolve = (f: ExportFilterDto) =>
       (
@@ -258,6 +259,7 @@ describe('QuestionExportService filter parity', () => {
       {
         get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u1' })),
       } as never,
+      {} as never,
       {} as never,
     );
     await (

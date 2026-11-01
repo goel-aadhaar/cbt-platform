@@ -14,6 +14,10 @@ import {
 } from 'docx';
 import PDFDocument from 'pdfkit';
 
+import {
+  questionPlainText,
+  questionTextRuns,
+} from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -25,6 +29,19 @@ import {
   unitIdFilter,
 } from './dto/query-questions.dto';
 import { fitWithin, SniffedImage, sniffImage } from './question-export-images';
+import { QuestionSearchPort } from './ports/question-search.port';
+
+/** Stored question text as Word runs, so a bold word or a subscript survives. */
+function wordRuns(html: string): TextRun[] {
+  return questionTextRuns(html).map(
+    ({ underline, lineBreak, ...run }) =>
+      new TextRun({
+        ...run,
+        ...(underline ? { underline: {} } : {}),
+        ...(lineBreak ? { break: 1 } : {}),
+      }),
+  );
+}
 
 /** Same rows the on-screen bank shows, plus everything needed to typeset a
  * real question paper. */
@@ -79,6 +96,7 @@ export class QuestionExportService {
     private readonly tenant: TenantContextService,
     // Reads the stored bytes of stem and option images for embedding.
     private readonly storage: MediaStoragePort,
+    private readonly search: QuestionSearchPort,
   ) {}
 
   private ctx() {
@@ -135,8 +153,19 @@ export class QuestionExportService {
         : {}),
       ...(filters?.tag ? { tags: { has: filters.tag } } : {}),
       ...(filters?.mine ? { createdById: userId } : {}),
+      // The same search the list uses: stored text is HTML, so matching the
+      // column directly would miss CO2 in CO<sub>2</sub>. One over the cap so
+      // the "too many" message below still fires.
       ...(filters?.search
-        ? { statement: { contains: filters.search, mode: 'insensitive' } }
+        ? {
+            id: {
+              in: await this.search.search({
+                instituteId,
+                term: filters.search,
+                limit: MAX_EXPORT_QUESTIONS + 1,
+              }),
+            },
+          }
         : {}),
     };
 
@@ -324,7 +353,7 @@ export class QuestionExportService {
         .fontSize(11)
         .text(`Q${i + 1}. `, { continued: true })
         .font('Helvetica')
-        .text(row.statement);
+        .text(questionPlainText(row.statement));
       doc
         .font('Helvetica')
         .fontSize(8)
@@ -344,7 +373,9 @@ export class QuestionExportService {
 
       for (const o of this.optionsOf(row)) {
         const img = o.mediaKey ? images.get(o.mediaKey) : undefined;
-        doc.fontSize(10).text(this.optionLine(o, !!img), { indent: 15 });
+        doc
+          .fontSize(10)
+          .text(questionPlainText(this.optionLine(o, !!img)), { indent: 15 });
         if (img && !drawImage(img, OPTION_BOX, 15)) {
           doc.fontSize(10).text(IMAGE_PLACEHOLDER, { indent: 15 });
         }
@@ -360,7 +391,9 @@ export class QuestionExportService {
           .fillColor('#000000')
           .font('Helvetica');
         if (row.explanation) {
-          doc.fontSize(9).text(`Explanation: ${row.explanation}`);
+          doc
+            .fontSize(9)
+            .text(`Explanation: ${questionPlainText(row.explanation)}`);
         }
       }
       doc.moveDown(1);
@@ -416,7 +449,7 @@ export class QuestionExportService {
           spacing: { before: 240 },
           children: [
             new TextRun({ text: `Q${i + 1}. `, bold: true }),
-            new TextRun({ text: row.statement }),
+            ...wordRuns(row.statement),
           ],
         }),
         new Paragraph({
@@ -444,7 +477,7 @@ export class QuestionExportService {
         const img = o.mediaKey ? images.get(o.mediaKey) : undefined;
         children.push(
           new Paragraph({
-            text: this.optionLine(o, !!img),
+            children: wordRuns(this.optionLine(o, !!img)),
             indent: { left: 360 },
           }),
         );
@@ -465,7 +498,9 @@ export class QuestionExportService {
         );
         if (row.explanation) {
           children.push(
-            new Paragraph({ text: `Explanation: ${row.explanation}` }),
+            new Paragraph({
+              children: wordRuns(`Explanation: ${row.explanation}`),
+            }),
           );
         }
       }

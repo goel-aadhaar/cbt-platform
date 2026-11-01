@@ -10,7 +10,10 @@ import { Prisma } from '../../generated/prisma/client';
 import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
-import { sanitizeQuestionText } from '../../common/html/sanitize-html';
+import {
+  questionPlainText,
+  sanitizeQuestionText,
+} from '../../common/html/sanitize-html';
 import { Role } from '../auth/auth.types';
 import { ResultsService } from '../results/results.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -101,6 +104,18 @@ function sanitizeOptions(
     text: sanitizeQuestionText(o.text),
     ...(o.mediaKey ? { mediaKey: o.mediaKey } : {}),
   }));
+}
+
+/**
+ * Sanitize a statement and refuse one with nothing left to read. The DTO only
+ * sees the text as sent, and `<p></p>` or a lone `<script>` is not empty there.
+ */
+function sanitizeStatement(statement: string): string {
+  const clean = sanitizeQuestionText(statement);
+  if (!questionPlainText(clean)) {
+    throw new BadRequestException('A question needs some text.');
+  }
+  return clean;
 }
 
 /** Every media key a question references: stem images and option images. */
@@ -272,6 +287,7 @@ export class QuestionsService {
   ) {
     const { userId, role, instituteId } = this.ctx();
     this.validateContent(dto.type, dto.options, dto.answerKey);
+    const statement = sanitizeStatement(dto.statement);
     await this.assertMediaUsable(
       instituteId,
       referencedMediaKeys(dto.mediaKeys, dto.options),
@@ -300,7 +316,7 @@ export class QuestionsService {
         // Sanitized on the way in: these are rendered as HTML so that science
         // notation displays, which makes an unsanitized statement a stored-XSS
         // vector on the exam screen itself.
-        statement: sanitizeQuestionText(dto.statement),
+        statement,
         options: sanitizeOptions(dto.options),
         answerKey: dto.answerKey,
         explanation:
@@ -511,8 +527,10 @@ export class QuestionsService {
         '',
         'Maths and science notation:',
         'Write LaTeX between dollar signs — $E = \\tfrac{1}{2}mv^{2}$ — or use',
-        '<sub> and <sup>, as in H<sub>2</sub>SO<sub>4</sub> and x<sup>2</sup>.',
-        'Both are typeset for the candidate.',
+        "Excel's own formatting: bold, italic, underline, subscript and",
+        'superscript on part of a cell are kept in the statement, the options',
+        'and the explanation. Symbols such as α, Δ, ≥ and → can be typed or',
+        'pasted directly. Word papers keep the same formatting on import.',
         '',
         'Notes:',
         '- Subject and chapter are chosen once in the import dialog, not here.',
@@ -659,7 +677,7 @@ export class QuestionsService {
           index: block.sourceRow ?? sourceSeq,
           id: created.id,
           type: dto.type,
-          statement: block.statement.slice(0, 80),
+          statement: questionPlainText(block.statement).slice(0, 80),
           images: block.images.length + optionImages,
           sourceSeq,
           sourceLabel,
@@ -667,7 +685,7 @@ export class QuestionsService {
       } catch (err) {
         failed.push({
           index: block.sourceRow ?? sourceSeq,
-          statement: block.statement.slice(0, 80),
+          statement: questionPlainText(block.statement).slice(0, 80),
           reason: err instanceof Error ? err.message : 'Failed',
           sourceSeq,
           sourceLabel,
@@ -867,6 +885,10 @@ export class QuestionsService {
       dto.options ?? existing.options,
       dto.answerKey ?? existing.answerKey,
     );
+    const statement =
+      dto.statement === undefined
+        ? undefined
+        : sanitizeStatement(dto.statement);
     // Only the keys this edit sends are checked; an untouched question keeps
     // working even if an image it never changed has since been deleted.
     await this.assertMediaUsable(
@@ -939,10 +961,7 @@ export class QuestionsService {
         tags: dto.tags,
         // Sanitized exactly as `create` does: an edit is the other way markup
         // reaches the exam screen, and was the one way in that skipped it.
-        statement:
-          dto.statement === undefined
-            ? undefined
-            : sanitizeQuestionText(dto.statement),
+        statement,
         options: sanitizeOptions(dto.options),
         answerKey: dto.answerKey,
         explanation:

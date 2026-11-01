@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 
+import { questionPlainText } from '../../common/html/sanitize-html';
 import { PrismaService } from '../../database/prisma.service';
 import { TeacherScopeService } from '../auth/tenant/teacher-scope.service';
 import { TenantContextService } from '../auth/tenant/tenant-context.service';
@@ -31,6 +32,12 @@ const PER_TYPE = 5;
  * Out of scope by the UAT: semantic/vector/LaTeX-aware search. This is a plain
  * case-insensitive contains match.
  */
+/** A stem as one line of plain text: the dropdown shows no formatting. */
+function questionTitle(statement: string): string {
+  const plain = questionPlainText(statement).replace(/\s+/g, ' ');
+  return plain.length > 90 ? `${plain.slice(0, 90)}…` : plain;
+}
+
 @Injectable()
 export class SearchService {
   constructor(
@@ -109,10 +116,7 @@ export class SearchService {
         type: 'question' as const,
         id: q.id,
         // Stems can be long; the dropdown shows one line.
-        title:
-          q.statement.length > 90
-            ? `${q.statement.slice(0, 90)}…`
-            : q.statement,
+        title: questionTitle(q.statement),
         subtitle: `${q.subject} · ${q.status}`,
         href: `/admin/questions?search=${encodeURIComponent(term)}`,
       })),

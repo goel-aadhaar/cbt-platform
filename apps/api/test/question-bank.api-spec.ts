@@ -104,6 +104,22 @@ describe('Question bank', () => {
       expect(res.body.items[0].statement).toContain('Photosynthesis');
     });
 
+    it('finds a formula by what a reader sees, not its stored markup', async () => {
+      const own = await setupTenant('qbf');
+      await createApprovedQuestion(own, {
+        statement:
+          'Plants absorb CO<sub>2</sub> &amp; release <strong>oxygen</strong>',
+        subject: 'Biology',
+        chapter: 'Botany',
+      });
+      const res = await api<Page<QuestionRow>>('/questions', {
+        token: own.teacherToken,
+        query: { search: 'CO2' },
+      });
+      expect(res.body.items).toHaveLength(1);
+      expect(res.body.items[0].statement).toContain('CO<sub>2</sub>');
+    });
+
     it('supports the websearch exclusion operator', async () => {
       const res = await api<Page<QuestionRow>>('/questions', {
         token: tenant.teacherToken,

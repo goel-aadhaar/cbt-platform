@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { RichText } from "@/components/rich-text";
 import {
   approveExam,
   fetchExam,
@@ -301,9 +302,11 @@ export function ExamReviewDrawer({
                               <span className="mt-0.5 rounded bg-admin-surface px-1.5 py-0.5 text-[10px] font-semibold text-admin-muted">
                                 {q.question.type}
                               </span>
-                              <span className="min-w-0 flex-1 text-admin-ink">
-                                {q.question.statement}
-                              </span>
+                              <RichText
+                                as="span"
+                                text={q.question.statement}
+                                className="min-w-0 flex-1 text-admin-ink"
+                              />
                               <span className="shrink-0 text-xs text-admin-subtle">
                                 {q.question.subject} · {q.question.marks} marks
                               </span>

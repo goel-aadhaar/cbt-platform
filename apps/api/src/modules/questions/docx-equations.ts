@@ -1,5 +1,7 @@
 import { createRequire } from 'module';
 
+import { symbolFontChar } from '@drsk/shared';
+
 /**
  * Word equations (OMML) survive import as visible placeholders.
  *
@@ -112,9 +114,48 @@ export function replaceEquations(xml: string): { xml: string; count: number } {
   return { xml: out, count };
 }
 
+const RUN_RE = /<w:r(?:\s[^>]*?[^/>])?>[\s\S]*?<\/w:r>/g;
+const RUN_PROPS_RE = /<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>/;
+const SYMBOL_FONT_RE = /<w:rFonts\b[^>]*\bw:(?:ascii|hAnsi)=["']Symbol["']/;
+const RUN_TEXT_RE = /(<w:t(?:\s[^>]*?[^/>])?>)([\s\S]*?)(<\/w:t>)/g;
+/** One XML entity, or one character. Entities are the same in both fonts. */
+const XML_CHAR_RE = /&#?\w+;|[\s\S]/g;
+
+/** Rewrite the characters of a Symbol-font run as what they actually show. */
+function symbolText(text: string): string {
+  return text.replace(XML_CHAR_RE, (ch) => {
+    if (ch.length > 1 || ch.charCodeAt(0) > 0xff) return ch;
+    return symbolFontChar(ch.charCodeAt(0)) ?? ch;
+  });
+}
+
 /**
- * Return the .docx with each equation swapped for a placeholder run. A
- * document with no equations is returned untouched (same buffer).
+ * Text typed in Word's Symbol font is stored as ordinary letters, and mammoth
+ * passes the letter on without the font: a paper reading "α = 2" imported as
+ * "a = 2", which is a different question and looks perfectly fine. Pure, for
+ * testing.
+ */
+export function replaceSymbolRuns(xml: string): { xml: string; count: number } {
+  if (!xml.includes('Symbol')) return { xml, count: 0 };
+  let count = 0;
+  const out = xml.replace(RUN_RE, (run) => {
+    const props = RUN_PROPS_RE.exec(run)?.[0];
+    if (!props || !SYMBOL_FONT_RE.test(props)) return run;
+    const next = run.replace(
+      RUN_TEXT_RE,
+      (_m, open: string, text: string, close: string) =>
+        `${open}${symbolText(text)}${close}`,
+    );
+    if (next !== run) count++;
+    return next;
+  });
+  return { xml: out, count };
+}
+
+/**
+ * Return the .docx with each equation swapped for a placeholder run and its
+ * Symbol-font text made real. A document with neither is returned untouched
+ * (same buffer).
  */
 export async function injectEquationPlaceholders(
   buffer: Buffer,
@@ -123,10 +164,11 @@ export async function injectEquationPlaceholders(
   const zip = await JSZip.loadAsync(buffer);
   const entry = zip.file('word/document.xml');
   if (!entry) return { buffer, equations: 0 };
-  const xml = await entry.async('string');
-  if (!xml.includes('<m:oMath')) return { buffer, equations: 0 };
-  const { xml: next, count } = replaceEquations(xml);
-  if (count === 0) return { buffer, equations: 0 };
+  const symbols = replaceSymbolRuns(await entry.async('string'));
+  const { xml: next, count } = symbols.xml.includes('<m:oMath')
+    ? replaceEquations(symbols.xml)
+    : { xml: symbols.xml, count: 0 };
+  if (count === 0 && symbols.count === 0) return { buffer, equations: 0 };
   zip.file('word/document.xml', next);
   return {
     buffer: await zip.generateAsync({ type: 'nodebuffer' }),

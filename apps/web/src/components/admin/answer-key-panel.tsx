@@ -10,6 +10,7 @@ import {
 } from "@/lib/admin";
 
 import { LoadingSpinner } from "@/components/loading-spinner";
+import { RichText } from "@/components/rich-text";
 
 import { ManualGradingDrawer } from "./manual-grading-drawer";
 
@@ -169,9 +170,11 @@ export function AnswerKeyPanel({
               </span>
 
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-admin-ink">
-                  {r.statement}
-                </span>
+                <RichText
+                  as="span"
+                  text={r.statement}
+                  className="line-clamp-1 text-sm text-admin-ink"
+                />
                 <span className="mt-0.5 block text-xs text-admin-muted">
                   {r.section ? `${r.section} · ` : ""}
                   {r.marks} marks ·{" "}

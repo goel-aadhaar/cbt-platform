@@ -1,6 +1,7 @@
 "use client";
 
 import { EnlargeableImage, optionImageUrl } from "@/components/option-image";
+import { RichText } from "@/components/rich-text";
 import { LightbulbIcon } from "@/components/student/icons";
 import type {
   PracticeAnswer,
@@ -99,9 +100,11 @@ export function OptionRow({
         >
           {option.key}
         </span>
-        <span className="min-w-0 flex-1 text-sm text-admin-ink">
-          {option.text}
-        </span>
+        <RichText
+          as="span"
+          text={option.text}
+          className="min-w-0 flex-1 text-sm text-admin-ink"
+        />
         {result !== null && isCorrectOption && (
           <span className="shrink-0 rounded bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
             Correct
@@ -200,10 +203,13 @@ export function Explanation({
               ? result.correctAnswer.join(", ")
               : String(result.correctAnswer)}
           </p>
-          <p className="mt-3 whitespace-pre-line text-sm leading-relaxed text-admin-ink">
-            {result.explanation ??
-              "No explanation was provided for this question."}
-          </p>
+          <RichText
+            text={
+              result.explanation ??
+              "No explanation was provided for this question."
+            }
+            className="mt-3 whitespace-pre-line text-sm leading-relaxed text-admin-ink"
+          />
         </>
       )}
     </aside>

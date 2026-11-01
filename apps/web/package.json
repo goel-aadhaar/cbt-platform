@@ -16,6 +16,8 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@drsk/shared": "workspace:*",
     "@tiptap/extension-link": "^3.30.2",
+    "@tiptap/extension-subscript": "3.31.3",
+    "@tiptap/extension-superscript": "3.31.3",
     "@tiptap/extensions": "^3.30.2",
     "@tiptap/pm": "^3.30.2",
     "@tiptap/react": "^3.30.2",

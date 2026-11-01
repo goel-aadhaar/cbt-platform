@@ -70,6 +70,8 @@ function docxText(buffer: Buffer): string {
   return xml ? xml.toString('utf8') : '';
 }
 
+const search = { search: jest.fn(() => ['q-1']) };
+
 describe('QuestionExportService', () => {
   const INSTITUTE = 'inst-1';
   const Q1 = {
@@ -112,6 +114,7 @@ describe('QuestionExportService', () => {
       prisma as never,
       tenant as never,
       {} as never,
+      search as never,
     );
     return { service, prisma };
   }
@@ -204,6 +207,22 @@ describe('QuestionExportService', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    it('filters mode searches the way the list does, not the raw column', async () => {
+      const { service, prisma } = build();
+      await service.export(
+        undefined,
+        { search: 'CO2' },
+        ExportFormat.PDF,
+        false,
+      );
+      expect(search.search).toHaveBeenCalledWith(
+        expect.objectContaining({ instituteId: INSTITUTE, term: 'CO2' }),
+      );
+      expect(prisma.question.count).toHaveBeenCalledWith({
+        where: expect.objectContaining({ id: { in: ['q-1'] } }),
+      });
+    });
+
     it('filters mode refuses when nothing matches', async () => {
       const { service, prisma } = build([]);
       (prisma.question.count as jest.Mock).mockReturnValueOnce(0);
@@ -288,6 +307,7 @@ describe('QuestionExportService - embedded images', () => {
       prisma as never,
       tenant as never,
       storage as never,
+      search as never,
     );
     return { service, prisma, storage };
   }
@@ -399,5 +419,82 @@ describe('QuestionExportService - embedded images', () => {
       false,
     );
     expect(docxText(docx.buffer)).toContain('<w:drawing>');
+  });
+});
+
+/** Stored text is HTML; neither output format may print it as tags or entities. */
+describe('QuestionExportService - formatted text', () => {
+  const FORMATTED = {
+    id: 'q-fmt',
+    statement:
+      '<strong>Bold</strong> <em>slanted</em> <u>lined</u> CO<sub>2</sub> x<sup>2</sup> Fe &amp; Cu<br>next line',
+    options: [
+      { key: 'A', text: 'H<sub>2</sub>O' },
+      { key: 'B', text: 'a &lt; b' },
+    ],
+    answerKey: 'A',
+    explanation: '<strong>Because</strong> H<sub>2</sub>',
+    type: 'MCQ',
+    mediaKeys: [] as string[],
+    subject: 'Chemistry',
+    chapter: 'Gases',
+    topic: null,
+    difficulty: 'EASY',
+    marks: 4,
+    negativeMarks: 1,
+  };
+
+  function build() {
+    const prisma = {
+      question: {
+        findMany: jest.fn(() => [FORMATTED]),
+        count: jest.fn(() => 1),
+      },
+    };
+    const tenant = {
+      get: jest.fn(() => ({ instituteId: 'inst-1', userId: 'u-1' })),
+    };
+    return new QuestionExportService(
+      prisma as never,
+      tenant as never,
+      {} as never,
+      search as never,
+    );
+  }
+
+  it('DOCX: carries each mark as real Word formatting', async () => {
+    const { buffer } = await build().export(
+      ['q-fmt'],
+      undefined,
+      ExportFormat.DOCX,
+      true,
+    );
+    const xml = docxText(buffer);
+    expect(xml).toContain('<w:b/>');
+    expect(xml).toContain('<w:i/>');
+    expect(xml).toContain('<w:u ');
+    expect(xml).toContain('w:val="subscript"');
+    expect(xml).toContain('w:val="superscript"');
+    expect(xml).toContain('<w:br/>');
+    expect(xml).toContain('Fe &amp; Cu');
+    expect(xml).toContain('a &lt; b');
+    expect(xml).not.toContain('&lt;sub&gt;');
+    expect(xml).not.toContain('&amp;amp;');
+  });
+
+  it('PDF: prints the words without tags or entities', async () => {
+    const { buffer } = await build().export(
+      ['q-fmt'],
+      undefined,
+      ExportFormat.PDF,
+      true,
+    );
+    const text = pdfText(buffer);
+    expect(text).toContain('Fe & Cu');
+    expect(text).toContain('A) H2O');
+    expect(text).toContain('B) a < b');
+    expect(text).toContain('Explanation: Because H2');
+    expect(text).not.toContain('<sub>');
+    expect(text).not.toContain('&amp;');
   });
 });

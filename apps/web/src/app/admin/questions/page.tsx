@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { PaginationBar } from "@/components/pagination-bar";
+import { RichText } from "@/components/rich-text";
 import { StatCard } from "@/components/staff/charts";
 import { ImportSourceBadge } from "@/components/admin/import-source-badge";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
@@ -535,7 +536,10 @@ function QuestionRow({
               question={q}
               reviewBase="/admin/questions/review"
             />
-            <p className="mt-1 line-clamp-2 text-admin-ink">{q.statement}</p>
+            <RichText
+              text={q.statement}
+              className="mt-1 line-clamp-2 text-admin-ink"
+            />
           </div>
         </div>
       </td>

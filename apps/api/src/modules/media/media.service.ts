@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { questionPlainText } from '../../common/html/sanitize-html';
 import { MediaKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
@@ -325,7 +326,7 @@ export class MediaService {
         affectedCount: usedIn.length,
         affectedQuestions: usedIn.map((q) => ({
           id: q.id,
-          statement: q.statement.slice(0, 80),
+          statement: questionPlainText(q.statement).slice(0, 80),
           status: q.status,
         })),
       });

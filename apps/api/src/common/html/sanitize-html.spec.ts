@@ -1,4 +1,10 @@
-import { sanitizeRichText } from './sanitize-html';
+import {
+  questionPlainText,
+  questionTextPreview,
+  questionTextRuns,
+  sanitizeQuestionText,
+  sanitizeRichText,
+} from './sanitize-html';
 
 /**
  * `instructions` (§ exam authoring) is the first free-form HTML field in the
@@ -46,6 +52,139 @@ describe('sanitizeRichText', () => {
   it('drops a javascript: link href', () => {
     expect(sanitizeRichText('<a href="javascript:alert(1)">link</a>')).toBe(
       '<a target="_blank" rel="noopener noreferrer">link</a>',
+    );
+  });
+});
+
+/**
+ * One stored form for every screen. Each case here is something a client saw go
+ * wrong: `&amp;` on screen, raw `<sub>` tags, a formula with a hole in it.
+ */
+describe('sanitizeQuestionText', () => {
+  it('stores & escaped exactly once, however it arrives', () => {
+    expect(sanitizeQuestionText('Fe & Cu')).toBe('Fe &amp; Cu');
+    expect(sanitizeQuestionText('Fe &amp; Cu')).toBe('Fe &amp; Cu');
+  });
+
+  it('turns formatting tags that arrived as text into formatting', () => {
+    expect(sanitizeQuestionText('CO&lt;sub&gt;2&lt;/sub&gt;')).toBe(
+      'CO<sub>2</sub>',
+    );
+    expect(sanitizeQuestionText('CO<sub>2</sub>')).toBe('CO<sub>2</sub>');
+  });
+
+  it('keeps every formatting mark the editor offers', () => {
+    const html =
+      '<strong>H</strong><em>e</em><u>l</u>l<sub>o</sub> x<sup>2</sup>';
+    expect(sanitizeQuestionText(html)).toBe(html);
+  });
+
+  it('normalises the older spellings of bold and italic', () => {
+    expect(sanitizeQuestionText('<b>a</b> <i>b</i>')).toBe(
+      '<strong>a</strong> <em>b</em>',
+    );
+  });
+
+  it('strips what is unsafe and keeps what is valid', () => {
+    expect(
+      sanitizeQuestionText('<script>alert(1)</script><b onclick="x()">ok</b>'),
+    ).toBe('<strong>ok</strong>');
+    expect(sanitizeQuestionText('<img src=x onerror=alert(1)>hi')).toBe('hi');
+  });
+
+  it('leaves no way to smuggle a tag through the less-than handling', () => {
+    expect(sanitizeQuestionText('<img src=x onerror=alert(1)')).not.toContain(
+      '<img',
+    );
+  });
+
+  it('keeps a less-than sign that is not a tag', () => {
+    expect(sanitizeQuestionText('if a<b and c>d then x < 5')).toBe(
+      'if a&lt;b and c&gt;d then x &lt; 5',
+    );
+  });
+
+  it('keeps formula source whole, including its < and &', () => {
+    const stored = sanitizeQuestionText('Solve $a<b$ and $x & y$ now');
+    expect(stored).toBe('Solve $a&lt;b$ and $x &amp; y$ now');
+    expect(sanitizeQuestionText(stored)).toBe(stored);
+  });
+
+  it('drops marks the editor put inside a formula', () => {
+    expect(sanitizeQuestionText('$x<strong>2</strong>$')).toBe('$x2$');
+  });
+
+  it('collapses paragraphs and newlines into line breaks', () => {
+    expect(sanitizeQuestionText('<p>one</p><p>two</p>')).toBe('one<br>two');
+    expect(sanitizeQuestionText('one\ntwo')).toBe('one<br>two');
+    expect(sanitizeQuestionText('<p>one<br></p>')).toBe('one');
+  });
+
+  it('preserves Unicode science symbols and repairs Symbol-font ones', () => {
+    expect(sanitizeQuestionText('α β Δ μ ± × ÷ ° → ≥ ≠ √ ∞ π Ω Σ H₂O x²')).toBe(
+      'α β Δ μ ± × ÷ ° → ≥ ≠ √ ∞ π Ω Σ H₂O x²',
+    );
+    expect(sanitizeQuestionText('\uF061 \uF0B3 1')).toBe('α ≥ 1');
+  });
+
+  it('is unchanged by a second pass', () => {
+    const inputs = [
+      'CO<sub>2</sub> &amp; H<sub>2</sub>O',
+      'a < b & c > d',
+      '<strong>Bold</strong> then $\frac{1}{2}$<br>next line',
+    ];
+    for (const input of inputs) {
+      const once = sanitizeQuestionText(input);
+      expect(sanitizeQuestionText(once)).toBe(once);
+    }
+  });
+});
+
+describe('questionPlainText', () => {
+  it('drops markup and decodes entities', () => {
+    expect(questionPlainText('CO<sub>2</sub> &amp; H<sub>2</sub>O')).toBe(
+      'CO2 & H2O',
+    );
+    expect(questionPlainText('one<br>two')).toBe('one\ntwo');
+  });
+});
+
+describe('questionTextRuns', () => {
+  it('carries each mark on its own run', () => {
+    expect(questionTextRuns('<strong>H</strong><sub>2</sub>O &amp; x')).toEqual(
+      [
+        { text: 'H', bold: true },
+        { text: '2', subScript: true },
+        { text: 'O & x' },
+      ],
+    );
+  });
+
+  it('marks a line break on the run after it', () => {
+    expect(questionTextRuns('one<br>two')).toEqual([
+      { text: 'one' },
+      { text: 'two', lineBreak: true },
+    ]);
+  });
+});
+
+describe('questionTextPreview', () => {
+  it('leaves text within the limit untouched', () => {
+    expect(questionTextPreview('CO<sub>2</sub> &amp; O<sub>2</sub>', 20)).toBe(
+      'CO<sub>2</sub> &amp; O<sub>2</sub>',
+    );
+  });
+
+  it('closes a mark it cuts through', () => {
+    expect(questionTextPreview('<strong>abcdef</strong> rest', 3)).toBe(
+      '<strong>abc</strong>...',
+    );
+  });
+
+  it('never stops inside an entity or a formula', () => {
+    expect(questionTextPreview('a &amp; b c', 3)).toBe('a &amp;...');
+    expect(questionTextPreview('see $x^2 + y^2$ and more', 5)).toBe(
+      'see $x^2 + y^2$...',
     );
   });
 });

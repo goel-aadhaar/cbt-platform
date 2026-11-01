@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EnlargeableImage } from "@/components/option-image";
+import { RichText } from "@/components/rich-text";
 import { StudentShell } from "@/components/student/student-shell";
 import {
   ArrowRightIcon,
@@ -237,9 +238,10 @@ export default function DppAttemptPage() {
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-2xl border border-admin-line/40 bg-white p-6 shadow-[0_4px_10px_rgba(0,0,0,0.04)]">
-          <p className="text-base leading-relaxed text-admin-ink">
-            {q.statement}
-          </p>
+          <RichText
+            text={q.statement}
+            className="text-base leading-relaxed text-admin-ink"
+          />
 
           {/* Diagrams (§2.7) — same treatment as the exam screen. */}
           {(q.media ?? []).length > 0 && (

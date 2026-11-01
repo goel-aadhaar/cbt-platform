@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { PlusIcon, SearchIcon, UploadIcon } from "@/components/admin/icons";
 import { PaginationBar } from "@/components/pagination-bar";
+import { RichText } from "@/components/rich-text";
 import { CreateDppModal } from "@/components/admin/create-dpp-modal";
 import { ImportSourceBadge } from "@/components/admin/import-source-badge";
 import { QuestionAuthorDrawer } from "@/components/admin/question-author-drawer";
@@ -332,9 +333,11 @@ function QuestionsScreen() {
                   onClick={() => setOpenId(q.id)}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <p className="line-clamp-2 text-sm font-semibold text-admin-ink">
-                    {q.statement}
-                  </p>
+                  <RichText
+                    as="span"
+                    text={q.statement}
+                    className="line-clamp-2 text-sm font-semibold text-admin-ink"
+                  />
                   <p className="mt-1 text-xs text-admin-muted">
                     {q.subject} · {q.chapter} · {q.type} · {q.marks} marks
                     {q.createdBy && scope === "all"

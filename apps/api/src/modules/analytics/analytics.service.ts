@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { questionTextPreview } from '../../common/html/sanitize-html';
 import { AttemptStatus } from '../../generated/prisma/enums';
 import { PrismaService } from '../../database/prisma.service';
 import { PRE_START_ATTEMPT_STATUSES } from '../attempts/attempt.types';
@@ -202,7 +203,7 @@ export class AnalyticsService {
       const attempted = correct + incorrect;
       return {
         questionId: q.questionId,
-        statement: q.question.statement.slice(0, 100),
+        statement: questionTextPreview(q.question.statement, 100),
         type: q.question.type,
         correct,
         incorrect,

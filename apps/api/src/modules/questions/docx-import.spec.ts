@@ -1,5 +1,42 @@
-import { linearizeOmml, loadJsZip, replaceEquations } from './docx-equations';
+import { sanitizeQuestionText } from '../../common/html/sanitize-html';
+import {
+  injectEquationPlaceholders,
+  linearizeOmml,
+  loadJsZip,
+  replaceEquations,
+  replaceSymbolRuns,
+} from './docx-equations';
 import { extractDocxContent, htmlToLines, parseQuestions } from './docx-import';
+
+/** The smallest .docx mammoth will open, with `body` as its document body. */
+async function minimalDocx(body: string): Promise<Buffer> {
+  const JSZip = loadJsZip();
+  const zip = new JSZip();
+  zip.file(
+    '[Content_Types].xml',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+      '</Types>',
+  );
+  zip.file(
+    '_rels/.rels',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+      '</Relationships>',
+  );
+  zip.file(
+    'word/document.xml',
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' +
+      body +
+      '</w:body></w:document>',
+  );
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
 
 /**
  * The DOCX import parser (§2.4) turns a teacher's Word paper into question
@@ -386,5 +423,218 @@ describe('images inside options', () => {
       ['A', '', true],
       ['B', 'square wave', true],
     ]);
+  });
+});
+
+describe('inline formatting survives the line parser', () => {
+  const parseHtml = (html: string) => parseQuestions(htmlToLines(html));
+
+  it('keeps bold on part of a statement', () => {
+    const [q] = parseHtml(
+      '<p>1. Which is <strong>not</strong> a noble gas?</p><p>Answer: A</p>',
+    );
+    expect(q.statement).toBe('Which is <strong>not</strong> a noble gas?');
+  });
+
+  it('keeps every mark in statements and options', () => {
+    const [q] = parseHtml(
+      '<p>Q1. <em>Balance</em> H<sub>2</sub>O and x<sup>2</sup> with <u>care</u> and <s>haste</s></p>' +
+        '<p>A) CO<sub>2</sub></p><p>B) 10<sup>3</sup></p><p>Answer: A</p>',
+    );
+    expect(q.statement).toBe(
+      '<em>Balance</em> H<sub>2</sub>O and x<sup>2</sup> with <u>care</u> and <s>haste</s>',
+    );
+    expect(q.options).toEqual([
+      { key: 'A', text: 'CO<sub>2</sub>' },
+      { key: 'B', text: '10<sup>3</sup>' },
+    ]);
+  });
+
+  it('recognises a bold question marker and leaves it out of the text', () => {
+    const [q] = parseHtml(
+      '<p><strong>Q1.</strong> Plain text here</p><p>Answer: A</p>',
+    );
+    expect(q.sourceLabel).toBe('Q1');
+    expect(q.statement).toBe('Plain text here');
+  });
+
+  it('reopens a mark the question marker cut through', () => {
+    const [q] = parseHtml(
+      '<p><strong>Q1. What is</strong> this?</p><p>Answer: A</p>',
+    );
+    expect(q.statement).toBe('<strong>What is</strong> this?');
+  });
+
+  it('recognises a bold option letter and keeps the bold of its text', () => {
+    const [q] = parseHtml(
+      '<p>1. Pick</p><p><strong>A)</strong> plain</p><p><strong>B) all bold</strong></p><p>Answer: B</p>',
+    );
+    expect(q.options).toEqual([
+      { key: 'A', text: 'plain' },
+      { key: 'B', text: '<strong>all bold</strong>' },
+    ]);
+  });
+
+  it('keeps the answer and metadata plain but the explanation formatted', () => {
+    const [q] = parseHtml(
+      '<p>1. Pick</p><p>A) x</p><p><strong>Answer: A</strong></p>' +
+        '<p><strong>Difficulty:</strong> <em>HARD</em></p>' +
+        '<p>Explanation: H<sub>2</sub> is <strong>light</strong></p>',
+    );
+    expect(q.answer).toBe('A');
+    expect(q.meta.difficulty).toBe('HARD');
+    expect(q.meta.explanation).toBe('H<sub>2</sub> is <strong>light</strong>');
+  });
+
+  it('keeps a run of bold that spans a Word line break on both lines', () => {
+    const [q] = parseHtml(
+      '<p>1. <strong>First line<br />A) second line</strong></p><p>Answer: A</p>',
+    );
+    expect(q.statement).toBe('<strong>First line</strong>');
+    expect(q.options).toEqual([
+      { key: 'A', text: '<strong>second line</strong>' },
+    ]);
+  });
+
+  it('skips a line that holds only empty formatting', () => {
+    const qs = parseHtml(
+      '<p>1. One</p><p><strong></strong></p><p>Answer: A</p>',
+    );
+    expect(qs[0].statement).toBe('One');
+    expect(qs[0].answer).toBe('A');
+  });
+
+  it('matches an image token even inside formatting', () => {
+    const img = {
+      token: '[[IMAGE:0]]',
+      contentType: 'image/png',
+      buffer: Buffer.from([0]),
+    };
+    const [q] = parseQuestions(
+      htmlToLines(
+        '<p>1. Pick</p><p><strong>A)</strong></p><p><strong><img alt="[[IMAGE:0]]" /></strong></p><p>Answer: A</p>',
+      ),
+      [img],
+    );
+    expect(q.options[0].image?.token).toBe('[[IMAGE:0]]');
+  });
+
+  it('numbers a Word list whose items start in bold', () => {
+    const qs = parseHtml(
+      '<ol><li><strong>First?</strong></li><li><em>Second?</em></li></ol>',
+    );
+    expect(qs.map((q) => q.sourceLabel)).toEqual(['1', '2']);
+    expect(qs[0].statement).toBe('<strong>First?</strong>');
+  });
+
+  it('sees a bold typed marker when deciding how to number lists', () => {
+    const [q] = parseHtml(
+      '<p><strong>1.</strong> Pick one</p><ol><li>red</li><li>blue</li></ol><p>Answer: B</p>',
+    );
+    expect(q.options.map((o) => o.key)).toEqual(['A', 'B']);
+  });
+
+  it('round-trips & and < from the document', () => {
+    const [q] = parseHtml(
+      '<p>1. Fe &amp; Cu when a &lt; b</p><p>A) x &amp; y</p><p>Answer: A</p>',
+    );
+    expect(sanitizeQuestionText(q.statement)).toBe('Fe &amp; Cu when a &lt; b');
+    expect(sanitizeQuestionText(q.options[0].text)).toBe('x &amp; y');
+  });
+
+  it('treats <sub> typed as visible text in Word as formatting', () => {
+    const [q] = parseHtml(
+      '<p>1. CO&lt;sub&gt;2&lt;/sub&gt; is a gas</p><p>Answer: A</p>',
+    );
+    expect(sanitizeQuestionText(q.statement)).toBe('CO<sub>2</sub> is a gas');
+  });
+
+  it('leaves unformatted input exactly as it was', () => {
+    const [q] = parseQuestions('Q1. a < b & c\nA) x\nAnswer: A');
+    expect(q.statement).toBe('a < b & c');
+  });
+});
+
+describe('Word Symbol font', () => {
+  const run = (font: string, text: string) =>
+    `<w:r><w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}"/></w:rPr>` +
+    `<w:t xml:space="preserve">${text}</w:t></w:r>`;
+
+  it('rewrites a Symbol run as the characters it shows', () => {
+    const { xml, count } = replaceSymbolRuns(
+      `<w:p><w:r><w:t>Plain a </w:t></w:r>${run('Symbol', 'a b')}</w:p>`,
+    );
+    expect(count).toBe(1);
+    expect(xml).toContain('Plain a ');
+    expect(xml).toContain('>α β</w:t>');
+  });
+
+  it('leaves runs in other fonts and XML entities alone', () => {
+    const other = run('Times New Roman', 'a b');
+    expect(replaceSymbolRuns(other)).toEqual({ xml: other, count: 0 });
+    const { xml } = replaceSymbolRuns(run('Symbol', 'a &amp; &lt; b'));
+    expect(xml).toContain('>α &amp; &lt; β</w:t>');
+  });
+
+  it('does not run a self-closing run into the next one', () => {
+    const { xml } = replaceSymbolRuns(
+      `<w:r w:rsidR="1"/><w:r><w:t>a</w:t></w:r>${run('Symbol', 'a')}`,
+    );
+    expect(xml).toContain('<w:r><w:t>a</w:t></w:r>');
+    expect(xml).toContain('>α</w:t>');
+  });
+
+  it('returns a document with no Symbol text as the same buffer', async () => {
+    const buffer = await minimalDocx('<w:p><w:r><w:t>1. Hi</w:t></w:r></w:p>');
+    const out = await injectEquationPlaceholders(buffer);
+    expect(out.buffer).toBe(buffer);
+    expect(out.equations).toBe(0);
+  });
+});
+
+describe('formatting through a real .docx', () => {
+  const r = (text: string, props = '') =>
+    `<w:r>${props ? `<w:rPr>${props}</w:rPr>` : ''}<w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const p = (...runs: string[]) => `<w:p>${runs.join('')}</w:p>`;
+
+  it('keeps bold, italic, underline, subscript, superscript and symbols', async () => {
+    const buffer = await minimalDocx(
+      p(
+        r('1. '),
+        r('Which', '<w:b/>'),
+        r(' is '),
+        r('not', '<w:i/>'),
+        r(' true?'),
+      ) +
+        p(r('A) H'), r('2', '<w:vertAlign w:val="subscript"/>'), r('O')) +
+        p(r('B) x'), r('2', '<w:vertAlign w:val="superscript"/>')) +
+        p(r('C) '), r('key', '<w:u w:val="single"/>')) +
+        p(
+          r('D) '),
+          r('a', '<w:rFonts w:ascii="Symbol" w:hAnsi="Symbol"/>'),
+          r(' &amp; b'),
+        ) +
+        p(r('Answer: A')),
+    );
+    const content = await extractDocxContent(buffer);
+    const [q] = parseQuestions(content.text, content.images);
+    expect(q.statement).toBe('<strong>Which</strong> is <em>not</em> true?');
+    expect(q.options.map((o) => o.text)).toEqual([
+      'H<sub>2</sub>O',
+      'x<sup>2</sup>',
+      '<u>key</u>',
+      'α & b',
+    ]);
+    expect(q.answer).toBe('A');
+  });
+
+  it('keeps a character Word stored with its symbol element', async () => {
+    const buffer = await minimalDocx(
+      p(r('1. Angle '), '<w:r><w:sym w:font="Symbol" w:char="F071"/></w:r>') +
+        p(r('Answer: A')),
+    );
+    const content = await extractDocxContent(buffer);
+    const [q] = parseQuestions(content.text, content.images);
+    expect(sanitizeQuestionText(q.statement)).toBe('Angle θ');
   });
 });

@@ -6,7 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { sanitizeRichText } from '../../common/html/sanitize-html';
+import {
+  questionTextPreview,
+  sanitizeRichText,
+} from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../../database/prisma.service';
 import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
@@ -651,10 +654,10 @@ export class ExamsService {
             chapter: chapterName.get(p.chapterId) ?? q.chapter,
             question: {
               ...q,
-              statement:
-                q.statement.length > BLUEPRINT_PICK_PREVIEW_CHARS
-                  ? `${q.statement.slice(0, BLUEPRINT_PICK_PREVIEW_CHARS)}...`
-                  : q.statement,
+              statement: questionTextPreview(
+                q.statement,
+                BLUEPRINT_PICK_PREVIEW_CHARS,
+              ),
             },
           },
         ];

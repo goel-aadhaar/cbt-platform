@@ -82,6 +82,7 @@ import { QuestionPreviewModal } from "./question-preview-modal";
 import { useQuestionPreview } from "./use-question-preview";
 
 import { BatchPicker } from "@/components/batch-picker";
+import { RichText } from "@/components/rich-text";
 
 import { useBatchOptions } from "./academic-cascade";
 
@@ -1545,9 +1546,11 @@ export function ExamBuilderDrawer({
                               className="mt-1 size-4 accent-admin"
                             />
                             <span className="min-w-0">
-                              <span className="block truncate text-sm text-admin-ink">
-                                {q.statement}
-                              </span>
+                              <RichText
+                                as="span"
+                                text={q.statement}
+                                className="line-clamp-1 text-sm text-admin-ink"
+                              />
                               <span className="mt-1 flex flex-wrap items-center gap-1.5">
                                 <Tag>{q.subject}</Tag>
                                 <Tag>{q.chapter}</Tag>
@@ -2037,9 +2040,11 @@ function SortableQuestionRow({
         <GripVerticalIcon className="size-4" />
       </button>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-admin-ink">
-          {question.statement}
-        </span>
+        <RichText
+          as="span"
+          text={question.statement}
+          className="line-clamp-1 text-sm text-admin-ink"
+        />
         <span className="mt-1 flex flex-wrap items-center gap-1.5">
           <Tag tone={question.difficulty}>{question.difficulty}</Tag>
           <Tag>{question.type}</Tag>

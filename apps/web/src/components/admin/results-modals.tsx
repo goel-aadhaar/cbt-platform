@@ -13,6 +13,7 @@ import {
   type ExamQuestionScoringRow,
   type QuestionScoring,
 } from "@/lib/admin";
+import { questionPlainText } from "@/lib/rich-text";
 
 import { InfoIcon, MinusCircleIcon, PlusCircleIcon, XIcon } from "./icons";
 
@@ -440,15 +441,20 @@ export function RecalculateResultsModal({
                   className={inputCls}
                 >
                   <option value="">Select a question…</option>
-                  {items.map((q) => (
-                    <option key={q.questionId} value={q.questionId}>
-                      Q{q.order}
-                      {q.section ? ` (${q.section})` : ""} —{" "}
-                      {q.statement.slice(0, 60)}
-                      {q.statement.length > 60 ? "…" : ""}
-                      {q.scoring !== "NORMAL" ? ` [${q.scoring}]` : ""}
-                    </option>
-                  ))}
+                  {items.map((q) => {
+                    // A <select> cannot hold markup, and cutting stored HTML
+                    // by length can split a tag in half.
+                    const plain = questionPlainText(q.statement);
+                    return (
+                      <option key={q.questionId} value={q.questionId}>
+                        Q{q.order}
+                        {q.section ? ` (${q.section})` : ""} —{" "}
+                        {plain.slice(0, 60)}
+                        {plain.length > 60 ? "…" : ""}
+                        {q.scoring !== "NORMAL" ? ` [${q.scoring}]` : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <button

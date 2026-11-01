@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { RichText } from "@/components/rich-text";
 import { getDpp, type DppDetail, type DppItem } from "@/lib/dpp";
 
 import { XIcon } from "./icons";
@@ -133,9 +134,11 @@ export function DppQuestionsDrawer({
                     {q.question.difficulty}
                   </span>
                 </span>
-                <span className="line-clamp-3 text-sm text-admin-ink">
-                  {q.question.statement}
-                </span>
+                <RichText
+                  as="span"
+                  text={q.question.statement}
+                  className="line-clamp-3 text-sm text-admin-ink"
+                />
                 <span className="text-[11px] text-admin-subtle">
                   {[q.question.subject, q.question.chapter, q.question.topic]
                     .filter(Boolean)

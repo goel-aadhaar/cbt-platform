@@ -27,3 +27,9 @@ export declare const STAFF_LOGIN_FIELDS: readonly [
 export declare const STAFF_LOGIN_FIELD: {
   readonly [K in StaffLoginKey]: LoginField<K>;
 };
+
+/** The real character for one byte of Word's Symbol font, if it has one. */
+export declare function symbolFontChar(byte: number): string | undefined;
+
+/** Repair Symbol-font glyphs and drop invisible characters; NFC-normalised. */
+export declare function normalizeSymbols(text: string): string;

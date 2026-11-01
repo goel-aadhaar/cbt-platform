@@ -26,7 +26,7 @@ export interface ExamQuestion {
   /** Stable question id, e.g. "PHY-77824". */
   id: string;
   subject: Subject;
-  /** Question stem (plain text; newlines split into paragraphs). */
+  /** Question stem, as stored: inline HTML, rendered with `RichText`. */
   stem: string;
   /** Optional figure shown under the stem. */
   imageUrl?: string;

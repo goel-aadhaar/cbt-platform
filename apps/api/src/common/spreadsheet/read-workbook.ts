@@ -48,6 +48,36 @@ export function isDocx(buffer: Buffer): boolean {
   return zipContains(buffer, 'word/document.xml');
 }
 
+/** One styled run of an ExcelJS rich-text cell. */
+interface RichRun {
+  text?: string;
+  font?: {
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean | string;
+    strike?: boolean;
+    vertAlign?: string;
+  };
+}
+
+/** A rich-text run as inline HTML. Text is left for the sanitizer to escape. */
+function richRunToHtml({ text, font }: RichRun): string {
+  if (!text) return '';
+  const tags: string[] = [];
+  if (font?.bold) tags.push('strong');
+  if (font?.italic) tags.push('em');
+  if (font?.underline && font.underline !== 'none') tags.push('u');
+  if (font?.strike) tags.push('s');
+  if (font?.vertAlign === 'subscript') tags.push('sub');
+  if (font?.vertAlign === 'superscript') tags.push('sup');
+  const opening = tags.map((t) => `<${t}>`).join('');
+  const closing = [...tags]
+    .reverse()
+    .map((t) => `</${t}>`)
+    .join('');
+  return `${opening}${text}${closing}`;
+}
+
 /**
  * Flatten one cell to a trimmed string.
  *
@@ -57,7 +87,7 @@ export function isDocx(buffer: Buffer): boolean {
  * dates into locale-dependent strings, so each case is handled explicitly —
  * this is where a naive reader silently imports the wrong thing.
  */
-function cellToString(value: unknown): string {
+function cellToString(value: unknown, richText = false): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' || typeof value === 'boolean') {
@@ -67,13 +97,13 @@ function cellToString(value: unknown): string {
 
   const obj = value as Record<string, unknown>;
   // Formula cell: take what it evaluated to, not the expression.
-  if ('result' in obj) return cellToString(obj.result);
+  if ('result' in obj) return cellToString(obj.result, richText);
   // Hyperlink cell: the label, not the target.
   if ('text' in obj && typeof obj.text === 'string') return obj.text.trim();
-  // Rich text: concatenate the runs.
+  // Rich text: concatenate the runs, as HTML when the caller keeps formatting.
   if (Array.isArray(obj.richText)) {
-    return (obj.richText as { text?: string }[])
-      .map((r) => r.text ?? '')
+    return (obj.richText as RichRun[])
+      .map((r) => (richText ? richRunToHtml(r) : (r.text ?? '')))
       .join('')
       .trim();
   }
@@ -88,7 +118,10 @@ function cellToString(value: unknown): string {
 
 /** Normalised form of a header cell — the key an importer reads. */
 function headerKey(cell: string): string {
-  return cell.toLowerCase().replace(/\s+/g, '');
+  return cell
+    .replace(/<[^>]+>/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
 }
 
 /**
@@ -115,6 +148,12 @@ export interface SheetReadOptions {
   required?: string[];
   /** Stop after this many data rows. Bounds memory on a hostile file. */
   maxRows?: number;
+  /**
+   * Keep the formatting of cells, whole or partial, as inline HTML (`<strong>`,
+   * `<sub>`…) instead of flattening them. For a caller that renders what it reads and
+   * sanitizes it first; every other importer wants the bare value.
+   */
+  richText?: boolean;
 }
 
 /** One row of a worksheet, with the sheet row number it came from. */
@@ -133,7 +172,7 @@ interface GridRow {
  * sheet. An error that names the wrong row sends someone to the wrong line of
  * their own file.
  */
-function gridOf(ws: import('exceljs').Worksheet): GridRow[] {
+function gridOf(ws: import('exceljs').Worksheet, richText = false): GridRow[] {
   const rows: GridRow[] = [];
   ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     const cells: string[] = [];
@@ -141,7 +180,15 @@ function gridOf(ws: import('exceljs').Worksheet): GridRow[] {
     // row keeps its holes, so a gap in the middle does not shift every later
     // cell into the wrong column.
     const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-    for (const v of values) cells.push(cellToString(v));
+    for (const [i, v] of values.entries()) {
+      const text = cellToString(v, richText);
+      // A cell formatted as a whole has no runs: its formatting is on the cell.
+      cells.push(
+        richText && typeof v !== 'object'
+          ? richRunToHtml({ text, font: row.getCell(i + 1).font })
+          : text,
+      );
+    }
     rows.push({ number: rowNumber, cells });
   });
   return rows.filter((r) => r.cells.some((c) => c !== ''));
@@ -205,18 +252,18 @@ export async function sheetRecords(
   await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   if (wb.worksheets.length === 0) return [];
 
-  const { required, maxRows } = options;
+  const { required, maxRows, richText } = options;
 
   if (required?.length) {
     for (const ws of wb.worksheets) {
-      const rows = gridOf(ws);
+      const rows = gridOf(ws, richText);
       if (rows.length === 0) continue;
       const headerAt = findHeaderRow(rows, required);
       if (headerAt >= 0) return toRecords(rows, headerAt, maxRows);
     }
   }
 
-  const first = gridOf(wb.worksheets[0]);
+  const first = gridOf(wb.worksheets[0], richText);
   if (first.length === 0) return [];
   return toRecords(first, 0, maxRows);
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
 import {
@@ -18,6 +19,7 @@ import { RichText } from "@/components/rich-text";
 import { useAuthUser } from "@/hooks/use-auth";
 import { useQuestionTaxonomyCatalogue } from "@/hooks/use-question-taxonomy-catalogue";
 import { ApiError } from "@/lib/api";
+import { isQuestionTextEmpty } from "@/lib/rich-text";
 import {
   createQuestion,
   hasFormulaPlaceholder,
@@ -35,6 +37,17 @@ import { PlusIcon, XIcon } from "./icons";
 import { MediaPicker } from "./media-picker";
 import { OptionImageControl } from "./option-image-control";
 
+/** Tiptap loads on demand here too, as `RichTextEditor` does in the exam builder. */
+const QuestionTextEditor = dynamic(
+  () => import("./question-text-editor").then((m) => m.QuestionTextEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="min-h-[72px] flex-1 animate-pulse rounded-lg border border-admin-line bg-admin-bg" />
+    ),
+  },
+);
+
 const DIFFICULTIES: Difficulty[] = ["EASY", "MEDIUM", "HARD"];
 const TYPES: { value: QuestionType; label: string }[] = [
   { value: "MCQ", label: "Single Choice" },
@@ -49,7 +62,8 @@ interface OptionRow {
 }
 
 /** An option needs words or a picture; one with neither is not shown or saved. */
-const hasContent = (o: OptionRow) => Boolean(o.text.trim() || o.mediaKey);
+const hasContent = (o: OptionRow) =>
+  Boolean(!isQuestionTextEmpty(o.text) || o.mediaKey);
 
 const OPTION_KEYS = ["A", "B", "C", "D", "E", "F"];
 
@@ -272,7 +286,9 @@ export function QuestionAuthorDrawer({
 
   function addOption() {
     setOptions((prev) => {
-      const nextKey = OPTION_KEYS[prev.length];
+      // The first free letter: removing B leaves A and C, so the count alone
+      // would hand out a second C.
+      const nextKey = OPTION_KEYS.find((k) => !prev.some((o) => o.key === k));
       if (!nextKey) return prev;
       return [...prev, { key: nextKey, text: "" }];
     });
@@ -288,7 +304,7 @@ export function QuestionAuthorDrawer({
   const valid =
     subjectId &&
     chapterId &&
-    statement.trim() &&
+    !isQuestionTextEmpty(statement) &&
     (type === "INTEGER"
       ? intAnswer.trim() !== "" && !Number.isNaN(Number(intAnswer))
       : options.length >= 2 &&
@@ -325,7 +341,9 @@ export function QuestionAuthorDrawer({
             : type === "MCQ"
               ? mcqAnswer
               : msqAnswer,
-        explanation: explanation.trim() || undefined,
+        explanation: isQuestionTextEmpty(explanation)
+          ? undefined
+          : explanation.trim(),
         marks: marks.trim() ? Number(marks) : undefined,
         negativeMarks: negativeMarks.trim() ? Number(negativeMarks) : undefined,
         mediaKeys: mediaKeys.length ? mediaKeys : undefined,
@@ -661,14 +679,13 @@ export function QuestionAuthorDrawer({
                 </Field>
               </div>
 
-              <Field label="Question stem" required>
-                <textarea
+              <EditorField label="Question stem" required>
+                <QuestionTextEditor
                   value={statement}
-                  onChange={(e) => setStatement(e.target.value)}
-                  rows={3}
-                  className={`${INPUT_CLS} resize-y`}
+                  onChange={setStatement}
+                  ariaLabel="Question stem"
                 />
-              </Field>
+              </EditorField>
 
               {needsOptions ? (
                 <section>
@@ -708,20 +725,19 @@ export function QuestionAuthorDrawer({
                           >
                             {o.key}
                           </button>
-                          <input
+                          <QuestionTextEditor
+                            compact
                             value={o.text}
-                            onChange={(e) =>
+                            onChange={(text) =>
                               setOptions((prev) =>
                                 prev.map((row) =>
-                                  row.key === o.key
-                                    ? { ...row, text: e.target.value }
-                                    : row,
+                                  row.key === o.key ? { ...row, text } : row,
                                 ),
                               )
                             }
                             placeholder={`Option ${o.key} text (optional if you add an image)`}
-                            aria-label={`Option ${o.key} text`}
-                            className={`${INPUT_CLS} min-w-[160px] flex-1`}
+                            ariaLabel={`Option ${o.key} text`}
+                            className="min-w-[160px] flex-1"
                           />
                           <OptionImageControl
                             optionKey={o.key}
@@ -771,14 +787,13 @@ export function QuestionAuthorDrawer({
                 </Field>
               )}
 
-              <Field label="Explanation (shown on the result review)">
-                <textarea
+              <EditorField label="Explanation (shown on the result review)">
+                <QuestionTextEditor
                   value={explanation}
-                  onChange={(e) => setExplanation(e.target.value)}
-                  rows={2}
-                  className={`${INPUT_CLS} resize-y`}
+                  onChange={setExplanation}
+                  ariaLabel="Explanation"
                 />
-              </Field>
+              </EditorField>
 
               <QuestionLivePreview
                 statement={statement}
@@ -866,9 +881,9 @@ function QuestionLivePreview({
         Preview — as students will see it
       </p>
       <p className="mt-1 text-xs text-admin-muted">
-        Write maths between dollar signs, e.g. <code>$x^2 + 3x = 0$</code> or{" "}
-        <code>{"$\\frac{1}{2}mv^2$"}</code>. For small subscripts and powers you
-        can use <code>&lt;sub&gt;</code> and <code>&lt;sup&gt;</code>.
+        Select text and use the toolbar for bold, italic, underline, subscript
+        and superscript. Write longer maths between dollar signs, e.g.{" "}
+        <code>$x^2 + 3x = 0$</code> or <code>{"$\\frac{1}{2}mv^2$"}</code>.
       </p>
       {unresolved && (
         <p
@@ -881,7 +896,7 @@ function QuestionLivePreview({
         </p>
       )}
       <div className="mt-3 rounded-lg bg-white p-4">
-        {statement.trim() ? (
+        {!isQuestionTextEmpty(statement) ? (
           <RichText
             text={statement}
             className="whitespace-pre-wrap text-admin-ink"
@@ -904,7 +919,7 @@ function QuestionLivePreview({
               >
                 <span className="font-bold text-admin-muted">{o.key}.</span>
                 <div className="flex min-w-0 flex-1 flex-col gap-2">
-                  {o.text.trim() && (
+                  {!isQuestionTextEmpty(o.text) && (
                     <RichText
                       text={o.text}
                       as="span"
@@ -928,7 +943,7 @@ function QuestionLivePreview({
             Answer: <span className="font-semibold">{integerAnswer}</span>
           </p>
         )}
-        {explanation.trim() && (
+        {!isQuestionTextEmpty(explanation) && (
           <div className="mt-3 border-t border-admin-line/60 pt-3">
             <p className="text-xs font-bold uppercase text-admin-muted">
               Explanation
@@ -941,6 +956,30 @@ function QuestionLivePreview({
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * `Field` for an editor. A `<label>` cannot wrap one: its toolbar buttons are
+ * labelable, so a click on the label text would press the first of them.
+ */
+function EditorField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-sm font-semibold text-admin-ink">
+        {label}
+        {required && <span className="ml-0.5 text-danger">*</span>}
+      </span>
+      {children}
+    </div>
   );
 }
 

@@ -1,3 +1,4 @@
+import { questionPlainText } from '../../common/html/sanitize-html';
 import { sheetRecords } from '../../common/spreadsheet/read-workbook';
 
 import { ParsedQuestion } from './ports/question-import.port';
@@ -31,6 +32,10 @@ import { ParsedQuestion } from './ports/question-import.port';
  * chosen once for the whole file in the import dialog, because they must
  * resolve to real taxonomy rows rather than whatever text a cell happened to
  * contain. Same rule the DOCX import follows.
+ *
+ * Bold, italic, underline, subscript and superscript applied to part of a cell
+ * are kept in the statement, options and explanation. Every other column is a
+ * value rather than text someone reads, so it is reduced to plain text.
  */
 
 /** Accepted spellings for one option column, in order A–H. */
@@ -86,7 +91,7 @@ const SERIAL_COLUMNS = [
 function serialFor(row: Record<string, string>): string | undefined {
   for (const c of SERIAL_COLUMNS) {
     const v = row[c];
-    if (v !== undefined && v !== '') return v;
+    if (v !== undefined && v !== '') return questionPlainText(v);
   }
   return undefined;
 }
@@ -112,6 +117,7 @@ export async function parseQuestionSheet(
     // would hide the per-row errors that tell the author what to fix.
     required: ['statement|question'],
     maxRows: 1000,
+    richText: true,
   });
   const questions: ParsedQuestion[] = [];
 
@@ -138,13 +144,15 @@ export async function parseQuestionSheet(
     const meta: Record<string, string> = {};
     for (const [column, key] of Object.entries(META_COLUMNS)) {
       const value = row[column];
-      if (value !== undefined && value !== '') meta[key] = value;
+      if (value === undefined || value === '') continue;
+      meta[key] = key === 'explanation' ? value : questionPlainText(value);
     }
 
+    const answer = row.answer ?? row.correctanswer ?? row.key ?? '';
     questions.push({
       statement,
       options,
-      answer: (row.answer ?? row.correctanswer ?? row.key ?? '').trim() || null,
+      answer: questionPlainText(answer) || null,
       meta,
       // A spreadsheet cell cannot hold a diagram in any portable way. Rather
       // than pretend, media is attached afterwards by editing the question —

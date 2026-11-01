@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { PaginationBar } from "@/components/pagination-bar";
+import { RichText } from "@/components/rich-text";
 import { BarList, Panel, StatCard } from "@/components/staff/charts";
 import { TeacherShell } from "@/components/staff/teacher-shell";
 import {
@@ -340,9 +341,11 @@ function ReportsScreen() {
                     .map((q) => (
                       <li key={q.questionId}>
                         <div className="flex items-baseline justify-between gap-3">
-                          <span className="line-clamp-1 text-sm text-admin-ink">
-                            {q.statement}
-                          </span>
+                          <RichText
+                            as="span"
+                            text={q.statement}
+                            className="line-clamp-1 text-sm text-admin-ink"
+                          />
                           <span className="shrink-0 text-sm font-bold text-admin">
                             {Math.round(q.correctPct)}% correct
                           </span>

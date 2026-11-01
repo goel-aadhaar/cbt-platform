@@ -21,6 +21,92 @@ const NUM_MARKER_RE = /^(\d+)\s*[:.)]\s+(\S.*)$/;
 /** A token standing in for an image, in the text where the image appeared. */
 const IMAGE_TOKEN_RE = /^\[\[IMAGE:(\d+)\]\]$/;
 
+/**
+ * Inline formatting, carried through the line parser as one private-use
+ * character per tag: open at an even offset from the first code point, close at
+ * the odd one after it. A tag at the start of a line would stop every marker
+ * regex matching ("<strong>Q1.</strong> Which…" is not a question start), so the
+ * regexes run on {@link plainOf} and the formatted text is recovered afterwards.
+ */
+const MARK_TAGS = ['strong', 'em', 'u', 's', 'sub', 'sup'];
+const FIRST_MARK = 0xe010;
+const MARK_RE = /[\uE010-\uE01B]/g;
+
+function isMark(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= FIRST_MARK && code < FIRST_MARK + MARK_TAGS.length * 2;
+}
+
+function isOpening(mark: string): boolean {
+  return (mark.charCodeAt(0) - FIRST_MARK) % 2 === 0;
+}
+
+function closingOf(mark: string): string {
+  return String.fromCharCode(mark.charCodeAt(0) + 1);
+}
+
+/** The marks still open after `line`, given the ones open before it. */
+function openMarks(line: string, before: string[] = []): string[] {
+  const open = [...before];
+  for (const ch of line) {
+    if (!isMark(ch)) continue;
+    if (isOpening(ch)) {
+      open.push(ch);
+    } else {
+      const at = open.lastIndexOf(String.fromCharCode(ch.charCodeAt(0) - 1));
+      if (at >= 0) open.splice(at, 1);
+    }
+  }
+  return open;
+}
+
+function plainOf(line: string): string {
+  return line.replace(MARK_RE, '');
+}
+
+/**
+ * The formatted text of a match that ran to the end of `line`, given what it
+ * captured from the plain version. Marks opened in the part cut off are opened
+ * again, so `<strong>Q1. What is</strong> this` keeps "What is" bold.
+ */
+function tailOf(line: string, captured: string): string {
+  if (!captured) return '';
+  const from = plainOf(line).trimEnd().length - captured.length;
+  let seen = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (isMark(line[i])) continue;
+    if (seen === from) {
+      return openMarks(line.slice(0, i)).join('') + line.slice(i);
+    }
+    seen++;
+  }
+  return '';
+}
+
+/** Turn the marks back into tags, once a block's text is final. */
+function marksToHtml(text: string): string {
+  return text.replace(MARK_RE, (mark) => {
+    const offset = mark.charCodeAt(0) - FIRST_MARK;
+    const tag = MARK_TAGS[Math.floor(offset / 2)];
+    return isOpening(mark) ? `<${tag}>` : `</${tag}>`;
+  });
+}
+
+/**
+ * A run of bold can span a Word line break, which here is two lines that may
+ * end up in different fields. Close what is open at the end of each line and
+ * reopen it on the next, so every line stands on its own.
+ */
+function balanceMarks(lines: string[]): string[] {
+  let open: string[] = [];
+  return lines.map((line) => {
+    const reopened = open.join('');
+    open = openMarks(line, open);
+    const closed = [...open].reverse().map(closingOf).join('');
+    return `${reopened}${line}${closed}`;
+  });
+}
+
 export interface DocxContent {
   text: string;
   images: ParsedImage[];
@@ -57,6 +143,9 @@ export async function extractDocxContent(buffer: Buffer): Promise<DocxContent> {
   const { value: html } = await mammoth.convertToHtml(
     { buffer: prepared.buffer },
     {
+      // Underline has no HTML meaning of its own, so mammoth drops it unless
+      // told otherwise. Bold, italic, strike, sub and sup it keeps by default.
+      styleMap: ['u => u'],
       convertImage: mammoth.images.imgElement(async (image) => {
         const body = await image.read();
         const token = `[[IMAGE:${images.length}]]`;
@@ -85,7 +174,7 @@ function hasExplicitMarkers(html: string): boolean {
   const outsideLists = html.replace(/<ol\b[\s\S]*?<\/ol>/gi, '\n');
   return flatten(outsideLists)
     .split('\n')
-    .some((l) => matchStatementStart(l.trim()) !== null);
+    .some((l) => matchStatementStart(plainOf(l).trim()) !== null);
 }
 
 /**
@@ -120,7 +209,9 @@ function numberOrderedLists(html: string): string {
       }
       const list = stack[stack.length - 1];
       if (!list?.ordered) return `\n${match}`;
-      const peek = flatten(html.slice(offset + match.length, offset + 400))
+      const peek = plainOf(
+        flatten(html.slice(offset + match.length, offset + 400)),
+      )
         .trim()
         .split('\n')[0];
       if (matchStatementStart(peek) || OPTION_RE.test(peek)) {
@@ -138,9 +229,17 @@ function numberOrderedLists(html: string): string {
 
 function flatten(html: string): string {
   return html
+    .replace(MARK_RE, '')
     .replace(/<img[^>]*alt="(\[\[IMAGE:\d+\]\])"[^>]*\/?>/g, '\n$1\n')
     .replace(/<\/(p|div|li|h[1-6]|tr)>/g, '\n')
     .replace(/<br\s*\/?>/g, '\n')
+    .replace(
+      /<(\/?)(strong|em|u|s|sub|sup)>/g,
+      (_m, close: string, tag: string) =>
+        String.fromCharCode(
+          FIRST_MARK + MARK_TAGS.indexOf(tag) * 2 + (close ? 1 : 0),
+        ),
+    )
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
@@ -155,10 +254,11 @@ function flatten(html: string): string {
  * written against, keeping image tokens on lines of their own.
  */
 export function htmlToLines(html: string): string {
-  return flatten(numberOrderedLists(html))
-    .split(/\n/)
-    .map((l) => l.trim())
-    .join('\n');
+  return balanceMarks(
+    flatten(numberOrderedLists(html))
+      .split(/\n/)
+      .map((l) => l.trim()),
+  ).join('\n');
 }
 
 /**
@@ -175,6 +275,9 @@ export async function extractDocxText(buffer: Buffer): Promise<string> {
  * begins with a `Q:`/`Q1.`/`1.` marker; option lines are `A) …`, the correct
  * choice is `Answer: …`, and any `Key: value` line (Subject, Chapter, Type, …)
  * sets per-question metadata. Lines that match nothing extend the statement.
+ *
+ * Statement, option and explanation text keep their Word formatting as tags;
+ * everything else is plain. `sanitizeQuestionText` has the last word on all of it.
  */
 export function parseQuestions(
   text: string,
@@ -190,10 +293,18 @@ export function parseQuestions(
   const push = () => {
     if (!current) return;
     const hasContent =
-      current.statement.trim() ||
+      plainOf(current.statement).trim() ||
       current.options.length > 0 ||
       current.images.length > 0;
-    if (hasContent) questions.push(current);
+    if (!hasContent) return;
+    current.statement = marksToHtml(current.statement);
+    for (const option of current.options) {
+      option.text = marksToHtml(option.text);
+    }
+    if (current.meta.explanation) {
+      current.meta.explanation = marksToHtml(current.meta.explanation);
+    }
+    questions.push(current);
   };
 
   // The option an image token would belong to: set by an option line, cleared
@@ -204,24 +315,25 @@ export function parseQuestions(
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter(Boolean);
+    .filter((l) => plainOf(l).trim());
 
   for (const [i, line] of lines.entries()) {
-    const statementStart = matchStatementStart(line);
-    const option = OPTION_RE.exec(line);
+    const plain = plainOf(line).trim();
+    const statementStart = matchStatementStart(plain);
+    const option = OPTION_RE.exec(plain);
     const bareOption =
-      !option && IMAGE_TOKEN_RE.test(lines[i + 1] ?? '')
-        ? BARE_OPTION_RE.exec(line)
+      !option && IMAGE_TOKEN_RE.test(plainOf(lines[i + 1] ?? '').trim())
+        ? BARE_OPTION_RE.exec(plain)
         : null;
-    const answer = ANSWER_RE.exec(line);
-    const meta = META_RE.exec(line);
+    const answer = ANSWER_RE.exec(plain);
+    const meta = META_RE.exec(plain);
 
     if (statementStart) {
       push();
       seq++;
       lastOption = null;
       current = {
-        statement: statementStart.statement.trim(),
+        statement: tailOf(line, statementStart.statement).trim(),
         options: [],
         answer: null,
         meta: {},
@@ -234,13 +346,16 @@ export function parseQuestions(
       continue;
     } else if (option || bareOption) {
       const m = (option ?? bareOption) as RegExpExecArray;
-      lastOption = { key: m[1].toUpperCase(), text: option ? m[2].trim() : '' };
+      lastOption = {
+        key: m[1].toUpperCase(),
+        text: option ? tailOf(line, m[2]).trim() : '',
+      };
       current.options.push(lastOption);
     } else if (answer) {
       lastOption = null;
       current.answer = answer[1].trim();
-    } else if (IMAGE_TOKEN_RE.test(line)) {
-      const img = imageByToken.get(line);
+    } else if (IMAGE_TOKEN_RE.test(plain)) {
+      const img = imageByToken.get(plain);
       if (img) {
         if (lastOption && !lastOption.image) lastOption.image = img;
         else if (!lastOption) current.images.push(img);
@@ -252,7 +367,8 @@ export function parseQuestions(
       // regex produced two different keys and only one of them was ever read —
       // so the shorter spelling parsed successfully and was then ignored.
       if (key === 'negative') key = 'negativemarks';
-      current.meta[key] = meta[2].trim();
+      current.meta[key] =
+        key === 'explanation' ? tailOf(line, meta[2]).trim() : meta[2].trim();
     } else {
       // Continuation of the statement.
       lastOption = null;

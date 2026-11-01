@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { XIcon } from "@/components/admin/icons";
+import { RichText } from "@/components/rich-text";
 import {
   getManualRoster,
   setManualScores,
@@ -142,9 +143,10 @@ export function ManualGradingDrawer({
             <h2 className="text-lg font-bold text-admin-ink">
               Manual evaluation — Q{questionNumber}
             </h2>
-            <p className="mt-1 line-clamp-2 text-sm text-admin-muted">
-              {roster?.statement ?? "Loading…"}
-            </p>
+            <RichText
+              text={roster?.statement ?? "Loading…"}
+              className="mt-1 line-clamp-2 text-sm text-admin-muted"
+            />
             {roster && (
               <p className="mt-1 text-xs text-admin-subtle">
                 {roster.section ? `${roster.section} · ` : ""}
