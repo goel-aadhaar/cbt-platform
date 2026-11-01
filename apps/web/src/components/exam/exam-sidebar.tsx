@@ -67,7 +67,7 @@ export function ExamSidebar({
             <dd className="font-semibold text-ink">{meta.examName}</dd>
             <dt className="font-semibold text-muted">Subject:</dt>
             <dd className="font-semibold text-ink">{meta.paper}</dd>
-            <dt className="font-semibold text-muted">ID:</dt>
+            <dt className="font-semibold text-muted">Reg. No:</dt>
             <dd className="font-mono text-ink">{meta.candidateId}</dd>
           </dl>
         </div>

@@ -4,6 +4,8 @@ import Subscript from "@tiptap/extension-subscript";
 import Superscript from "@tiptap/extension-superscript";
 import { Placeholder } from "@tiptap/extensions";
 import { DOMParser as SchemaParser } from "@tiptap/pm/model";
+import { Selection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import {
   EditorContent,
   Extension,
@@ -54,6 +56,37 @@ const SuperscriptMark = Superscript.extend({
     return { "Mod-.": () => toggleSuperscript(this.editor) };
   },
 });
+
+/**
+ * Paste and drop go through one path so Word, a PDF viewer, a web page and plain
+ * text all end up as inline text and marks; the default would drop every
+ * paragraph after the first in a one-paragraph document. `at` is the drop point;
+ * a paste replaces the selection.
+ */
+function insertOutsideContent(
+  view: EditorView,
+  data: DataTransfer | null,
+  compact?: boolean,
+  at?: number,
+) {
+  const html = data?.getData("text/html");
+  const text = data?.getData("text/plain");
+  if (!html && !text) return false;
+  const inline = html
+    ? cleanPastedHtml(html, compact)
+    : plainTextToEditorHtml(text ?? "", compact);
+  const { body } = new DOMParser().parseFromString(inline, "text/html");
+  const tr = view.state.tr;
+  if (at !== undefined) tr.setSelection(Selection.near(tr.doc.resolve(at)));
+  const slice = SchemaParser.fromSchema(view.state.schema).parseSlice(body, {
+    context: tr.selection.$from,
+    preserveWhitespace: !html,
+  });
+  view.dispatch(
+    tr.replaceSelection(slice).scrollIntoView().setMeta("paste", true),
+  );
+  return true;
+}
 
 /**
  * Editor for question text: the stem, each option and the explanation.
@@ -137,30 +170,24 @@ export function QuestionTextEditor({
           `${compact ? "min-h-[38px] overflow-hidden py-2 [&_p.is-editor-empty:first-child::before]:whitespace-nowrap" : "min-h-[76px] py-2.5"} px-3 text-sm text-admin-ink outline-none ` +
           "[&_p.is-editor-empty:first-child::before]:pointer-events-none [&_p.is-editor-empty:first-child::before]:float-left [&_p.is-editor-empty:first-child::before]:h-0 [&_p.is-editor-empty:first-child::before]:text-admin-subtle [&_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
       },
-      /**
-       * Paste goes through one path so Word, a PDF viewer, a web page and plain
-       * text all end up as inline text and marks; the default would drop every
-       * pasted paragraph after the first in a one-paragraph document.
-       */
-      handlePaste: (view, event) => {
-        const html = event.clipboardData?.getData("text/html");
-        const text = event.clipboardData?.getData("text/plain");
-        if (!html && !text) return false;
-        const inline = html
-          ? cleanPastedHtml(html, compact)
-          : plainTextToEditorHtml(text ?? "", compact);
-        const { body } = new DOMParser().parseFromString(inline, "text/html");
-        const slice = SchemaParser.fromSchema(view.state.schema).parseSlice(
-          body,
-          { context: view.state.selection.$from, preserveWhitespace: !html },
+      handlePaste: (view, event) =>
+        insertOutsideContent(view, event.clipboardData, compact),
+      handleDrop: (view, event, _slice, moved) => {
+        // Text moved within this field: one paragraph already, nothing to lose.
+        if (moved) return false;
+        const drop = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        if (!drop) return false;
+        const handled = insertOutsideContent(
+          view,
+          event.dataTransfer,
+          compact,
+          drop.pos,
         );
-        view.dispatch(
-          view.state.tr
-            .replaceSelection(slice)
-            .scrollIntoView()
-            .setMeta("paste", true),
-        );
-        return true;
+        if (handled) view.focus();
+        return handled;
       },
     },
   });

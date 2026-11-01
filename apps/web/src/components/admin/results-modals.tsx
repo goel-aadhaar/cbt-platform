@@ -447,7 +447,7 @@ export function RecalculateResultsModal({
                     const plain = questionPlainText(q.statement);
                     return (
                       <option key={q.questionId} value={q.questionId}>
-                        Q{q.order}
+                        Q{q.order + 1}
                         {q.section ? ` (${q.section})` : ""} —{" "}
                         {plain.slice(0, 60)}
                         {plain.length > 60 ? "…" : ""}
@@ -508,7 +508,7 @@ export function RecalculateResultsModal({
                 {items.map((q) => (
                   <tr key={q.questionId}>
                     <td className="px-4 py-3 font-mono text-xs text-admin-muted">
-                      Q{q.order}
+                      Q{q.order + 1}
                       {q.section ? ` · ${q.section}` : ""}
                     </td>
                     <td className="px-4 py-3 text-admin-muted">

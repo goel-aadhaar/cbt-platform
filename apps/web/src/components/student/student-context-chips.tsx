@@ -33,7 +33,7 @@ import {
  */
 let cache: { userId: string; profile: Promise<MyProfile> } | null = null;
 
-function profileFor(userId: string): Promise<MyProfile> {
+export function profileFor(userId: string): Promise<MyProfile> {
   if (cache?.userId !== userId) {
     const profile = fetchMyProfile();
     // A failed request must not be cached as the answer forever — an expired

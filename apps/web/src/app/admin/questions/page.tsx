@@ -459,11 +459,13 @@ export default function QuestionBankPage() {
           setAuthorOpen(false);
           setEditingQuestion(null);
         }}
-        onCreated={() => {
+        onCreated={(saved) => {
           setNotice(
             editingQuestion
               ? "Question updated."
-              : "Question saved as a draft.",
+              : saved.status === "APPROVED"
+                ? "Question added to the question bank."
+                : "Question saved as a draft.",
           );
           reload();
         }}

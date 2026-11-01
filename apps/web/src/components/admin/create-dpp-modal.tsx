@@ -6,6 +6,9 @@ import { ActionButton } from "@/components/action-button";
 import { type BatchOption, BatchPicker } from "@/components/batch-picker";
 import { useAsyncAction } from "@/hooks/use-async-action";
 import {
+  NO_CLASS,
+  classLabel,
+  classesOfSubjects,
   listChapters,
   listSubjects,
   subjectLabel,
@@ -52,6 +55,9 @@ export function CreateDppModal({
 }) {
   const [title, setTitle] = useState(editing?.title ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
+  // Narrows the subject list only; a DPP stores a subject, not a class. Null
+  // means follow the picked subject, so an edit opens on the right class.
+  const [classPick, setClassPick] = useState<string | null>(null);
   const [subjectId, setSubjectId] = useState(editing?.subject?.id ?? "");
   const [chapterId, setChapterId] = useState(editing?.chapter?.id ?? "");
   const [batchIds, setBatchIds] = useState<string[]>(
@@ -117,6 +123,28 @@ export function CreateDppModal({
 
   const canSubmit = title.trim().length >= 2 && batchIds.length > 0;
 
+  const classes = classesOfSubjects(subjects);
+  const classOptions = [
+    ...classes.map((c) => ({ id: c.id, name: classLabel(c, classes) })),
+    ...(classes.length > 0 && subjects.some((s) => !s.classId)
+      ? [{ id: NO_CLASS, name: "No class" }]
+      : []),
+  ];
+  const pickedSubject = subjects.find((s) => s.id === subjectId);
+  const classId =
+    classPick ?? (pickedSubject ? (pickedSubject.classId ?? NO_CLASS) : "");
+  const subjectChoices = subjects.filter((s) =>
+    !classId ? true : classId === NO_CLASS ? !s.classId : s.classId === classId,
+  );
+
+  function selectClass(id: string) {
+    setClassPick(id);
+    if (pickedSubject && id && (pickedSubject.classId ?? NO_CLASS) !== id) {
+      setSubjectId("");
+      setChapterId("");
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
       <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
@@ -165,6 +193,26 @@ export function CreateDppModal({
             />
           </label>
 
+          {classOptions.length > 0 && (
+            <label className="mt-4 block">
+              <span className="text-xs font-bold uppercase text-admin-muted">
+                Class (optional)
+              </span>
+              <select
+                value={classId}
+                onChange={(e) => selectClass(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-admin-line bg-white px-2.5 text-sm text-admin-ink outline-none focus:border-admin"
+              >
+                <option value="">All classes</option>
+                {classOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <div className="mt-4 grid grid-cols-2 gap-3">
             <label className="block">
               <span className="text-xs font-bold uppercase text-admin-muted">
@@ -178,11 +226,13 @@ export function CreateDppModal({
                   // the subject, not in a follow-up effect.
                   setSubjectId(e.target.value);
                   setChapterId("");
+                  // Clearing the subject leaves the class filter as it was.
+                  setClassPick(e.target.value ? null : classId);
                 }}
                 className="mt-1 h-10 w-full rounded-lg border border-admin-line bg-white px-2.5 text-sm text-admin-ink outline-none focus:border-admin"
               >
                 <option value="">Unfiled</option>
-                {subjects.map((s) => (
+                {subjectChoices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {subjectLabel(s, subjects)}
                   </option>

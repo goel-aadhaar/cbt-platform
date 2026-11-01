@@ -927,7 +927,24 @@ export class ExamsService {
 
   /** Drop a batch assignment — the counterpart `assignBatch` never had (§ reschedule). */
   async unassignBatch(examId: string, batchId: string) {
-    await this.getOwned(examId);
+    const exam = await this.getOwned(examId);
+    /**
+     * A teacher gets here from the assessment builder, which only saves a
+     * draft. Same Mock Test split as assignBatch(); and once an assessment is
+     * published its batches stay, or students sitting it would be shut out.
+     */
+    if (this.tenant.get()?.role === Role.TEACHER) {
+      if (exam.kind !== ExamKind.ASSESSMENT) {
+        throw new ForbiddenException(
+          'Only an admin removes batches from a Mock Test.',
+        );
+      }
+      if (!AUTHOR_EDITABLE.includes(exam.status)) {
+        throw new BadRequestException(
+          `Batches can only be removed from a draft assessment. This one is ${exam.status.toLowerCase()}.`,
+        );
+      }
+    }
     await this.prisma.examBatch.deleteMany({ where: { examId, batchId } });
     return { id: examId, batchId };
   }
@@ -1253,9 +1270,10 @@ export class ExamsService {
    * Mutation-side ownership check. Deliberately NARROWER than
    * `visibilityWhere()` (which also admits batch-assigned exams a teacher
    * didn't author) — every route this backs (`update`/`addSection`/
-   * `addQuestion` via `getDraft`; `assignBatch`/`schedule`/etc. via a
-   * TEACHER-unreachable ADMIN-only route) is a WRITE, so a teacher may only
-   * ever reach their own exam here, never a colleague's.
+   * `addQuestion` via `getDraft`; `assignBatch`/`unassignBatch` for a teacher's
+   * own assessment; `schedule`/etc. via a TEACHER-unreachable ADMIN-only route)
+   * is a WRITE, so a teacher may only ever reach their own exam here, never a
+   * colleague's.
    */
   private async getOwned(id: string) {
     const ctx = this.ctx();

@@ -214,9 +214,13 @@ export class ExamsController {
     return this.exams.assignBatch(id, dto);
   }
 
-  /** Drop a batch assignment — used when rescheduling changes who sits it. */
+  /**
+   * Drop a batch assignment — used when rescheduling changes who sits it.
+   * Teacher-callable for the same reason as assigning one; exams.service.ts's
+   * unassignBatch() limits a teacher to their own draft assessment.
+   */
   @Delete(':id/batches/:batchId')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.TEACHER)
   @HttpCode(HttpStatus.OK)
   unassignBatch(
     @Param('id', ParseUUIDPipe) id: string,

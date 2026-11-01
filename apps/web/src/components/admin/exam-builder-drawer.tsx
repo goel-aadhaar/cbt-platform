@@ -473,10 +473,11 @@ export function ExamBuilderDrawer({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    // Teachers can't read some admin-only lookups (programs, batches), so each
-    // call is settled independently — one 403 must not blank the whole wizard.
+    // Programs and batches are ADMIN-only, so a teacher never asks for them.
+    // Each call is settled independently — one failure must not blank the
+    // whole wizard.
     Promise.allSettled([
-      listPrograms(),
+      isTeacher ? Promise.resolve([] as Program[]) : listPrograms(),
       isTeacher ? Promise.resolve([] as BatchRow[]) : listBatches(),
       listQuestions({ status: "APPROVED", limit: 200 }),
       // No reviewer step for an assessment — nothing to pick an admin for.

@@ -6,7 +6,7 @@
  */
 
 import { apiFetch } from "./api";
-import { getToken } from "./auth";
+import { getToken, getUserSnapshot } from "./auth";
 import { listExamCategories, type ExamCategory } from "./exam-categories";
 import type { SectionBlueprint } from "./exam-blueprint";
 import type { Paginated } from "./students";
@@ -1068,6 +1068,9 @@ export function getOrgCatalogueSnapshot(): OrgCatalogue | null {
 
 function ensureOrgCatalogueFetched(): void {
   if (orgCatalogueCache || orgCatalogueFetch) return;
+  // All three routes are ADMIN-only, but the exam builder mounts this catalogue
+  // on teacher screens too. A teacher's batch paths come from `/staff/me/batches`.
+  if (getUserSnapshot()?.role === "TEACHER") return;
   orgCatalogueFetch = Promise.all([
     listPrograms(),
     listClasses(),

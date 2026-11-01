@@ -21,6 +21,7 @@ import { InstituteLogo } from "@/components/institute-logo";
 import { RichText } from "@/components/rich-text";
 import { AuthGate } from "@/components/auth-gate";
 import { ExamSidebar } from "@/components/exam/exam-sidebar";
+import { profileFor } from "@/components/student/student-context-chips";
 import {
   CalculatorIcon,
   ChevronRightIcon,
@@ -448,6 +449,30 @@ function ExamRunner({
     () => null,
   );
 
+  /**
+   * The Registration Number lives on the student record, so neither the session
+   * nor the attempt payload has it. Silent on failure, like the top bar's chips:
+   * a missing label must never get in the way of the paper.
+   */
+  const [registrationNumber, setRegistrationNumber] = useState<string | null>(
+    null,
+  );
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    profileFor(userId)
+      .then((profile) => {
+        if (!cancelled) {
+          setRegistrationNumber(profile.student?.rollNumber ?? null);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   const attemptId = attempt.id;
 
   /**
@@ -699,14 +724,14 @@ function ExamRunner({
       candidateName: user?.name ?? "Candidate",
       candidatePhoto: "/exam/candidate-photo.jpg",
       examName: attempt.exam.title,
-      // The attempt payload carries no paper/roll fields; show the signed-in
-      // email and the section count instead of leaving the block blank.
+      // The attempt payload carries no paper field; show the section count
+      // instead of leaving the block blank.
       paper: `${attempt.exam.sections.length} sections`,
-      candidateId: user?.email ?? "",
+      candidateId: registrationNumber ?? "—",
       durationSeconds: attempt.exam.durationMinutes * 60,
       maxViolations: attempt.exam.maxViolations,
     }),
-    [attempt, user],
+    [attempt, user, registrationNumber],
   );
 
   return (

@@ -443,7 +443,7 @@ export default function ExamsPage() {
         }}
       />
       <ExamReviewDrawer
-        key={reviewingId ?? "none"}
+        key={`review-${reviewingId ?? "none"}`}
         open={reviewingId !== null}
         onClose={() => setReviewingId(null)}
         examId={reviewingId ?? undefined}
@@ -457,7 +457,7 @@ export default function ExamsPage() {
         }}
       />
       <ExamScheduleModal
-        key={scheduling?.id ?? "none"}
+        key={`schedule-${scheduling?.id ?? "none"}`}
         open={scheduling !== null}
         onClose={() => setScheduling(null)}
         examId={scheduling?.id}

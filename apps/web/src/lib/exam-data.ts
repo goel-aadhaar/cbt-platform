@@ -42,6 +42,7 @@ export interface ExamMeta {
   candidatePhoto: string;
   examName: string;
   paper: string;
+  /** Registration Number, or a dash while it is unknown. */
   candidateId: string;
   /** Total duration in seconds (3 hours). */
   durationSeconds: number;

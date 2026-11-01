@@ -110,7 +110,7 @@ export function QuestionAuthorDrawer({
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated?: () => void;
+  onCreated?: (saved: QuestionDetail) => void;
   /** Provide to edit an existing question; omit to author a new one. */
   editing?: QuestionDetail | null;
   /**
@@ -178,6 +178,8 @@ export function QuestionAuthorDrawer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /** Set from the server's answer, so the "saved" panel states what happened. */
+  const [savedApproved, setSavedApproved] = useState(false);
   /**
    * Exams this edit would re-score, from a 409 the server raised. Holding them
    * here turns the refusal into a confirmation step instead of an error the
@@ -350,16 +352,19 @@ export function QuestionAuthorDrawer({
         negativeMarks: negativeMarks.trim() ? Number(negativeMarks) : undefined,
         mediaKeys: mediaKeys.length ? mediaKeys : undefined,
       };
+      let saved: QuestionDetail;
       if (editing) {
         const res = await updateQuestion(editing.id, { ...input, confirm });
         setRecalculated(
           res.recalculated?.reduce((n, r) => n + r.evaluated, 0) ?? 0,
         );
+        saved = res;
       } else {
-        await createQuestion(input);
+        saved = await createQuestion(input);
       }
+      setSavedApproved(saved.status === "APPROVED");
       setAffected(null);
-      onCreated?.();
+      onCreated?.(saved);
       if (closeOnSave) onClose();
       else setDone(true);
     } catch (e) {
@@ -415,7 +420,7 @@ export function QuestionAuthorDrawer({
               <p className="text-lg font-bold text-admin-ink">
                 {editing
                   ? "Changes saved"
-                  : isAdmin
+                  : savedApproved
                     ? "Added to the question bank"
                     : "Saved as a draft"}
               </p>
@@ -424,7 +429,9 @@ export function QuestionAuthorDrawer({
                   ? recalculated
                     ? `${recalculated} result(s) were re-scored because the answer key changed. Published results were updated in place, not withdrawn.`
                     : "Nothing needed re-scoring — this edit does not change how the question marks."
-                  : 'Find it under "My questions" to send it for approval whenever you\'re ready.'}
+                  : savedApproved
+                    ? "It is approved and ready to use in exams and DPPs."
+                    : 'Find it under "My questions" to send it for approval whenever you\'re ready.'}
               </p>
             </div>
           ) : affected ? (
