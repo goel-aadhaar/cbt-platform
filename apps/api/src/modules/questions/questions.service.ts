@@ -298,6 +298,15 @@ export class QuestionsService {
       topicId: dto.topicId ?? undefined,
       examCategoryId: dto.examCategoryId ?? undefined,
     });
+    const publish = role === Role.ADMIN && dto.publish !== false;
+    // Publishing skips submit and approve, so it gets the check they apply.
+    if (publish) {
+      assertNoFormulaPlaceholder({
+        statement,
+        options: dto.options,
+        explanation: dto.explanation ?? null,
+      });
+    }
 
     return this.prisma.question.create({
       data: {
@@ -343,10 +352,7 @@ export class QuestionsService {
          * `publish: false` lets an admin keep a work-in-progress as a draft,
          * so the shortcut is a default rather than a rule.
          */
-        status:
-          role === Role.ADMIN && dto.publish !== false
-            ? QuestionStatus.APPROVED
-            : QuestionStatus.DRAFT,
+        status: publish ? QuestionStatus.APPROVED : QuestionStatus.DRAFT,
         createdById: userId,
       },
       select: detailSelect,
@@ -895,6 +901,16 @@ export class QuestionsService {
       instituteId,
       referencedMediaKeys(dto.mediaKeys, dto.options),
     );
+
+    // A draft may hold a Word equation while it is being fixed. A question past
+    // that stage is one students can reach, so an edit must not put one there.
+    if (!AUTHOR_EDITABLE.includes(existing.status)) {
+      assertNoFormulaPlaceholder({
+        statement: statement ?? existing.statement,
+        options: dto.options ?? existing.options,
+        explanation: dto.explanation ?? existing.explanation,
+      });
+    }
 
     // Only re-resolve the taxonomy if the caller actually touched one of its
     // fields — otherwise leave subject/chapter/topic/examCategory untouched.

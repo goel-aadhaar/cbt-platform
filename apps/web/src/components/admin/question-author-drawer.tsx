@@ -290,7 +290,9 @@ export function QuestionAuthorDrawer({
       // would hand out a second C.
       const nextKey = OPTION_KEYS.find((k) => !prev.some((o) => o.key === k));
       if (!nextKey) return prev;
-      return [...prev, { key: nextKey, text: "" }];
+      return [...prev, { key: nextKey, text: "" }].sort((a, b) =>
+        a.key.localeCompare(b.key),
+      );
     });
   }
 

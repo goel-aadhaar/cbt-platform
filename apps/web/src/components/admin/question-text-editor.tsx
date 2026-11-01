@@ -132,7 +132,9 @@ export function QuestionTextEditor({
         "aria-label": ariaLabel,
         ...(compact ? {} : { "aria-multiline": "true" }),
         class:
-          `${compact ? "min-h-[38px] py-2" : "min-h-[76px] py-2.5"} px-3 text-sm text-admin-ink outline-none ` +
+          // One line in an option: the placeholder takes no height, so a wrapped
+          // one would sit on top of whatever comes next.
+          `${compact ? "min-h-[38px] overflow-hidden py-2 [&_p.is-editor-empty:first-child::before]:whitespace-nowrap" : "min-h-[76px] py-2.5"} px-3 text-sm text-admin-ink outline-none ` +
           "[&_p.is-editor-empty:first-child::before]:pointer-events-none [&_p.is-editor-empty:first-child::before]:float-left [&_p.is-editor-empty:first-child::before]:h-0 [&_p.is-editor-empty:first-child::before]:text-admin-subtle [&_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
       },
       /**

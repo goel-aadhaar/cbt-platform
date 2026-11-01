@@ -101,6 +101,57 @@ describe('QuestionsService - question text on write', () => {
     expect(created).toHaveLength(0);
   });
 
+  describe('an unresolved Word equation', () => {
+    const EQ = 'Solve [[EQ: x2+3x=0]] now';
+
+    it('cannot be published by an admin saving a new question', async () => {
+      const { service, created } = build();
+      await expect(service.create(dto(EQ))).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(created).toHaveLength(0);
+    });
+
+    it('is refused in an option or the explanation too', async () => {
+      const { service, created } = build();
+      const withExplanation = {
+        ...(dto('Fine') as object),
+        explanation: 'See [[EQ: x]]',
+      };
+      await expect(service.create(withExplanation as never)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(created).toHaveLength(0);
+    });
+
+    it('may stay in a draft while it is being fixed', async () => {
+      const { service, created } = build();
+      await service.create({
+        ...(dto(EQ) as object),
+        publish: false,
+      } as never);
+      expect(created[0]).toMatchObject({ status: 'DRAFT' });
+    });
+
+    it('cannot be added to an approved question by an edit', async () => {
+      const { service, prisma } = build({
+        existing: { ...existing, status: 'APPROVED', explanation: null },
+      });
+      await expect(service.update('q-1', { statement: EQ })).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.question.update).not.toHaveBeenCalled();
+    });
+
+    it('can be edited into a draft', async () => {
+      const { service, prisma } = build({
+        existing: { ...existing, explanation: null },
+      });
+      await service.update('q-1', { statement: EQ });
+      expect(prisma.question.update).toHaveBeenCalled();
+    });
+  });
+
   it('refuses a markup-only statement on edit', async () => {
     const { service, prisma } = build({ existing });
     await expect(
