@@ -15,7 +15,7 @@ import {
 import PDFDocument from 'pdfkit';
 
 import {
-  questionPlainText,
+  QuestionTextRun,
   questionTextRuns,
 } from '../../common/html/sanitize-html';
 import { Prisma } from '../../generated/prisma/client';
@@ -41,6 +41,62 @@ function wordRuns(html: string): TextRun[] {
         ...(lineBreak ? { break: 1 } : {}),
       }),
   );
+}
+
+/**
+ * PDF's built-in fonts stop at Western European letters, so Greek and maths
+ * symbols printed as junk. DejaVu covers them, in all four styles, and only the
+ * glyphs a paper uses are embedded. The files come from the npm package, so they
+ * resolve from node_modules wherever the build runs.
+ */
+const PDF_FONT = {
+  regular: 'DejaVuSans',
+  bold: 'DejaVuSans-Bold',
+  italic: 'DejaVuSans-Oblique',
+  boldItalic: 'DejaVuSans-BoldOblique',
+} as const;
+/** Height of DejaVu above its baseline, as a share of the font size. */
+const PDF_FONT_ASCENT = 0.928;
+/** Sub- and superscripts: their size, and how far they sit off the baseline. */
+const SCRIPT_SCALE = 0.7;
+const SUB_DROP = 0.18;
+const SUP_RISE = 0.34;
+
+function pdfFont({ bold, italics }: QuestionTextRun): string {
+  if (bold) return italics ? PDF_FONT.boldItalic : PDF_FONT.bold;
+  return italics ? PDF_FONT.italic : PDF_FONT.regular;
+}
+
+/**
+ * Stored question text as PDF text, so a bold word or a subscript survives. It
+ * carries on from the cursor, so a label printed `continued` runs straight into
+ * it, and it always ends the line.
+ */
+function drawRuns(doc: PDFKit.PDFDocument, html: string, size: number): void {
+  const runs = questionTextRuns(html);
+  if (runs.length === 0) runs.push({ text: ' ' });
+  runs.forEach((run, i) => {
+    doc.font(pdfFont(run)).fontSize(size);
+    const lineHeight = doc.currentLineHeight(true);
+    const offset = run.subScript
+      ? SUB_DROP
+      : run.superScript
+        ? -SUP_RISE
+        : null;
+    if (offset !== null) doc.fontSize(size * SCRIPT_SCALE);
+    doc.text(run.text, {
+      // A new line has to end the flow: a `\n` inside one keeps the old x position.
+      continued: i < runs.length - 1 && !runs[i + 1].lineBreak,
+      underline: !!run.underline,
+      strike: !!run.strike,
+      // pdfkit hangs text from the top of the line, so a smaller size would float
+      // up. A number places the baseline instead; the gap keeps a line that
+      // happens to end in a script the same height as any other.
+      baseline: offset === null ? 'top' : -(PDF_FONT_ASCENT + offset) * size,
+      lineGap: offset === null ? 0 : lineHeight - doc.currentLineHeight(true),
+    });
+  });
+  doc.font(PDF_FONT.regular).fontSize(size);
 }
 
 /** Same rows the on-screen bank shows, plus everything needed to typeset a
@@ -302,6 +358,12 @@ export class QuestionExportService {
   ): Promise<Buffer> {
     const images = await this.loadImages(rows, ['png', 'jpg']);
     const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    for (const face of Object.values(PDF_FONT)) {
+      doc.registerFont(
+        face,
+        require.resolve(`dejavu-fonts-ttf/ttf/${face}.ttf`),
+      );
+    }
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
     const done = new Promise<Buffer>((resolve, reject) => {
@@ -338,7 +400,7 @@ export class QuestionExportService {
     };
 
     doc
-      .font('Helvetica-Bold')
+      .font(PDF_FONT.bold)
       .fontSize(16)
       .text(includeAnswers ? 'Question Set — With Answers' : 'Question Set', {
         align: 'center',
@@ -349,13 +411,11 @@ export class QuestionExportService {
       if (doc.y > doc.page.height - 150) doc.addPage();
 
       doc
-        .font('Helvetica-Bold')
+        .font(PDF_FONT.bold)
         .fontSize(11)
-        .text(`Q${i + 1}. `, { continued: true })
-        .font('Helvetica')
-        .text(questionPlainText(row.statement));
+        .text(`Q${i + 1}. `, { continued: true });
+      drawRuns(doc, row.statement, 11);
       doc
-        .font('Helvetica')
         .fontSize(8)
         .fillColor('#666666')
         .text(
@@ -373,9 +433,9 @@ export class QuestionExportService {
 
       for (const o of this.optionsOf(row)) {
         const img = o.mediaKey ? images.get(o.mediaKey) : undefined;
-        doc
-          .fontSize(10)
-          .text(questionPlainText(this.optionLine(o, !!img)), { indent: 15 });
+        doc.x += 15;
+        drawRuns(doc, this.optionLine(o, !!img), 10);
+        doc.x -= 15;
         if (img && !drawImage(img, OPTION_BOX, 15)) {
           doc.fontSize(10).text(IMAGE_PLACEHOLDER, { indent: 15 });
         }
@@ -384,16 +444,14 @@ export class QuestionExportService {
       if (includeAnswers) {
         doc.moveDown(0.2);
         doc
-          .font('Helvetica-Bold')
+          .font(PDF_FONT.bold)
           .fontSize(10)
           .fillColor('#1a7a3c')
           .text(this.answerLine(row))
           .fillColor('#000000')
-          .font('Helvetica');
+          .font(PDF_FONT.regular);
         if (row.explanation) {
-          doc
-            .fontSize(9)
-            .text(`Explanation: ${questionPlainText(row.explanation)}`);
+          drawRuns(doc, `Explanation: ${row.explanation}`, 9);
         }
       }
       doc.moveDown(1);

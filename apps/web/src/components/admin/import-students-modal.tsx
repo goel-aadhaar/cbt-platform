@@ -92,7 +92,13 @@ export function ImportStudentsModal({
    */
   function downloadFailures() {
     if (!summary) return;
-    const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    // These cells echo the uploaded file, so a row can hold a spreadsheet
+    // formula. Same guard as the API's exports (`common/csv/to-csv.ts`).
+    const esc = (v: string) => {
+      const text = String(v);
+      const safe = /^[\t\r]|^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
     const csv = [
       "row,email,reason",
       ...summary.failed.map((f) =>

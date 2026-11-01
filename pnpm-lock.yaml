@@ -81,6 +81,9 @@ importers:
       compression:
         specifier: ^1.8.1
         version: 1.8.2
+      dejavu-fonts-ttf:
+        specifier: 2.37.3
+        version: 2.37.3
       docx:
         specifier: 9.7.1
         version: 9.7.1
@@ -3396,6 +3399,9 @@ packages:
 
   defu@6.1.7:
     resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
+
+  dejavu-fonts-ttf@2.37.3:
+    resolution: {integrity: sha512-f1hd7jJbeQa1VWcw+K2KrTXS50zTMaHpVC4XIKJpNcDeYR5ajMtj/iLlQDYNvLOKamUB3ARVVCf79lNwNVztSQ==}
 
   delaunator@5.1.0:
     resolution: {integrity: sha512-AGrQ4QSgssa1NGmWmLPqN5NY2KajF5MqxetNEO+o0n3ZwZZeTmt7bBnvzHWrmkZFxGgr4HdyFgelzgi06otLuQ==}
@@ -9974,6 +9980,8 @@ snapshots:
       object-keys: 1.1.1
 
   defu@6.1.7: {}
+
+  dejavu-fonts-ttf@2.37.3: {}
 
   delaunator@5.1.0:
     dependencies:

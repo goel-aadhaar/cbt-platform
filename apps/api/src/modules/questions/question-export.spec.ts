@@ -15,35 +15,74 @@ import { QuestionExportService } from './question-export.service';
  *
  *  - PDF: pdfkit Flate-compresses each page's content stream. The bytes
  *    between `stream`/`endstream` after a `/FlateDecode` filter are a plain
- *    zlib stream, and pdfkit's default WinAnsi font renders text as a single
- *    hex-encoded glyph string (`<...> TJ`) rather than literal ASCII — both
- *    are decoded below.
+ *    zlib stream. Text is printed as embedded-font glyph numbers (`<...> TJ`),
+ *    not letters, and each font's own `/ToUnicode` map says which letter each
+ *    number is — both are decoded below.
  *  - DOCX: a plain ZIP. `word/document.xml` holds the text, deflated per
  *    ZIP's own (raw, headerless) format — a few dozen lines of manual local
  *    file-header parsing, not worth a dependency for one test file.
  */
 
-function pdfText(buffer: Buffer): string {
+/** Every Flate stream in the file, inflated, keyed by the object that holds it. */
+function pdfStreams(buffer: Buffer): Map<string, string> {
   const raw = buffer.toString('latin1');
-  const out: string[] = [];
+  const streams = new Map<string, string>();
   let from = 0;
   for (;;) {
     const filterIdx = raw.indexOf('/FlateDecode', from);
     if (filterIdx === -1) break;
+    const objIdx = raw.lastIndexOf(' 0 obj', filterIdx);
+    const id = /\d+$/.exec(raw.slice(objIdx - 10, objIdx))?.[0] ?? '';
     const streamIdx = raw.indexOf('stream', filterIdx) + 'stream'.length;
     let start = streamIdx;
     while (raw[start] === '\r' || raw[start] === '\n') start++;
     const end = raw.indexOf('endstream', start);
     const inflated = zlib.inflateSync(buffer.subarray(start, end));
-    out.push(inflated.toString('latin1'));
+    streams.set(id, inflated.toString('latin1'));
     from = end + 'endstream'.length;
   }
-  const content = out.join('\n');
-  // Decode every hex glyph run pdfkit emits for `Tj`/`TJ` text operators.
-  const decoded = [...content.matchAll(/<([0-9a-fA-F]+)>/g)]
-    .map((m) => Buffer.from(m[1], 'hex').toString('latin1'))
-    .join('');
-  return content + decoded;
+  return streams;
+}
+
+const hasText = (content: string) => /\/F\d+ [\d.]+ Tf/.test(content);
+
+function pdfText(buffer: Buffer): string {
+  const raw = buffer.toString('latin1');
+  const streams = pdfStreams(buffer);
+
+  // Font resource name (`F1`) → glyph number → the text it prints.
+  const fonts = new Map<string, Map<number, string>>();
+  for (const [, name, fontId] of raw.matchAll(/\/(F\d+) (\d+) 0 R/g)) {
+    const toUnicode = new RegExp(
+      `\\b${fontId} 0 obj[^]*?/ToUnicode (\\d+) 0 R`,
+    ).exec(raw)?.[1];
+    const glyphs = new Map<number, string>();
+    for (const [, first, list] of (streams.get(toUnicode ?? '') ?? '').matchAll(
+      /<([0-9a-f]+)> <[0-9a-f]+> \[([^\]]*)\]/gi,
+    )) {
+      [...list.matchAll(/<([0-9a-f]+)>/gi)].forEach(([, hex], i) => {
+        const text = Buffer.from(hex, 'hex').swap16().toString('utf16le');
+        glyphs.set(parseInt(first, 16) + i, text);
+      });
+    }
+    fonts.set(name, glyphs);
+  }
+
+  const printed: string[] = [];
+  for (const content of streams.values()) {
+    if (!hasText(content)) continue;
+    let glyphs: Map<number, string> | undefined;
+    for (const [, font, hex] of content.matchAll(
+      /\/(F\d+) [\d.]+ Tf|<([0-9a-f]+)>/gi,
+    )) {
+      if (font) glyphs = fonts.get(font);
+      else
+        for (const [code] of hex.matchAll(/.{4}/g)) {
+          printed.push(glyphs?.get(parseInt(code, 16)) ?? '');
+        }
+    }
+  }
+  return printed.join('');
 }
 
 function readZipEntry(buffer: Buffer, entryName: string): Buffer | null {
@@ -444,10 +483,10 @@ describe('QuestionExportService - formatted text', () => {
     negativeMarks: 1,
   };
 
-  function build() {
+  function build(statement = FORMATTED.statement) {
     const prisma = {
       question: {
-        findMany: jest.fn(() => [FORMATTED]),
+        findMany: jest.fn(() => [{ ...FORMATTED, statement }]),
         count: jest.fn(() => 1),
       },
     };
@@ -496,5 +535,58 @@ describe('QuestionExportService - formatted text', () => {
     expect(text).toContain('Explanation: Because H2');
     expect(text).not.toContain('<sub>');
     expect(text).not.toContain('&amp;');
+  });
+
+  it('PDF: prints Greek and maths symbols as themselves', async () => {
+    const { buffer } = await build('Find α ≥ β, Δ ± √2 → ∞').export(
+      ['q-fmt'],
+      undefined,
+      ExportFormat.PDF,
+      false,
+    );
+    expect(pdfText(buffer)).toContain('Find α ≥ β, Δ ± √2 → ∞');
+    expect(pdfText(buffer)).toContain('+4/−1');
+    expect(buffer.toString('latin1')).toContain('+DejaVuSans');
+    expect(buffer.toString('latin1')).not.toContain('Helvetica');
+  });
+
+  it('PDF: carries each mark in its own font', async () => {
+    const { buffer } = await build(
+      '<strong>Bold</strong> <em>slanted</em> <strong><em>both</em></strong> CO<sub>2</sub> x<sup>2</sup>',
+    ).export(['q-fmt'], undefined, ExportFormat.PDF, false);
+    const raw = buffer.toString('latin1');
+    expect(raw).toContain('+DejaVuSans-Bold\n');
+    expect(raw).toContain('+DejaVuSans-Oblique\n');
+    expect(raw).toContain('+DejaVuSans-BoldOblique\n');
+    expect(pdfText(buffer)).toContain('Bold slanted both CO2 x2');
+  });
+
+  it('PDF: a line break starts again at the left margin', async () => {
+    const { buffer } = await build(
+      'first <strong>line</strong><br>second <strong>line</strong>',
+    ).export(['q-fmt'], undefined, ExportFormat.PDF, false);
+    const content = [...pdfStreams(buffer).values()].find(hasText) ?? '';
+    const leftEdge = new Map<number, number>();
+    for (const [, x, y] of content.matchAll(/1 0 0 1 ([\d.]+) ([\d.]+) Tm/g)) {
+      const left = leftEdge.get(Number(y)) ?? Infinity;
+      leftEdge.set(Number(y), Math.min(left, Number(x)));
+    }
+    // Top of the page first: the title, then the two lines of the statement.
+    const [, firstLine, secondLine] = [...leftEdge.keys()].sort(
+      (a, b) => b - a,
+    );
+    expect(leftEdge.get(firstLine)).toBe(50);
+    expect(leftEdge.get(secondLine)).toBe(50);
+  });
+
+  it('PDF: still ends the line when there is no text to print', async () => {
+    const { buffer } = await build('').export(
+      ['q-fmt'],
+      undefined,
+      ExportFormat.PDF,
+      false,
+    );
+    expect(pdfText(buffer)).toContain('Q1.');
+    expect(pdfText(buffer)).toContain('A) H2O');
   });
 });

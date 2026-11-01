@@ -17,7 +17,7 @@ import { Workbook } from 'exceljs';
 import PDFDocument from 'pdfkit';
 
 import { Prisma } from '../../generated/prisma/client';
-import { toCsv, withBom } from '../../common/csv/to-csv';
+import { safeSpreadsheetCell, toCsv, withBom } from '../../common/csv/to-csv';
 import type { CsvCell } from '../../common/csv/to-csv';
 import { PrismaService } from '../../database/prisma.service';
 import { tenantSetConfigStatement } from '../../database/tenant-rls.extension';
@@ -1027,7 +1027,7 @@ export class ResultsService {
     });
 
     for (const row of rows) {
-      ws.addRow(row);
+      ws.addRow(row.map(safeSpreadsheetCell));
     }
 
     headers.forEach((h, i) => {

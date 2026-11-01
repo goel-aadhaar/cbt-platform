@@ -11,7 +11,7 @@ import {
  * PostgreSQL full-text search adapter (§2.6, delivered implementation).
  *
  * Matches against the DB-generated, weighted `search_vector` (statement=A,
- * subject/chapter/topic=B, tags=C) with a GIN index. `websearch_to_tsquery`
+ * subject/chapter/topic=B, tags=C, options=D) with a GIN index. `websearch_to_tsquery`
  * gives users familiar syntax (quoted phrases, OR, `-exclude`) and results are
  * ordered by `ts_rank`. Tenant-scoped in SQL — never crosses institutes.
  */
